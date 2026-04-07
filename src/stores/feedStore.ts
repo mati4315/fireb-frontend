@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import {
   collection,
   query,
@@ -10,7 +10,7 @@ import {
   startAfter,
   getDocs,
   addDoc,
-  or,
+  serverTimestamp,
   type Unsubscribe,
   type QueryConstraint
 } from 'firebase/firestore';
@@ -27,11 +27,11 @@ export const useFeedStore = defineStore('feed', () => {
   const hasMore = ref(true);
   const unsubscribe = ref<Unsubscribe | null>(null);
 
-  // Configuración de módulos para cada pestaña (Tab -> { module, type })
-  // Esto permite escalar fácilmente a más módulos sin hardcodear
-  const tabConfig: Record<string, { module: string, type: string }> = {
-    'news': { module: 'news', type: 'news' },
-    'post': { module: 'community', type: 'post' } // 'post' es la tab "Comunidad"
+  // Configuracion de modulo canonico por tab.
+
+  const tabConfig: Record<string, { module: string }> = {
+    'news': { module: 'news' },
+    'post': { module: 'community' } // 'post' es la tab "Comunidad"
   };
 
   // Helper para generar los constraints dependiendo de la tab activa
@@ -41,12 +41,7 @@ export const useFeedStore = defineStore('feed', () => {
     if (currentTab.value !== 'todo') {
       const cfg = tabConfig[currentTab.value];
       if (cfg) {
-        // En "Noticias", traer module:news OR type:news
-        // En "Comunidad", traer module:community OR type:post
-        constraints.push(or(
-          where('module', '==', cfg.module),
-          where('type', '==', cfg.type)
-        ));
+        constraints.push(where('module', '==', cfg.module));
       }
     }
     
@@ -141,7 +136,8 @@ export const useFeedStore = defineStore('feed', () => {
       const newPost = {
         type: 'post',
         source: 'user',              // Para distinguir del wordpress
-        module: 'community',         // Preparado para futuro
+        module: 'community',
+        isOficial: false,
         titulo,
         descripcion,
         images: images || [],
@@ -153,8 +149,8 @@ export const useFeedStore = defineStore('feed', () => {
           commentsCount: 0,
           viewsCount: 0
         },
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         deletedAt: null
       };
 
@@ -183,3 +179,5 @@ export const useFeedStore = defineStore('feed', () => {
     cleanup
   };
 });
+
+
