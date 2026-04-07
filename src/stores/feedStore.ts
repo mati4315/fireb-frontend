@@ -10,7 +10,9 @@ import {
   startAfter,
   getDocs,
   addDoc,
-  type Unsubscribe 
+  or,
+  type Unsubscribe,
+  type QueryConstraint
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
@@ -19,54 +21,77 @@ export const useFeedStore = defineStore('feed', () => {
   const authStore = useAuthStore();
 
   const allItems = ref<any[]>([]);
+  // tabs: 'todo' | 'news' | 'post'
   const currentTab = ref('todo');
   const loading = ref(false);
   const hasMore = ref(true);
   const unsubscribe = ref<Unsubscribe | null>(null);
 
-  // COMPUTED: Filtros por tipo
-  const todoItems = computed(() => allItems.value);
-  const noticiasItems = computed(() =>
-    allItems.value.filter(item => item.type === 'news')
-  );
-  const comunidadItems = computed(() =>
-    allItems.value.filter(item => item.type === 'post')
-  );
+  // Configuración de módulos para cada pestaña (Tab -> { module, type })
+  // Esto permite escalar fácilmente a más módulos sin hardcodear
+  const tabConfig: Record<string, { module: string, type: string }> = {
+    'news': { module: 'news', type: 'news' },
+    'post': { module: 'community', type: 'post' } // 'post' es la tab "Comunidad"
+  };
 
-  // Inicializar real-time listener
-  const initFeed = () => {
-    if (unsubscribe.value) {
-      unsubscribe.value(); // Limpiar listener anterior
+  // Helper para generar los constraints dependiendo de la tab activa
+  const getTabConstraints = (): QueryConstraint[] => {
+    const constraints: QueryConstraint[] = [where('deletedAt', '==', null)];
+    
+    if (currentTab.value !== 'todo') {
+      const cfg = tabConfig[currentTab.value];
+      if (cfg) {
+        // En "Noticias", traer module:news OR type:news
+        // En "Comunidad", traer module:community OR type:post
+        constraints.push(or(
+          where('module', '==', cfg.module),
+          where('type', '==', cfg.type)
+        ));
+      }
     }
+    
+    // Sort
+    constraints.push(orderBy('createdAt', 'desc'));
+    return constraints;
+  };
 
-    loading.value = true;
+  // Inicializar real-time listener para la currentTab
+  const initFeed = (tabName: string = 'todo') => {
+    if (currentTab.value !== tabName || !unsubscribe.value) {
+      if (unsubscribe.value) {
+        unsubscribe.value();
+      }
+      currentTab.value = tabName;
+      allItems.value = [];
+      loading.value = true;
+      hasMore.value = true;
+      
+      try {
+        const q = query(
+          collection(db, 'content'),
+          ...getTabConstraints(),
+          limit(20)
+        );
 
-    try {
-      const q = query(
-        collection(db, 'content'),
-        where('deletedAt', '==', null),         // Excluir borrados
-        orderBy('createdAt', 'desc'),
-        limit(20)
-      );
-
-      // Real-time listener
-      unsubscribe.value = onSnapshot(q, (snapshot) => {
-        const items: any[] = [];
-
-        snapshot.forEach((doc) => {
-          items.push({
-            id: doc.id,
-            ...doc.data()
+        // Real-time listener
+        unsubscribe.value = onSnapshot(q, (snapshot) => {
+          const items: any[] = [];
+          snapshot.forEach((doc) => {
+            items.push({
+              id: doc.id,
+              ...doc.data()
+            });
           });
-        });
 
-        allItems.value = items;
+          // Unificamos todo en allItems, ya la query hace el filtrado server-side
+          allItems.value = items;
+          loading.value = false;
+          hasMore.value = items.length >= 20; 
+        });
+      } catch (error) {
+        console.error('Error initializing feed:', error);
         loading.value = false;
-        hasMore.value = items.length >= 20; 
-      });
-    } catch (error) {
-      console.error('Error initializing feed:', error);
-      loading.value = false;
+      }
     }
   };
 
@@ -81,9 +106,8 @@ export const useFeedStore = defineStore('feed', () => {
 
       const q = query(
         collection(db, 'content'),
-        where('deletedAt', '==', null),
-        orderBy('createdAt', 'desc'),
-        startAfter(lastItem.createdAt),  // Cursor-based
+        ...getTabConstraints(),
+        startAfter(lastItem.createdAt),
         limit(20)
       );
 
@@ -116,11 +140,13 @@ export const useFeedStore = defineStore('feed', () => {
     try {
       const newPost = {
         type: 'post',
+        source: 'user',              // Para distinguir del wordpress
+        module: 'community',         // Preparado para futuro
         titulo,
         descripcion,
         images: images || [],
         userId: authStore.user.uid,
-        userName: authStore.userProfile.nombre,  // DENORMAL
+        userName: authStore.userProfile.nombre,
         userProfilePicUrl: authStore.userProfile.profilePictureUrl,
         stats: {
           likesCount: 0,
@@ -140,7 +166,6 @@ export const useFeedStore = defineStore('feed', () => {
     }
   };
 
-  // Cleanup
   const cleanup = () => {
     if (unsubscribe.value) {
       unsubscribe.value();
@@ -149,9 +174,6 @@ export const useFeedStore = defineStore('feed', () => {
 
   return {
     allItems,
-    todoItems,
-    noticiasItems,
-    comunidadItems,
     currentTab,
     loading,
     hasMore,

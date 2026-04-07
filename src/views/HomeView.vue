@@ -78,8 +78,30 @@ const formatDate = (date: any) => {
 
 <template>
   <div class="feed-container">
+    <!-- Tabs Section -->
+    <div class="feed-tabs">
+      <button 
+        :class="['tab-btn', { active: feedStore.currentTab === 'todo' }]" 
+        @click="feedStore.initFeed('todo')"
+      >
+        Todos
+      </button>
+      <button 
+        :class="['tab-btn', { active: feedStore.currentTab === 'news' }]" 
+        @click="feedStore.initFeed('news')"
+      >
+        Noticias
+      </button>
+      <button 
+        :class="['tab-btn', { active: feedStore.currentTab === 'post' }]" 
+        @click="feedStore.initFeed('post')"
+      >
+        Comunidad
+      </button>
+    </div>
+
     <!-- Create Post Section -->
-    <section v-if="authStore.isAuthenticated" class="create-post-section">
+    <section v-if="authStore.isAuthenticated && feedStore.currentTab !== 'news'" class="create-post-section">
       <div class="create-card" :class="{ expanded: isExpanded }">
         <div class="user-avatar">
           <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" />
@@ -140,7 +162,8 @@ const formatDate = (date: any) => {
     <div v-else-if="feedStore.allItems.length === 0" class="empty-state">
       <div class="empty-icon">📭</div>
       <h3>No hay nada por aquí</h3>
-      <p>Sé el primero en compartir algo con la comunidad.</p>
+      <p v-if="feedStore.currentTab !== 'news'">Sé el primero en compartir algo con la comunidad.</p>
+      <p v-else>Aún no hay noticias oficiales.</p>
     </div>
 
     <div v-else class="post-list">
@@ -159,7 +182,8 @@ const formatDate = (date: any) => {
 
         <div class="post-content">
           <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicación'">{{ item.titulo }}</h3>
-          <p>{{ item.descripcion }}</p>
+          <div v-if="item.isOficial" class="html-desc" v-html="item.descripcion"></div>
+          <p v-else>{{ item.descripcion }}</p>
           
           <div v-if="item.images && item.images.length > 0" class="post-images">
             <img :src="item.images[0]" class="main-image" loading="lazy" />
@@ -194,6 +218,46 @@ const formatDate = (date: any) => {
   max-width: 680px;
   margin: 0 auto;
   padding: 2rem 1rem;
+}
+
+/* Feed Tabs */
+.feed-tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 0.5rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.3s;
+}
+
+.tab-btn:hover {
+  color: var(--accent);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -0.6rem;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
 }
 
 /* Create Post Section */
@@ -359,6 +423,14 @@ const formatDate = (date: any) => {
   transition: transform 0.2s, box-shadow 0.2s;
   animation: fadeIn 0.5s ease-out forwards;
 }
+
+.html-desc {
+  font-family: inherit;
+  line-height: 1.6;
+}
+.html-desc :deep(p) { margin-bottom: 1rem; }
+.html-desc :deep(a) { color: var(--accent); text-decoration: underline; }
+.html-desc :deep(img) { max-width: 100%; border-radius: 12px; margin: 1rem 0; }
 
 .post-header {
   padding: 0 0 1.25rem 0;
