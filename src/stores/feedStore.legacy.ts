@@ -17,7 +17,7 @@ import {
 import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
 
-export const useFeedStoreLegacy = defineStore('feedLegacy', () => {
+export const useFeedStore = defineStore('feedLegacyArchive', () => {
   const authStore = useAuthStore();
 
   const allItems = ref<any[]>([]);
@@ -179,7 +179,5 @@ export const useFeedStoreLegacy = defineStore('feedLegacy', () => {
     cleanup
   };
 });
-
-export { useFeedStore } from './feedStoreV2';
 
 

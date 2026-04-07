@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
+import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -64,6 +65,14 @@ const handleLoadMore = () => {
   feedStore.loadMore()
 }
 
+const handleAdImpression = (item: any) => {
+  feedStore.trackAdImpression(item)
+}
+
+const handleAdClick = (item: any) => {
+  feedStore.trackAdClick(item)
+}
+
 const formatDate = (date: any) => {
   if (!date) return ''
   const d = date.toDate ? date.toDate() : new Date(date)
@@ -80,28 +89,21 @@ const formatDate = (date: any) => {
   <div class="feed-container">
     <!-- Tabs Section -->
     <div class="feed-tabs">
-      <button 
-        :class="['tab-btn', { active: feedStore.currentTab === 'todo' }]" 
-        @click="feedStore.initFeed('todo')"
+      <button
+        v-for="tab in feedStore.availableTabs"
+        :key="tab.key"
+        :class="['tab-btn', { active: feedStore.currentTab === tab.key }]"
+        @click="feedStore.initFeed(tab.key)"
       >
-        Todos
-      </button>
-      <button 
-        :class="['tab-btn', { active: feedStore.currentTab === 'news' }]" 
-        @click="feedStore.initFeed('news')"
-      >
-        Noticias
-      </button>
-      <button 
-        :class="['tab-btn', { active: feedStore.currentTab === 'post' }]" 
-        @click="feedStore.initFeed('post')"
-      >
-        Comunidad
+        {{ tab.label }}
       </button>
     </div>
 
     <!-- Create Post Section -->
-    <section v-if="authStore.isAuthenticated && feedStore.currentTab !== 'news'" class="create-post-section">
+    <section
+      v-if="authStore.isAuthenticated && feedStore.isModuleEnabled('community') && feedStore.currentTab !== 'news'"
+      class="create-post-section"
+    >
       <div class="create-card" :class="{ expanded: isExpanded }">
         <div class="user-avatar">
           <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" />
@@ -167,7 +169,15 @@ const formatDate = (date: any) => {
     </div>
 
     <div v-else class="post-list">
-      <div v-for="item in feedStore.allItems" :key="item.id" class="post-card">
+      <div v-for="item in feedStore.allItems" :key="item.id">
+        <FeedAdItem
+          v-if="item.isAd"
+          :item="item"
+          @impression="handleAdImpression"
+          @click-ad="handleAdClick"
+        />
+
+        <div v-else class="post-card">
         <header class="post-header">
           <div class="post-user">
             <img v-if="item.userProfilePicUrl" :src="item.userProfilePicUrl" class="mini-avatar" />
@@ -203,6 +213,7 @@ const formatDate = (date: any) => {
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
           </button>
         </footer>
+        </div>
       </div>
 
       <button v-if="feedStore.hasMore" @click="handleLoadMore" :disabled="feedStore.loading" class="load-more-btn">
