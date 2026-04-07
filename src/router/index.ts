@@ -24,6 +24,11 @@ const router = createRouter({
       name: 'terms',
       component: () => import('@/views/TermsView.vue'),
     },
+    {
+      path: '/ads',
+      name: 'ads-manager',
+      component: () => import('@/views/AdsManagerView.vue'),
+    },
   ],
 })
 

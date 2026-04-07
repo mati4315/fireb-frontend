@@ -1,10 +1,59 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useRoute } from 'vue-router'
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const route = useRoute()
+
+const isUserMenuOpen = ref(false)
+const userMenuRef = ref<HTMLElement | null>(null)
+
+const canManageAds = computed(() => {
+  const rol = authStore.userProfile?.rol
+  return authStore.isAuthenticated && (rol === 'admin' || rol === 'colaborador')
+})
+
+const toggleUserMenu = () => {
+  isUserMenuOpen.value = !isUserMenuOpen.value
+}
+
+const closeUserMenu = () => {
+  isUserMenuOpen.value = false
+}
+
+const handleClickOutside = (event: MouseEvent) => {
+  if (!isUserMenuOpen.value) return
+  const target = event.target as Node | null
+  if (!target) return
+
+  if (userMenuRef.value && !userMenuRef.value.contains(target)) {
+    closeUserMenu()
+  }
+}
+
+const handleLogout = async () => {
+  closeUserMenu()
+  await authStore.logout()
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    closeUserMenu()
+  }
+)
+
+onMounted(() => {
+  window.addEventListener('click', handleClickOutside)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -22,22 +71,37 @@ const themeStore = useThemeStore()
             <RouterLink to="/login" class="nav-link login-btn">Iniciar Sesión</RouterLink>
           </template>
           
-          <div v-else class="user-menu">
-            <div class="user-info">
-              <img 
-                v-if="authStore.userProfile?.profilePictureUrl" 
-                :src="authStore.userProfile.profilePictureUrl" 
-                class="avatar"
-              />
-              <div v-else class="avatar-placeholder">
-                {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
+          <div v-else ref="userMenuRef" class="user-menu">
+            <button class="user-trigger" @click.stop="toggleUserMenu">
+              <div class="user-info">
+                <img
+                  v-if="authStore.userProfile?.profilePictureUrl"
+                  :src="authStore.userProfile.profilePictureUrl"
+                  class="avatar"
+                />
+                <div v-else class="avatar-placeholder">
+                  {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
+                </div>
+                <span class="user-name">{{ authStore.userProfile?.nombre || 'Mi Perfil' }}</span>
+                <span v-if="authStore.userProfile?.rol === 'admin'" class="badge admin">Admin</span>
               </div>
-              <span class="user-name">{{ authStore.userProfile?.nombre || 'Mi Perfil' }}</span>
-              <span v-if="authStore.userProfile?.rol === 'admin'" class="badge admin">Admin</span>
-            </div>
-            <button @click="authStore.logout" class="logout-btn">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              <span class="menu-caret" :class="{ open: isUserMenuOpen }">v</span>
             </button>
+
+            <div v-if="isUserMenuOpen" class="user-dropdown">
+              <RouterLink
+                v-if="canManageAds"
+                to="/ads"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestion ADS
+              </RouterLink>
+
+              <button class="dropdown-item danger" @click="handleLogout">
+                Cerrar sesion
+              </button>
+            </div>
           </div>
 
           <button @click="themeStore.toggleTheme" class="theme-toggle" aria-label="Cambiar tema">
@@ -125,14 +189,25 @@ const themeStore = useThemeStore()
 }
 
 .user-menu {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   padding: 0.4rem;
   padding-left: 1rem;
   background: var(--accent-bg);
   border-radius: 99px;
   border: 1px solid var(--accent-border);
+}
+
+.user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
 }
 
 .user-info {
@@ -200,21 +275,48 @@ const themeStore = useThemeStore()
   color: white;
 }
 
-.logout-btn {
-  background: none;
-  border: none;
+.menu-caret {
+  font-size: 0.75rem;
   color: var(--text);
-  cursor: pointer;
-  padding: 0.5rem;
-  display: flex;
-  align-items: center;
-  border-radius: 50%;
-  transition: background 0.2s;
+  transition: transform 0.2s ease;
 }
 
-.logout-btn:hover {
-  background: rgba(0,0,0,0.05);
-  color: #ff4d4d;
+.menu-caret.open {
+  transform: rotate(180deg);
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 0.6rem);
+  right: 0;
+  min-width: 190px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.dropdown-item {
+  width: 100%;
+  text-align: left;
+  display: block;
+  padding: 0.75rem 0.9rem;
+  color: var(--text-h);
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.dropdown-item:hover {
+  background: var(--social-bg);
+}
+
+.dropdown-item.danger {
+  color: #b91c1c;
 }
 
 .content-wrapper {
