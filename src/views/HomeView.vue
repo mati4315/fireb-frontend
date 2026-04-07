@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
+import ImageLightbox from '@/components/common/ImageLightbox.vue'
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -15,18 +16,69 @@ const newPostContent = ref('')
 const selectedFile = ref<File | null>(null)
 const imagePreview = ref<string | null>(null)
 const isExpanded = ref(false)
+const lightboxOpen = ref(false)
+const lightboxImages = ref<string[]>([])
+const lightboxStartIndex = ref(0)
+const infiniteSentinel = ref<HTMLElement | null>(null)
+let infiniteObserver: IntersectionObserver | null = null
 
-onMounted(() => {
+const revokePreviewUrl = () => {
+  if (!imagePreview.value) return
+  URL.revokeObjectURL(imagePreview.value)
+}
+
+const clearSelectedImage = () => {
+  selectedFile.value = null
+  revokePreviewUrl()
+  imagePreview.value = null
+}
+
+const setupInfiniteObserver = async () => {
+  await nextTick()
+
+  if (infiniteObserver) {
+    infiniteObserver.disconnect()
+    infiniteObserver = null
+  }
+
+  if (!infiniteSentinel.value) return
+
+  infiniteObserver = new IntersectionObserver(
+    (entries) => {
+      const isVisible = entries.some((entry) => entry.isIntersecting)
+      if (!isVisible) return
+      if (!feedStore.hasMore || feedStore.loading) return
+
+      feedStore.loadMore()
+    },
+    {
+      root: null,
+      threshold: 0.01,
+      rootMargin: '900px 0px 900px 0px'
+    }
+  )
+
+  infiniteObserver.observe(infiniteSentinel.value)
+}
+
+onMounted(async () => {
   feedStore.initFeed()
+  await setupInfiniteObserver()
 })
 
 onUnmounted(() => {
+  if (infiniteObserver) {
+    infiniteObserver.disconnect()
+    infiniteObserver = null
+  }
+  revokePreviewUrl()
   feedStore.cleanup()
 })
 
 const handleFileSelect = (event: Event) => {
   const target = event.target as HTMLInputElement
   if (target.files && target.files[0]) {
+    revokePreviewUrl()
     selectedFile.value = target.files[0]
     imagePreview.value = URL.createObjectURL(target.files[0])
   }
@@ -53,16 +105,11 @@ const handleCreatePost = async () => {
     // Reset form
     newPostTitle.value = ''
     newPostContent.value = ''
-    selectedFile.value = null
-    imagePreview.value = null
+    clearSelectedImage()
     isExpanded.value = false
   } catch (err) {
     console.error('Error al crear post:', err)
   }
-}
-
-const handleLoadMore = () => {
-  feedStore.loadMore()
 }
 
 const handleAdImpression = (item: any) => {
@@ -71,6 +118,42 @@ const handleAdImpression = (item: any) => {
 
 const handleAdClick = (item: any) => {
   feedStore.trackAdClick(item)
+}
+
+const openLightbox = (images: string[], startIndex: number = 0) => {
+  const validImages = (images || []).filter((image) => typeof image === 'string' && image.trim().length > 0)
+  if (validImages.length === 0) return
+
+  lightboxImages.value = validImages
+  lightboxStartIndex.value = Math.max(0, Math.min(startIndex, validImages.length - 1))
+  lightboxOpen.value = true
+}
+
+const closeLightbox = () => {
+  lightboxOpen.value = false
+}
+
+const handleHtmlImageClick = (event: MouseEvent) => {
+  const target = event.target as HTMLElement | null
+  if (!(target instanceof HTMLImageElement)) return
+
+  const container = event.currentTarget as HTMLElement | null
+  const htmlImages = container
+    ? Array.from(container.querySelectorAll('img'))
+        .map((img) => img.getAttribute('src') || img.getAttribute('data-src') || '')
+        .filter((src) => src.trim().length > 0)
+    : []
+
+  const clickedSrc = target.getAttribute('src') || target.currentSrc || target.src
+  if (!clickedSrc) return
+
+  if (htmlImages.length === 0) {
+    openLightbox([clickedSrc], 0)
+    return
+  }
+
+  const startIndex = Math.max(0, htmlImages.findIndex((src) => src === clickedSrc))
+  openLightbox(htmlImages, startIndex)
 }
 
 const formatDate = (date: any) => {
@@ -83,6 +166,13 @@ const formatDate = (date: any) => {
     minute: '2-digit'
   }).format(d)
 }
+
+watch(
+  () => [feedStore.hasMore, feedStore.allItems.length],
+  async () => {
+    await setupInfiniteObserver()
+  }
+)
 </script>
 
 <template>
@@ -127,7 +217,7 @@ const formatDate = (date: any) => {
           ></textarea>
 
           <div v-if="imagePreview" class="image-preview-container">
-            <img :src="imagePreview" class="preview-img" />
+            <img :src="imagePreview" class="preview-img" @click="imagePreview && openLightbox([imagePreview], 0)" />
             <button @click="imagePreview = null; selectedFile = null" class="remove-preview">×</button>
           </div>
 
@@ -192,11 +282,24 @@ const formatDate = (date: any) => {
 
         <div class="post-content">
           <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicación'">{{ item.titulo }}</h3>
-          <div v-if="item.isOficial" class="html-desc" v-html="item.descripcion"></div>
+          <div
+            v-if="item.isOficial"
+            class="html-desc"
+            v-html="item.descripcion"
+            @click="handleHtmlImageClick"
+          ></div>
           <p v-else>{{ item.descripcion }}</p>
           
           <div v-if="item.images && item.images.length > 0" class="post-images">
-            <img :src="item.images[0]" class="main-image" loading="lazy" />
+            <button
+              v-for="(image, imageIndex) in item.images"
+              :key="`${item.id}_${imageIndex}`"
+              class="post-image-btn"
+              type="button"
+              @click="openLightbox(item.images, Number(imageIndex))"
+            >
+              <img :src="image" class="main-image" loading="lazy" />
+            </button>
           </div>
         </div>
 
@@ -216,11 +319,18 @@ const formatDate = (date: any) => {
         </div>
       </div>
 
-      <button v-if="feedStore.hasMore" @click="handleLoadMore" :disabled="feedStore.loading" class="load-more-btn">
+      <div v-if="feedStore.hasMore" ref="infiniteSentinel" class="infinite-sentinel">
         <span v-if="!feedStore.loading">Ver más publicaciones</span>
-        <span v-else class="loader-dots">...</span>
-      </button>
+        <span v-else>Desliza para seguir viendo</span>
+      </div>
     </div>
+
+    <ImageLightbox
+      :open="lightboxOpen"
+      :images="lightboxImages"
+      :initial-index="lightboxStartIndex"
+      @close="closeLightbox"
+    />
   </div>
 </template>
 
@@ -350,6 +460,7 @@ const formatDate = (date: any) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  cursor: zoom-in;
 }
 
 .remove-preview {
@@ -441,7 +552,12 @@ const formatDate = (date: any) => {
 }
 .html-desc :deep(p) { margin-bottom: 1rem; }
 .html-desc :deep(a) { color: var(--accent); text-decoration: underline; }
-.html-desc :deep(img) { max-width: 100%; border-radius: 12px; margin: 1rem 0; }
+.html-desc :deep(img) {
+  max-width: 100%;
+  border-radius: 12px;
+  margin: 1rem 0;
+  cursor: zoom-in;
+}
 
 .post-header {
   padding: 0 0 1.25rem 0;
@@ -519,14 +635,25 @@ const formatDate = (date: any) => {
 
 .post-images {
   margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6rem;
+}
+
+.post-image-btn {
+  border: 0;
   border-radius: 12px;
+  padding: 0;
+  margin: 0;
   overflow: hidden;
+  cursor: zoom-in;
+  background: transparent;
 }
 
 .main-image {
   width: 100%;
   display: block;
-  max-height: 500px;
+  height: 220px;
   object-fit: cover;
 }
 
@@ -582,19 +709,15 @@ const formatDate = (date: any) => {
   to { transform: rotate(360deg); }
 }
 
-.load-more-btn {
+.infinite-sentinel {
+  margin-top: 0.8rem;
   width: 100%;
-  padding: 1.25rem;
-  background: white;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  font-weight: 700;
-  color: var(--text-h);
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.load-more-btn:hover {
-  background: var(--social-bg);
+  padding: 1rem;
+  text-align: center;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  color: var(--text);
+  background: var(--card-bg);
+  font-weight: 600;
 }
 </style>

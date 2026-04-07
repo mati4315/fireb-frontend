@@ -34,8 +34,6 @@ const handleVisible = () => {
 
 const handleClick = () => {
   emit('click-ad', props.item)
-  if (!normalizedUrl.value) return
-  window.open(normalizedUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 onMounted(() => {
@@ -68,21 +66,46 @@ onBeforeUnmount(() => {
 <template>
   <article ref="root" class="ad-card" role="complementary" aria-label="Publicidad">
     <header class="ad-header">
-      <span class="ad-badge">Publicidad</span>
-      <span class="ad-caption">Patrocinado</span>
+      <div class="ad-badges">
+        <span class="ad-badge">Publicidad</span>
+        <span class="ad-caption">Patrocinado</span>
+      </div>
+      <span class="ad-signal">Impulsa tu marca</span>
     </header>
 
     <div class="ad-body">
       <img v-if="adImage" :src="adImage" :alt="adTitle" class="ad-image" loading="lazy" />
 
       <div class="ad-content">
-        <h3>{{ adTitle }}</h3>
+        <h3>
+          <a
+            v-if="normalizedUrl"
+            :href="normalizedUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="ad-title-link"
+            @click="handleClick"
+          >
+            {{ adTitle }}
+          </a>
+          <span v-else>{{ adTitle }}</span>
+        </h3>
         <p v-if="adDescription">{{ adDescription }}</p>
       </div>
     </div>
 
     <footer class="ad-footer">
-      <button class="ad-cta" :disabled="!normalizedUrl" @click="handleClick">
+      <a
+        v-if="normalizedUrl"
+        :href="normalizedUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="ad-cta"
+        @click="handleClick"
+      >
+        {{ adCta }}
+      </a>
+      <button v-else class="ad-cta" :disabled="true" type="button">
         {{ adCta }}
       </button>
     </footer>
@@ -91,12 +114,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ad-card {
-  background: linear-gradient(135deg, #fefaf1, #ffffff);
-  border: 1px solid #f3dfb4;
+  background:
+    radial-gradient(circle at 80% 10%, rgba(251, 191, 36, 0.18), transparent 45%),
+    linear-gradient(135deg, #fffdf5 0%, #fff8e7 45%, #ffffff 100%);
+  border: 1px solid #ead39f;
   border-radius: 20px;
   padding: 1rem;
   margin-bottom: 1.5rem;
-  box-shadow: 0 6px 24px rgba(117, 84, 24, 0.08);
+  box-shadow: 0 10px 26px rgba(117, 84, 24, 0.12);
 }
 
 .ad-header {
@@ -106,8 +131,14 @@ onBeforeUnmount(() => {
   margin-bottom: 0.9rem;
 }
 
+.ad-badges {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
 .ad-badge {
-  background: #1f2937;
+  background: #0f172a;
   color: #fff;
   font-size: 0.7rem;
   font-weight: 700;
@@ -117,8 +148,18 @@ onBeforeUnmount(() => {
 }
 
 .ad-caption {
-  color: #6b7280;
+  color: #7c5a13;
   font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(250, 204, 21, 0.25);
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+}
+
+.ad-signal {
+  color: #6b7280;
+  font-size: 0.76rem;
   font-weight: 600;
 }
 
@@ -139,8 +180,19 @@ onBeforeUnmount(() => {
 
 .ad-content h3 {
   margin: 0 0 0.35rem;
-  color: #111827;
   font-size: 1rem;
+  line-height: 1.25;
+}
+
+.ad-title-link {
+  color: #111827;
+  text-decoration: none;
+}
+
+.ad-title-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: #0f766e;
 }
 
 .ad-content p {
@@ -165,6 +217,9 @@ onBeforeUnmount(() => {
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.2s ease, opacity 0.2s ease;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
 .ad-cta:hover:not(:disabled) {

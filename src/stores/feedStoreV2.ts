@@ -21,7 +21,7 @@ import { useModuleStore, type FeedTabKey } from './moduleStore';
 
 type FeedTab = 'todo' | 'news' | 'post';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 export const useFeedStore = defineStore('feed', () => {
   const authStore = useAuthStore();
