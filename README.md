@@ -8,4 +8,4 @@ Learn more about the recommended Project Setup and IDE Support in the [Vue Docs 
 This project uses GitHub Actions to automatically build and deploy the application. 
 - **Branch `main`**: Source code and development.
 - **Branch `deploy`**: Compiled assets for Hostinger.
--bbcc
+-dd
