@@ -17,9 +17,9 @@ import {
 import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
 import { useAdsStore, type AdFeedItem } from './adsStore';
-import { useModuleStore, type FeedTabKey } from './moduleStore';
+import { useModuleStore, type FeedTabKey, type HomeTabKey } from './moduleStore';
 
-type FeedTab = 'todo' | 'news' | 'post';
+type FeedTab = HomeTabKey;
 
 const PAGE_SIZE = 10;
 
@@ -35,7 +35,7 @@ export const useFeedStore = defineStore('feed', () => {
   const hasMore = ref(true);
   const unsubscribe = ref<Unsubscribe | null>(null);
 
-  const tabConfig: Record<Exclude<FeedTab, 'todo'>, { module: string }> = {
+  const tabConfig: Record<'news' | 'post', { module: string }> = {
     news: { module: 'news' },
     post: { module: 'community' }
   };
@@ -44,7 +44,7 @@ export const useFeedStore = defineStore('feed', () => {
 
   const resolveTab = (requestedTab: string): FeedTab => {
     const enabledKeys = availableTabs.value.map((tab) => tab.key);
-    if (enabledKeys.includes(requestedTab as FeedTabKey)) {
+    if (enabledKeys.includes(requestedTab as HomeTabKey)) {
       return requestedTab as FeedTab;
     }
     return (enabledKeys[0] || 'todo') as FeedTab;
@@ -53,7 +53,7 @@ export const useFeedStore = defineStore('feed', () => {
   const getTabConstraints = (tab: FeedTab): QueryConstraint[] => {
     const constraints: QueryConstraint[] = [where('deletedAt', '==', null)];
 
-    if (tab !== 'todo') {
+    if (tab !== 'todo' && tab !== 'surveys') {
       const cfg = tabConfig[tab];
       constraints.push(where('module', '==', cfg.module));
     }
@@ -69,6 +69,11 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const rebuildMergedFeed = () => {
+    if (currentTab.value === 'surveys') {
+      allItems.value = [];
+      return;
+    }
+
     const filteredContent = contentItems.value.filter(shouldKeepContentItem);
     const tab = currentTab.value as FeedTabKey;
 
@@ -99,7 +104,12 @@ export const useFeedStore = defineStore('feed', () => {
     contentItems.value = [];
     allItems.value = [];
     loading.value = true;
-    hasMore.value = true;
+    hasMore.value = safeTab !== 'surveys';
+
+    if (safeTab === 'surveys') {
+      loading.value = false;
+      return;
+    }
 
     const q = query(
       collection(db, 'content'),
@@ -126,6 +136,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const loadMore = async () => {
+    if (currentTab.value === 'surveys') return;
     if (!hasMore.value || loading.value || contentItems.value.length === 0) return;
 
     const lastContentItem = contentItems.value[contentItems.value.length - 1];
@@ -204,6 +215,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdImpression = (item: AdFeedItem) => {
+    if (currentTab.value === 'surveys') return;
     adsStore.trackAdImpression(
       item,
       currentTab.value as FeedTabKey,
@@ -212,6 +224,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdClick = (item: AdFeedItem) => {
+    if (currentTab.value === 'surveys') return;
     adsStore.trackAdClick(
       item,
       currentTab.value as FeedTabKey,
@@ -242,7 +255,9 @@ export const useFeedStore = defineStore('feed', () => {
     { deep: true }
   );
 
-  const isModuleEnabled = (moduleName: 'news' | 'community' | 'ads') =>
+  const isModuleEnabled = (
+    moduleName: 'news' | 'community' | 'surveys' | 'ads'
+  ) =>
     moduleStore.isModuleEnabled(moduleName);
 
   const cleanup = () => {

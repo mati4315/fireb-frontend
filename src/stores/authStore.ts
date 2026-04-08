@@ -15,10 +15,21 @@ import { auth, db } from '@/config/firebase';
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null);
   const userProfile = ref<any>(null);
+  const tokenClaims = ref<Record<string, unknown>>({});
   const loading = ref(false);
   const error = ref<string | null>(null);
 
   const isAuthenticated = computed(() => !!user.value);
+
+  const refreshTokenClaims = async (firebaseUser: any, forceRefresh = false) => {
+    try {
+      const idTokenResult = await firebaseUser.getIdTokenResult(forceRefresh);
+      tokenClaims.value = (idTokenResult?.claims || {}) as Record<string, unknown>;
+    } catch (err) {
+      console.error('Error loading token claims:', err);
+      tokenClaims.value = {};
+    }
+  };
 
   // Inicializar escucha de autenticación
   const initAuthListener = () => {
@@ -37,6 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
       onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           user.value = firebaseUser;
+          await refreshTokenClaims(firebaseUser, true);
           
           // Cargar perfil del usuario
           try {
@@ -52,6 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
         } else {
           user.value = null;
           userProfile.value = null;
+          tokenClaims.value = {};
         }
         resolve();
       });
@@ -61,6 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
   // Función auxiliar para manejar éxito de autenticación (Popup o Redirect)
   const handleAuthSuccess = async (firebaseUser: any) => {
     user.value = firebaseUser;
+    await refreshTokenClaims(firebaseUser);
 
     const userDocRef = doc(db, 'users', firebaseUser.uid);
     const userDoc = await getDoc(userDocRef);
@@ -116,6 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
       );
 
       user.value = firebaseUser;
+      await refreshTokenClaims(firebaseUser, true);
 
       // Cargar perfil
       const userDoc = await getDoc(
@@ -207,6 +222,7 @@ export const useAuthStore = defineStore('auth', () => {
       await signOut(auth);
       user.value = null;
       userProfile.value = null;
+      tokenClaims.value = {};
     } catch (err) {
       console.error('Error logging out:', err);
     }
@@ -215,6 +231,7 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     userProfile,
+    tokenClaims,
     loading,
     error,
     isAuthenticated,

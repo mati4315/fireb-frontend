@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/config/firebase'
 import { useAuthStore } from '@/stores/authStore'
+import { isStaffUser } from '@/utils/roles'
 
 type FeedTab = 'todo' | 'news' | 'post'
 
@@ -85,7 +86,9 @@ const moduleForm = reactive<AdsModuleForm>({
 
 const isAuthorized = computed(() => {
   const rol = authStore.userProfile?.rol
-  return authStore.isAuthenticated && (rol === 'admin' || rol === 'colaborador')
+  const email = authStore.user?.email || authStore.userProfile?.email
+  const uid = authStore.user?.uid
+  return authStore.isAuthenticated && isStaffUser(rol, email, uid, authStore.tokenClaims)
 })
 
 const formTitle = computed(() =>

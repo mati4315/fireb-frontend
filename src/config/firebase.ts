@@ -3,6 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAnalytics } from "firebase/analytics";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -22,6 +23,7 @@ const db = getFirestore(app);
 
 const auth = getAuth(app);
 const storage = getStorage(app);
+const functions = getFunctions(app);
 
 // Initialize analytics only if valid ID exists
 let analytics;
@@ -33,4 +35,4 @@ if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
   }
 }
 
-export { app, auth, db, storage, analytics };
+export { app, auth, db, storage, functions, analytics };

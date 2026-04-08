@@ -4,6 +4,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 export type FeedTabKey = 'todo' | 'news' | 'post';
+export type HomeTabKey = FeedTabKey | 'surveys';
 
 export interface AdsModuleConfig {
   enabled: boolean;
@@ -21,12 +22,14 @@ export interface AdsModuleConfig {
 export interface ModulesConfig {
   news: { enabled: boolean };
   community: { enabled: boolean };
+  surveys: { enabled: boolean };
   ads: AdsModuleConfig;
 }
 
 const DEFAULT_MODULES_CONFIG: ModulesConfig = {
   news: { enabled: true },
   community: { enabled: true },
+  surveys: { enabled: true },
   ads: {
     enabled: false,
     maxAdsPerFeed: 2,
@@ -64,6 +67,7 @@ const sanitizeTabs = (value: unknown): FeedTabKey[] => {
 const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawNews = raw?.news ?? {};
   const rawCommunity = raw?.community ?? {};
+  const rawSurveys = raw?.surveys ?? {};
   const rawAds = raw?.ads ?? {};
 
   return {
@@ -72,6 +76,9 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
     },
     community: {
       enabled: toBoolean(rawCommunity.enabled, DEFAULT_MODULES_CONFIG.community.enabled)
+    },
+    surveys: {
+      enabled: toBoolean(rawSurveys.enabled, DEFAULT_MODULES_CONFIG.surveys.enabled)
     },
     ads: {
       enabled: toBoolean(rawAds.enabled, DEFAULT_MODULES_CONFIG.ads.enabled),
@@ -127,17 +134,21 @@ export const useModuleStore = defineStore('module', () => {
   const isModuleEnabled = (moduleName: keyof ModulesConfig): boolean => {
     if (moduleName === 'news') return modules.value.news.enabled;
     if (moduleName === 'community') return modules.value.community.enabled;
+    if (moduleName === 'surveys') return modules.value.surveys.enabled;
     return modules.value.ads.enabled;
   };
 
   const availableTabs = computed(() => {
-    const tabs: Array<{ key: FeedTabKey; label: string }> = [{ key: 'todo', label: 'Todos' }];
+    const tabs: Array<{ key: HomeTabKey; label: string }> = [{ key: 'todo', label: 'Todos' }];
 
     if (modules.value.news.enabled) {
       tabs.push({ key: 'news', label: 'Noticias' });
     }
     if (modules.value.community.enabled) {
       tabs.push({ key: 'post', label: 'Comunidad' });
+    }
+    if (modules.value.surveys.enabled) {
+      tabs.push({ key: 'surveys', label: 'Encuestas' });
     }
 
     return tabs;

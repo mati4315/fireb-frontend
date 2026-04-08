@@ -4,6 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useRoute } from 'vue-router'
+import { isStaffUser } from '@/utils/roles'
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
@@ -12,9 +13,11 @@ const route = useRoute()
 const isUserMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
 
-const canManageAds = computed(() => {
+const canManageStaff = computed(() => {
   const rol = authStore.userProfile?.rol
-  return authStore.isAuthenticated && (rol === 'admin' || rol === 'colaborador')
+  const email = authStore.user?.email || authStore.userProfile?.email
+  const uid = authStore.user?.uid
+  return authStore.isAuthenticated && isStaffUser(rol, email, uid, authStore.tokenClaims)
 })
 
 const toggleUserMenu = () => {
@@ -83,19 +86,28 @@ onBeforeUnmount(() => {
                   {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
                 </div>
                 <span class="user-name">{{ authStore.userProfile?.nombre || 'Mi Perfil' }}</span>
-                <span v-if="authStore.userProfile?.rol === 'admin'" class="badge admin">Admin</span>
+                <span v-if="canManageStaff" class="badge admin">Staff</span>
               </div>
               <span class="menu-caret" :class="{ open: isUserMenuOpen }">v</span>
             </button>
 
             <div v-if="isUserMenuOpen" class="user-dropdown">
               <RouterLink
-                v-if="canManageAds"
+                v-if="canManageStaff"
                 to="/ads"
                 class="dropdown-item"
                 @click="closeUserMenu"
               >
                 Gestion ADS
+              </RouterLink>
+
+              <RouterLink
+                v-if="canManageStaff"
+                to="/encuestas/gestion"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestion Encuestas
               </RouterLink>
 
               <button class="dropdown-item danger" @click="handleLogout">

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
+import SurveySection from '@/components/surveys/SurveySection.vue'
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -189,9 +190,19 @@ watch(
       </button>
     </div>
 
+    <SurveySection
+      v-if="feedStore.currentTab === 'todo' && feedStore.isModuleEnabled('surveys')"
+      mode="featured"
+    />
+
     <!-- Create Post Section -->
     <section
-      v-if="authStore.isAuthenticated && feedStore.isModuleEnabled('community') && feedStore.currentTab !== 'news'"
+      v-if="
+        authStore.isAuthenticated &&
+        feedStore.isModuleEnabled('community') &&
+        feedStore.currentTab !== 'news' &&
+        feedStore.currentTab !== 'surveys'
+      "
       class="create-post-section"
     >
       <div class="create-card" :class="{ expanded: isExpanded }">
@@ -246,19 +257,27 @@ watch(
     </section>
 
     <!-- Feed List -->
-    <div v-if="feedStore.loading && feedStore.allItems.length === 0" class="loading-state">
+    <SurveySection v-if="feedStore.currentTab === 'surveys'" />
+
+    <div
+      v-if="feedStore.currentTab !== 'surveys' && feedStore.loading && feedStore.allItems.length === 0"
+      class="loading-state"
+    >
       <div class="spinner"></div>
       <p>Sincronizando con CdeluAR...</p>
     </div>
 
-    <div v-else-if="feedStore.allItems.length === 0" class="empty-state">
+    <div
+      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.allItems.length === 0"
+      class="empty-state"
+    >
       <div class="empty-icon">📭</div>
       <h3>No hay nada por aquí</h3>
       <p v-if="feedStore.currentTab !== 'news'">Sé el primero en compartir algo con la comunidad.</p>
       <p v-else>Aún no hay noticias oficiales.</p>
     </div>
 
-    <div v-else class="post-list">
+    <div v-else-if="feedStore.currentTab !== 'surveys'" class="post-list">
       <div v-for="item in feedStore.allItems" :key="item.id">
         <FeedAdItem
           v-if="item.isAd"
