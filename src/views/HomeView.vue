@@ -7,6 +7,11 @@ import { useSurveyStore } from '@/stores/surveyStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
+import {
+  MAX_POST_IMAGES,
+  processImageForPost,
+  validateImageFile
+} from '@/utils/imageProcessing'
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -16,8 +21,11 @@ const surveyStore = useSurveyStore()
 // Form state
 const newPostTitle = ref('')
 const newPostContent = ref('')
-const selectedFile = ref<File | null>(null)
-const imagePreview = ref<string | null>(null)
+const selectedImages = ref<Array<{ id: string; file: File; previewUrl: string }>>([])
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const composerError = ref<string | null>(null)
+const createPostProgress = ref(0)
+const creatingPost = ref(false)
 const isExpanded = ref(false)
 const lightboxOpen = ref(false)
 const lightboxImages = ref<string[]>([])
@@ -37,15 +45,18 @@ const visibleTabs = computed(() =>
   )
 )
 
-const revokePreviewUrl = () => {
-  if (!imagePreview.value) return
-  URL.revokeObjectURL(imagePreview.value)
+const revokeSelectedImagePreviews = () => {
+  for (const image of selectedImages.value) {
+    URL.revokeObjectURL(image.previewUrl)
+  }
 }
 
-const clearSelectedImage = () => {
-  selectedFile.value = null
-  revokePreviewUrl()
-  imagePreview.value = null
+const clearSelectedImages = () => {
+  revokeSelectedImagePreviews()
+  selectedImages.value = []
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
 }
 
 const setupInfiniteObserver = async () => {
@@ -87,45 +98,201 @@ onUnmounted(() => {
     infiniteObserver.disconnect()
     infiniteObserver = null
   }
-  revokePreviewUrl()
+  revokeSelectedImagePreviews()
   surveyStore.cleanupFeaturedSurvey()
   feedStore.cleanup()
 })
 
 const handleFileSelect = (event: Event) => {
   const target = event.target as HTMLInputElement
-  if (target.files && target.files[0]) {
-    revokePreviewUrl()
-    selectedFile.value = target.files[0]
-    imagePreview.value = URL.createObjectURL(target.files[0])
+  const files = target.files ? Array.from(target.files) : []
+  if (files.length === 0) return
+
+  composerError.value = null
+  const remaining = MAX_POST_IMAGES - selectedImages.value.length
+  if (remaining <= 0) {
+    composerError.value = `Maximo ${MAX_POST_IMAGES} imagenes por publicacion.`
+    target.value = ''
+    return
   }
+
+  const nextFiles = files.slice(0, remaining)
+  for (const file of nextFiles) {
+    const validationError = validateImageFile(file)
+    if (validationError) {
+      composerError.value = validationError
+      continue
+    }
+
+    selectedImages.value.push({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      previewUrl: URL.createObjectURL(file)
+    })
+  }
+
+  if (files.length > remaining) {
+    composerError.value = `Solo se permiten ${MAX_POST_IMAGES} imagenes por publicacion.`
+  }
+
+  target.value = ''
+}
+
+const removeSelectedImage = (id: string) => {
+  const index = selectedImages.value.findIndex((image) => image.id === id)
+  if (index < 0) return
+
+  URL.revokeObjectURL(selectedImages.value[index].previewUrl)
+  selectedImages.value.splice(index, 1)
+}
+
+const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }> => {
+  if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
+    return item.imagesV2
+      .filter((image: any) => image && typeof image.url === 'string')
+      .map((image: any) => ({
+        url: image.url,
+        thumbUrl:
+          typeof image.thumbUrl === 'string' && image.thumbUrl.trim()
+            ? image.thumbUrl
+            : image.url
+      }))
+  }
+
+  if (Array.isArray(item?.images) && item.images.length > 0) {
+    return item.images
+      .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
+      .map((image: string) => ({ url: image, thumbUrl: image }))
+  }
+
+  return []
+}
+
+const runWithConcurrency = async <T,>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number
+): Promise<T[]> => {
+  const results: T[] = []
+  let taskIndex = 0
+
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (taskIndex < tasks.length) {
+      const currentIndex = taskIndex++
+      results[currentIndex] = await tasks[currentIndex]()
+    }
+  })
+
+  await Promise.all(workers)
+  return results
 }
 
 const handleCreatePost = async () => {
   if (!newPostContent.value.trim()) return
 
   try {
-    let imageUrls: string[] = []
-    
-    if (selectedFile.value) {
-      const path = `posts/${authStore.user?.uid}/${Date.now()}_${selectedFile.value.name}`
-      const url = await storageStore.uploadFile(selectedFile.value, path)
-      imageUrls.push(url)
+    composerError.value = null
+    createPostProgress.value = 0
+    creatingPost.value = true
+
+    if (!authStore.user?.uid) {
+      throw new Error('No autenticado')
+    }
+
+    const totalUnits = selectedImages.value.length * 2
+    const unitProgress = new Map<string, number>()
+    const updateUnitProgress = (unitKey: string, progress: number) => {
+      unitProgress.set(unitKey, progress)
+      if (totalUnits === 0) {
+        createPostProgress.value = 100
+        return
+      }
+
+      const total = Array.from(unitProgress.values()).reduce((sum, value) => sum + value, 0)
+      createPostProgress.value = Math.round(total / totalUnits)
+    }
+
+    const uploadErrors: string[] = []
+    const uploadTasks = selectedImages.value.map((selectedImage, index) => async () => {
+      try {
+        const processed = await processImageForPost(selectedImage.file)
+        const prefix = `posts/${authStore.user?.uid}/${Date.now()}_${index}_${selectedImage.id}`
+        const originalPath = `${prefix}_o.${processed.optimizedFile.type === 'image/webp' ? 'webp' : 'jpg'}`
+        const thumbPath = `${prefix}_t.${processed.thumbFile.type === 'image/webp' ? 'webp' : 'jpg'}`
+        const mainUnit = `main_${selectedImage.id}`
+        const thumbUnit = `thumb_${selectedImage.id}`
+
+        updateUnitProgress(mainUnit, 0)
+        updateUnitProgress(thumbUnit, 0)
+
+        const [mainUpload, thumbUpload] = await Promise.all([
+          storageStore.uploadFileWithProgress(
+            processed.optimizedFile,
+            originalPath,
+            (progress) => updateUnitProgress(mainUnit, progress)
+          ),
+          storageStore.uploadFileWithProgress(
+            processed.thumbFile,
+            thumbPath,
+            (progress) => updateUnitProgress(thumbUnit, progress)
+          )
+        ])
+
+        updateUnitProgress(mainUnit, 100)
+        updateUnitProgress(thumbUnit, 100)
+
+        return {
+          url: mainUpload.url,
+          thumbUrl: thumbUpload.url,
+          path: mainUpload.path,
+          thumbPath: thumbUpload.path,
+          width: processed.width,
+          height: processed.height,
+          sizeBytes: mainUpload.sizeBytes
+        }
+      } catch {
+        uploadErrors.push(selectedImage.file.name)
+        return null
+      }
+    })
+
+    const uploadedImages =
+      uploadTasks.length > 0 ? await runWithConcurrency(uploadTasks, 2) : []
+    const imagesV2 = uploadedImages.filter(Boolean) as Array<{
+      url: string
+      thumbUrl: string
+      path: string
+      thumbPath: string
+      width: number
+      height: number
+      sizeBytes: number
+    }>
+
+    if (selectedImages.value.length > 0 && imagesV2.length === 0) {
+      throw new Error('No se pudo subir ninguna imagen. Intenta nuevamente.')
+    }
+
+    if (uploadErrors.length > 0) {
+      composerError.value = `Algunas imagenes fallaron (${uploadErrors.length}). Se publico con las restantes.`
     }
 
     await feedStore.createPost(
       newPostTitle.value || 'Nueva Publicación',
       newPostContent.value,
-      imageUrls
+      imagesV2.map((image) => image.url),
+      imagesV2
     )
 
-    // Reset form
     newPostTitle.value = ''
     newPostContent.value = ''
-    clearSelectedImage()
+    clearSelectedImages()
     isExpanded.value = false
+    createPostProgress.value = 0
   } catch (err) {
     console.error('Error al crear post:', err)
+    composerError.value =
+      err instanceof Error ? err.message : 'No se pudo publicar. Intenta nuevamente.'
+  } finally {
+    creatingPost.value = false
   }
 }
 
@@ -252,17 +419,36 @@ watch(
             :rows="isExpanded ? 4 : 1"
           ></textarea>
 
-          <div v-if="imagePreview" class="image-preview-container">
-            <img :src="imagePreview" class="preview-img" @click="imagePreview && openLightbox([imagePreview], 0)" />
-            <button @click="imagePreview = null; selectedFile = null" class="remove-preview">×</button>
+          <div v-if="selectedImages.length > 0" class="image-preview-grid">
+            <button
+              v-for="image in selectedImages"
+              :key="image.id"
+              class="preview-thumb-btn"
+              type="button"
+              @click="openLightbox(selectedImages.map((selected) => selected.previewUrl), selectedImages.findIndex((selected) => selected.id === image.id))"
+            >
+              <img :src="image.previewUrl" class="preview-img" />
+              <span class="preview-remove" @click.stop="removeSelectedImage(image.id)">x</span>
+            </button>
+            <div class="preview-counter">{{ selectedImages.length }} / {{ MAX_POST_IMAGES }}</div>
           </div>
+
+          <p v-if="composerError" class="composer-error">{{ composerError }}</p>
 
           <div v-if="isExpanded" class="form-footer">
             <div class="actions">
-              <label class="icon-btn">
-                <input type="file" @change="handleFileSelect" accept="image/*" hidden />
+              <label class="icon-btn" :class="{ disabled: selectedImages.length >= MAX_POST_IMAGES }">
+                <input
+                  ref="fileInputRef"
+                  type="file"
+                  multiple
+                  @change="handleFileSelect"
+                  accept="image/*"
+                  hidden
+                  :disabled="selectedImages.length >= MAX_POST_IMAGES"
+                />
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                <span>Imagen</span>
+                <span>Imagenes</span>
               </label>
             </div>
             
@@ -270,10 +456,10 @@ watch(
               <button @click="isExpanded = false" class="cancel-btn">Cancelar</button>
               <button 
                 @click="handleCreatePost" 
-                :disabled="!newPostContent.trim() || storageStore.uploading"
+                :disabled="!newPostContent.trim() || creatingPost"
                 class="publish-btn"
               >
-                {{ storageStore.uploading ? `Subiendo ${Math.round(storageStore.uploadProgress)}%` : 'Publicar' }}
+                {{ creatingPost ? `Publicando ${Math.round(createPostProgress)}%` : 'Publicar' }}
               </button>
             </div>
           </div>
@@ -334,15 +520,15 @@ watch(
           ></div>
           <p v-else>{{ item.descripcion }}</p>
           
-          <div v-if="item.images && item.images.length > 0" class="post-images">
+          <div v-if="normalizeImageList(item).length > 0" class="post-images">
             <button
-              v-for="(image, imageIndex) in item.images"
+              v-for="(image, imageIndex) in normalizeImageList(item)"
               :key="`${item.id}_${imageIndex}`"
               class="post-image-btn"
               type="button"
-              @click="openLightbox(item.images, Number(imageIndex))"
+              @click="openLightbox(normalizeImageList(item).map((entry) => entry.url), Number(imageIndex))"
             >
-              <img :src="image" class="main-image" loading="lazy" />
+              <img :src="image.thumbUrl" class="main-image" loading="lazy" />
             </button>
           </div>
         </div>
@@ -492,32 +678,58 @@ watch(
   min-height: 80px;
 }
 
-.image-preview-container {
-  position: relative;
+.image-preview-grid {
   margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.55rem;
+}
+
+.preview-thumb-btn {
+  position: relative;
+  border: 0;
   border-radius: 12px;
+  padding: 0;
+  margin: 0;
   overflow: hidden;
-  max-height: 300px;
+  cursor: zoom-in;
+  background: transparent;
 }
 
 .preview-img {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 1 / 1;
   object-fit: cover;
-  cursor: zoom-in;
+  display: block;
 }
 
-.remove-preview {
+.preview-remove {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(0,0,0,0.6);
-  color: white;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  cursor: pointer;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+}
+
+.preview-counter {
+  grid-column: 1 / -1;
+  font-size: 0.82rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.composer-error {
+  margin: 0;
+  color: #d7263d;
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .form-footer {
@@ -543,6 +755,11 @@ watch(
 
 .icon-btn:hover {
   background: var(--accent-bg);
+}
+
+.icon-btn.disabled {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .submit-group {
@@ -765,3 +982,7 @@ watch(
   font-weight: 600;
 }
 </style>
+
+
+
+

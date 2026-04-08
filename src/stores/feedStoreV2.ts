@@ -179,7 +179,16 @@ export const useFeedStore = defineStore('feed', () => {
   const createPost = async (
     titulo: string,
     descripcion: string,
-    images: string[] = []
+    images: string[] = [],
+    imagesV2: Array<{
+      url: string;
+      thumbUrl: string;
+      path: string;
+      thumbPath: string;
+      width: number;
+      height: number;
+      sizeBytes: number;
+    }> = []
   ) => {
     if (!moduleStore.modules.community.enabled) {
       throw new Error('El modulo comunidad esta deshabilitado');
@@ -197,6 +206,7 @@ export const useFeedStore = defineStore('feed', () => {
       titulo,
       descripcion,
       images: images || [],
+      imagesV2: imagesV2 || [],
       userId: authStore.user.uid,
       userName: authStore.userProfile.nombre,
       userProfilePicUrl: authStore.userProfile.profilePictureUrl,
