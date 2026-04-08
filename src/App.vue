@@ -4,7 +4,7 @@ import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useRoute } from 'vue-router'
-import { isStaffUser } from '@/utils/roles'
+import { isAdminUser, isStaffUser } from '@/utils/roles'
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
@@ -18,6 +18,13 @@ const canManageStaff = computed(() => {
   const email = authStore.user?.email || authStore.userProfile?.email
   const uid = authStore.user?.uid
   return authStore.isAuthenticated && isStaffUser(rol, email, uid, authStore.tokenClaims)
+})
+
+const canManageComments = computed(() => {
+  const rol = authStore.userProfile?.rol
+  const email = authStore.user?.email || authStore.userProfile?.email
+  const uid = authStore.user?.uid
+  return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims)
 })
 
 const toggleUserMenu = () => {
@@ -108,6 +115,15 @@ onBeforeUnmount(() => {
                 @click="closeUserMenu"
               >
                 Gestion Encuestas
+              </RouterLink>
+
+              <RouterLink
+                v-if="canManageComments"
+                to="/comentarios/gestion"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestion Comentarios
               </RouterLink>
 
               <button class="dropdown-item danger" @click="handleLogout">

@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { isStaffUser } from '@/utils/roles'
+import { isAdminUser, isStaffUser } from '@/utils/roles'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -38,12 +38,16 @@ const router = createRouter({
       meta: { requiresStaff: true },
       component: () => import('@/views/SurveysManagerView.vue'),
     },
+    {
+      path: '/comentarios/gestion',
+      name: 'comments-manager',
+      meta: { requiresAdmin: true },
+      component: () => import('@/views/CommentsManagerView.vue'),
+    },
   ],
 })
 
 router.beforeEach((to) => {
-  if (!to.meta.requiresStaff) return true
-
   const authStore = useAuthStore()
   const rol = authStore.userProfile?.rol
   const email = authStore.user?.email || authStore.userProfile?.email
@@ -54,6 +58,19 @@ router.beforeEach((to) => {
     uid,
     authStore.tokenClaims
   )
+  const isAdmin = authStore.isAuthenticated && isAdminUser(
+    rol,
+    email,
+    uid,
+    authStore.tokenClaims
+  )
+
+  if (to.meta.requiresAdmin) {
+    if (isAdmin) return true
+    return { name: 'home' }
+  }
+
+  if (!to.meta.requiresStaff) return true
 
   if (isStaff) return true
   return { name: 'home' }

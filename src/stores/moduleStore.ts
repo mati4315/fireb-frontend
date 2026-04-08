@@ -22,6 +22,11 @@ export interface AdsModuleConfig {
 export interface ModulesConfig {
   news: { enabled: boolean };
   community: { enabled: boolean };
+  comments: {
+    enabled: boolean;
+    newsEnabled: boolean;
+    communityEnabled: boolean;
+  };
   surveys: { enabled: boolean };
   ads: AdsModuleConfig;
 }
@@ -29,6 +34,11 @@ export interface ModulesConfig {
 const DEFAULT_MODULES_CONFIG: ModulesConfig = {
   news: { enabled: true },
   community: { enabled: true },
+  comments: {
+    enabled: true,
+    newsEnabled: true,
+    communityEnabled: true
+  },
   surveys: { enabled: true },
   ads: {
     enabled: false,
@@ -67,6 +77,7 @@ const sanitizeTabs = (value: unknown): FeedTabKey[] => {
 const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawNews = raw?.news ?? {};
   const rawCommunity = raw?.community ?? {};
+  const rawComments = raw?.comments ?? {};
   const rawSurveys = raw?.surveys ?? {};
   const rawAds = raw?.ads ?? {};
 
@@ -76,6 +87,17 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
     },
     community: {
       enabled: toBoolean(rawCommunity.enabled, DEFAULT_MODULES_CONFIG.community.enabled)
+    },
+    comments: {
+      enabled: toBoolean(rawComments.enabled, DEFAULT_MODULES_CONFIG.comments.enabled),
+      newsEnabled: toBoolean(
+        rawComments.newsEnabled,
+        DEFAULT_MODULES_CONFIG.comments.newsEnabled
+      ),
+      communityEnabled: toBoolean(
+        rawComments.communityEnabled,
+        DEFAULT_MODULES_CONFIG.comments.communityEnabled
+      )
     },
     surveys: {
       enabled: toBoolean(rawSurveys.enabled, DEFAULT_MODULES_CONFIG.surveys.enabled)
@@ -134,8 +156,15 @@ export const useModuleStore = defineStore('module', () => {
   const isModuleEnabled = (moduleName: keyof ModulesConfig): boolean => {
     if (moduleName === 'news') return modules.value.news.enabled;
     if (moduleName === 'community') return modules.value.community.enabled;
+    if (moduleName === 'comments') return modules.value.comments.enabled;
     if (moduleName === 'surveys') return modules.value.surveys.enabled;
     return modules.value.ads.enabled;
+  };
+
+  const isCommentsEnabledForModule = (moduleName: 'news' | 'community'): boolean => {
+    if (!modules.value.comments.enabled) return false;
+    if (moduleName === 'news') return modules.value.comments.newsEnabled;
+    return modules.value.comments.communityEnabled;
   };
 
   const availableTabs = computed(() => {
@@ -190,6 +219,7 @@ export const useModuleStore = defineStore('module', () => {
     loading,
     availableTabs,
     isModuleEnabled,
+    isCommentsEnabledForModule,
     initModulesListener,
     cleanup
   };

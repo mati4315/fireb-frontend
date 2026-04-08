@@ -25,20 +25,40 @@ export const isSuperAdminUid = (uid: unknown): boolean => {
   return SUPER_ADMIN_UIDS.has(normalizeUid(uid));
 };
 
-export const isStaffRole = (role: unknown): boolean => {
+export const isAdminRole = (role: unknown): boolean => {
   const normalized = normalizeRoleAlias(role);
   return normalized === 'admin' ||
     normalized === 'administrador' ||
-    normalized === 'colaborador' ||
     normalized === 'superadmin';
 };
 
-export const isStaffClaim = (claims: unknown): boolean => {
+export const isAdminClaim = (claims: unknown): boolean => {
   if (!claims || typeof claims !== 'object') return false;
   const parsedClaims = claims as Record<string, unknown>;
   return parsedClaims.admin === true ||
     parsedClaims.superAdmin === true ||
     parsedClaims.super_admin === true;
+};
+
+export const isStaffRole = (role: unknown): boolean => {
+  const normalized = normalizeRoleAlias(role);
+  return normalized === 'colaborador' || isAdminRole(role);
+};
+
+export const isStaffClaim = (claims: unknown): boolean => {
+  return isAdminClaim(claims);
+};
+
+export const isAdminUser = (
+  role: unknown,
+  email: unknown,
+  uid?: unknown,
+  claims?: unknown
+): boolean => {
+  return isSuperAdminEmail(email) ||
+    isSuperAdminUid(uid) ||
+    isAdminClaim(claims) ||
+    isAdminRole(role);
 };
 
 export const isStaffUser = (
@@ -47,8 +67,5 @@ export const isStaffUser = (
   uid?: unknown,
   claims?: unknown
 ): boolean => {
-  return isSuperAdminEmail(email) ||
-    isSuperAdminUid(uid) ||
-    isStaffClaim(claims) ||
-    isStaffRole(role);
+  return isAdminUser(role, email, uid, claims) || isStaffRole(role);
 };

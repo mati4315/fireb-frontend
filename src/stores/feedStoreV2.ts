@@ -266,9 +266,12 @@ export const useFeedStore = defineStore('feed', () => {
   );
 
   const isModuleEnabled = (
-    moduleName: 'news' | 'community' | 'surveys' | 'ads'
+    moduleName: 'news' | 'community' | 'comments' | 'surveys' | 'ads'
   ) =>
     moduleStore.isModuleEnabled(moduleName);
+
+  const isCommentsEnabledForModule = (moduleName: 'news' | 'community') =>
+    moduleStore.isCommentsEnabledForModule(moduleName);
 
   const cleanup = () => {
     if (unsubscribe.value) {
@@ -286,6 +289,7 @@ export const useFeedStore = defineStore('feed', () => {
     hasMore,
     availableTabs,
     isModuleEnabled,
+    isCommentsEnabledForModule,
     initFeed,
     loadMore,
     createPost,

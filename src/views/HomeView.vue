@@ -7,6 +7,8 @@ import { useSurveyStore } from '@/stores/surveyStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
+import CommentSection from '@/components/comments/CommentSection.vue'
+import CommentPreviewList from '@/components/comments/CommentPreviewList.vue'
 import {
   MAX_POST_IMAGES,
   processImageForPost,
@@ -31,6 +33,7 @@ const lightboxOpen = ref(false)
 const lightboxImages = ref<string[]>([])
 const lightboxStartIndex = ref(0)
 const infiniteSentinel = ref<HTMLElement | null>(null)
+const expandedComments = ref<Record<string, boolean>>({})
 let infiniteObserver: IntersectionObserver | null = null
 
 const shouldShowSurveysTab = computed(() => {
@@ -317,6 +320,40 @@ const closeLightbox = () => {
   lightboxOpen.value = false
 }
 
+const resolveContentModule = (item: any): 'news' | 'community' | null => {
+  const moduleName = item?.module
+  if (moduleName === 'news' || moduleName === 'community') return moduleName
+  return null
+}
+
+const canShowCommentsForItem = (item: any): boolean => {
+  const moduleName = resolveContentModule(item)
+  if (!moduleName) return false
+  return feedStore.isCommentsEnabledForModule(moduleName)
+}
+
+const isCommentsOpen = (itemId: string) => Boolean(expandedComments.value[itemId])
+
+const getCommentsCount = (item: any): number => {
+  const parsed = Number(item?.stats?.commentsCount ?? 0)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, Math.floor(parsed))
+}
+
+const shouldShowCommentPreview = (item: any): boolean => {
+  if (!canShowCommentsForItem(item)) return false
+  if (isCommentsOpen(item.id)) return false
+  return true
+}
+
+const toggleComments = (item: any) => {
+  if (!canShowCommentsForItem(item)) return
+  expandedComments.value = {
+    ...expandedComments.value,
+    [item.id]: !expandedComments.value[item.id]
+  }
+}
+
 const handleHtmlImageClick = (event: MouseEvent) => {
   const target = event.target as HTMLElement | null
   if (!(target instanceof HTMLImageElement)) return
@@ -538,14 +575,32 @@ watch(
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
             <span>{{ item.stats?.likesCount || 0 }}</span>
           </button>
-          <button class="interaction-btn">
+          <button
+            class="interaction-btn"
+            :class="{ active: isCommentsOpen(item.id) }"
+            :disabled="!canShowCommentsForItem(item)"
+            @click="toggleComments(item)"
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 1 1-7.6-10.6 8.38 8.38 0 0 1 3.8.9L21 3z"></path></svg>
-            <span>{{ item.stats?.commentsCount || 0 }}</span>
+            <span>Comentarios {{ getCommentsCount(item) }}</span>
           </button>
           <button class="interaction-btn share">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
           </button>
         </footer>
+
+        <CommentPreviewList
+          v-if="shouldShowCommentPreview(item) && resolveContentModule(item)"
+          :content-id="item.id"
+          :module="resolveContentModule(item) || 'community'"
+          :limit="1"
+        />
+
+        <CommentSection
+          v-if="isCommentsOpen(item.id) && canShowCommentsForItem(item) && resolveContentModule(item)"
+          :content-id="item.id"
+          :module="resolveContentModule(item) || 'community'"
+        />
         </div>
       </div>
 
@@ -944,6 +999,17 @@ watch(
   background: var(--accent-bg);
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.interaction-btn.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.interaction-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .interaction-btn.share {
