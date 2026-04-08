@@ -56,8 +56,8 @@ export interface ReplyRecord {
 }
 
 const COMMENT_PAGE_SIZE = 6;
-const REPLY_INITIAL_PAGE_SIZE = 3;
-const REPLY_PAGE_SIZE = 10;
+const REPLY_INITIAL_PAGE_SIZE = 6;
+const REPLY_PAGE_SIZE = 6;
 const PREVIEW_COMMENT_LIMIT = 2;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const OVERFETCH_FACTOR = 3;
@@ -312,10 +312,12 @@ export const useCommentStore = defineStore('comments', () => {
         ...constraints
       );
       const snapshot = await getDocs(commentsQuery);
-      const fetchedComments = snapshot.docs
-        .map(mapCommentDoc)
-        .filter((comment) => comment.deletedAt == null)
-        .slice(0, pageSize);
+      const aliveDocs = snapshot.docs.filter((commentDoc) => {
+        const data = commentDoc.data() || {};
+        return data.deletedAt == null;
+      });
+      const pageDocs = aliveDocs.slice(0, pageSize);
+      const fetchedComments = pageDocs.map(mapCommentDoc);
 
       if (reset) {
         commentsByContent.value[contentId] = fetchedComments;
@@ -330,9 +332,16 @@ export const useCommentStore = defineStore('comments', () => {
         commentsByContent.value[contentId] = merged;
       }
 
-      commentCursorByContent.value[contentId] =
-        snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-      commentsHasMoreByContent.value[contentId] = snapshot.size >= fetchSize;
+      if (pageDocs.length > 0) {
+        commentCursorByContent.value[contentId] = pageDocs[pageDocs.length - 1];
+      } else if (snapshot.docs.length > 0 && snapshot.size === fetchSize) {
+        // If this page has only deleted docs, advance cursor to avoid infinite loops.
+        commentCursorByContent.value[contentId] = snapshot.docs[snapshot.docs.length - 1];
+      } else {
+        commentCursorByContent.value[contentId] = null;
+      }
+      commentsHasMoreByContent.value[contentId] =
+        aliveDocs.length > pageSize || snapshot.size === fetchSize;
       syncPreviewComments(contentId);
       writeCache(contentId);
     } catch (error) {
@@ -420,10 +429,12 @@ export const useCommentStore = defineStore('comments', () => {
         ...constraints
       );
       const snapshot = await getDocs(repliesQuery);
-      const fetchedReplies = snapshot.docs
-        .map(mapReplyDoc)
-        .filter((reply) => reply.deletedAt == null)
-        .slice(0, pageSize);
+      const aliveDocs = snapshot.docs.filter((replyDoc) => {
+        const data = replyDoc.data() || {};
+        return data.deletedAt == null;
+      });
+      const pageDocs = aliveDocs.slice(0, pageSize);
+      const fetchedReplies = pageDocs.map(mapReplyDoc);
 
       if (reset) {
         repliesByComment.value[key] = fetchedReplies;
@@ -438,9 +449,15 @@ export const useCommentStore = defineStore('comments', () => {
         repliesByComment.value[key] = merged;
       }
 
-      replyCursorByComment.value[key] =
-        snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
-      repliesHasMoreByComment.value[key] = snapshot.size >= fetchSize;
+      if (pageDocs.length > 0) {
+        replyCursorByComment.value[key] = pageDocs[pageDocs.length - 1];
+      } else if (snapshot.docs.length > 0 && snapshot.size === fetchSize) {
+        replyCursorByComment.value[key] = snapshot.docs[snapshot.docs.length - 1];
+      } else {
+        replyCursorByComment.value[key] = null;
+      }
+      repliesHasMoreByComment.value[key] =
+        aliveDocs.length > pageSize || snapshot.size === fetchSize;
     } catch (error) {
       console.error('Error loading replies:', error);
     } finally {

@@ -19,7 +19,6 @@ const creatingComment = ref(false);
 const editingCommentId = ref<string | null>(null);
 const replyingToCommentId = ref<string | null>(null);
 const editingReplyKey = ref<string | null>(null);
-const expandedReplies = ref<Record<string, boolean>>({});
 
 const commentsEnabled = computed(() =>
   commentStore.isCommentsEnabledForModule(props.module)
@@ -55,22 +54,11 @@ const hasMoreReplies = (commentId: string) =>
 const ensureRepliesLoaded = async (commentId: string) => {
   const replies = getReplies(commentId);
   if (replies.length > 0) return;
-  await commentStore.loadReplies(props.contentId, commentId, { reset: true, pageSize: 3 });
-};
-
-const toggleReplies = async (commentId: string) => {
-  const nextValue = !expandedReplies.value[commentId];
-  expandedReplies.value = {
-    ...expandedReplies.value,
-    [commentId]: nextValue
-  };
-  if (nextValue) {
-    await ensureRepliesLoaded(commentId);
-  }
+  await commentStore.loadReplies(props.contentId, commentId, { reset: true, pageSize: 6 });
 };
 
 const loadMoreReplies = async (commentId: string) => {
-  await commentStore.loadReplies(props.contentId, commentId, { pageSize: 10 });
+  await commentStore.loadReplies(props.contentId, commentId, { pageSize: 6 });
 };
 
 const loadMoreComments = async () => {
@@ -92,10 +80,6 @@ const createReply = async (commentId: string, text: string) => {
   try {
     await commentStore.createReply(props.contentId, commentId, props.module, text);
     replyingToCommentId.value = null;
-    expandedReplies.value = {
-      ...expandedReplies.value,
-      [commentId]: true
-    };
   } catch (error) {
     console.error('Error creating reply:', error);
   }
@@ -149,6 +133,18 @@ watch(
       return;
     }
     await commentStore.openThread(props.contentId, props.module);
+  },
+  { immediate: true }
+);
+
+watch(
+  comments,
+  (items) => {
+    for (const comment of items) {
+      if ((comment.stats?.repliesCount || 0) > 0) {
+        void ensureRepliesLoaded(comment.id);
+      }
+    }
   },
   { immediate: true }
 );
@@ -220,16 +216,10 @@ onBeforeUnmount(() => {
               @cancel="replyingToCommentId = null"
             />
 
-          <button
+          <div
             v-if="(comment.stats?.repliesCount || 0) > 0 || getReplies(comment.id).length > 0"
-            class="toggle-replies-btn"
-            type="button"
-            @click="toggleReplies(comment.id)"
+            class="replies-box"
           >
-            {{ expandedReplies[comment.id] ? 'Ocultar respuestas' : 'Ver respuestas' }}
-          </button>
-
-          <div v-if="expandedReplies[comment.id]" class="replies-box">
             <p
               v-if="isRepliesLoading(comment.id) && getReplies(comment.id).length === 0"
               class="state-msg"
@@ -345,7 +335,6 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
 }
 
-.toggle-replies-btn,
 .load-more-btn {
   border: 1px solid var(--border);
   background: var(--social-bg);

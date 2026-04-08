@@ -4,6 +4,7 @@ import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
 import { useSurveyStore } from '@/stores/surveyStore'
+import { useCommentStore } from '@/stores/commentStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
@@ -19,6 +20,7 @@ const feedStore = useFeedStore()
 const authStore = useAuthStore()
 const storageStore = useStorageStore()
 const surveyStore = useSurveyStore()
+const commentStore = useCommentStore()
 
 // Form state
 const newPostTitle = ref('')
@@ -340,6 +342,20 @@ const getCommentsCount = (item: any): number => {
   return Math.max(0, Math.floor(parsed))
 }
 
+const getCommentsLabel = (item: any): string => {
+  const backendCount = getCommentsCount(item)
+  if (backendCount > 0) {
+    return `Comentarios ${backendCount}`
+  }
+
+  const previewCount = commentStore.getPreviewComments(item.id).length
+  if (previewCount > 0) {
+    return 'Comentarios 1+'
+  }
+
+  return 'Comentarios'
+}
+
 const shouldShowCommentPreview = (item: any): boolean => {
   if (!canShowCommentsForItem(item)) return false
   if (isCommentsOpen(item.id)) return false
@@ -582,7 +598,7 @@ watch(
             @click="toggleComments(item)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 1 1-7.6-10.6 8.38 8.38 0 0 1 3.8.9L21 3z"></path></svg>
-            <span>Comentarios {{ getCommentsCount(item) }}</span>
+            <span>{{ getCommentsLabel(item) }}</span>
           </button>
           <button class="interaction-btn share">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>

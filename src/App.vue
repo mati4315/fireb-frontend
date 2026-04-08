@@ -75,27 +75,19 @@ onBeforeUnmount(() => {
         </RouterLink>
         
         <nav class="main-nav">
-          <RouterLink to="/" class="nav-link">Explorar</RouterLink>
           
           <template v-if="!authStore.isAuthenticated">
-            <RouterLink to="/login" class="nav-link login-btn">Iniciar Sesión</RouterLink>
+            <RouterLink to="/login" class="login-btn">Iniciar Sesión</RouterLink>
           </template>
           
           <div v-else ref="userMenuRef" class="user-menu">
             <button class="user-trigger" @click.stop="toggleUserMenu">
               <div class="user-info">
-                <img
-                  v-if="authStore.userProfile?.profilePictureUrl"
-                  :src="authStore.userProfile.profilePictureUrl"
-                  class="avatar"
-                />
-                <div v-else class="avatar-placeholder">
+                <div class="avatar-placeholder">
                   {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
                 </div>
                 <span class="user-name">{{ authStore.userProfile?.nombre || 'Mi Perfil' }}</span>
-                <span v-if="canManageStaff" class="badge admin">Staff</span>
               </div>
-              <span class="menu-caret" :class="{ open: isUserMenuOpen }">v</span>
             </button>
 
             <div v-if="isUserMenuOpen" class="user-dropdown">
@@ -189,21 +181,11 @@ onBeforeUnmount(() => {
 .main-nav {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-}
-
-.nav-link {
-  text-decoration: none;
-  color: var(--text);
-  font-weight: 500;
-  transition: color 0.2s;
-}
-
-.nav-link:hover {
-  color: var(--accent);
+  gap: 0.8rem;
 }
 
 .login-btn {
+  text-decoration: none;
   background: var(--accent);
   color: white;
   padding: 0.5rem 1.25rem;
@@ -220,9 +202,7 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem;
-  padding-left: 1rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.35rem;
   background: var(--accent-bg);
   border-radius: 99px;
   border: 1px solid var(--accent-border);
@@ -241,14 +221,13 @@ onBeforeUnmount(() => {
 .user-info {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.45rem;
 }
 
-.avatar, .avatar-placeholder {
+.avatar-placeholder {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  object-fit: cover;
 }
 
 .avatar-placeholder {
@@ -288,29 +267,10 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-h);
-}
-
-.badge {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 4px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.badge.admin {
-  background: #ff4d4d;
-  color: white;
-}
-
-.menu-caret {
-  font-size: 0.75rem;
-  color: var(--text);
-  transition: transform 0.2s ease;
-}
-
-.menu-caret.open {
-  transform: rotate(180deg);
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-dropdown {
@@ -351,4 +311,46 @@ onBeforeUnmount(() => {
   max-width: 1200px;
   margin: 0 auto;
 }
+
+@media (max-width: 768px) {
+  .nav-content {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .logo-text {
+    font-size: 1.2rem;
+  }
+
+  .main-nav {
+    gap: 0.45rem;
+  }
+
+  .login-btn {
+    padding: 0.45rem 0.8rem;
+    font-size: 0.82rem;
+  }
+
+  .user-menu {
+    max-width: 56vw;
+    padding: 0.2rem 0.4rem 0.2rem 0.25rem;
+  }
+
+  .avatar-placeholder {
+    width: 28px;
+    height: 28px;
+    font-size: 0.72rem;
+  }
+
+  .user-name {
+    font-size: 0.82rem;
+    max-width: 34vw;
+  }
+
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+}
 </style>
+
