@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useSurveyStore, type Survey } from '@/stores/surveyStore';
@@ -18,12 +18,25 @@ const props = withDefaults(
 
 const localSelections = ref<Record<string, string[]>>({});
 const localErrors = ref<Record<string, string>>({});
+const expandedOptionsBySurvey = ref<Record<string, boolean>>({});
+const countdownNow = ref(Date.now());
+const featuredSurveyIndex = ref(0);
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
+const MAX_VISIBLE_OPTIONS = 3;
 
 const isFeaturedMode = computed(() => props.mode === 'featured');
 const isAuthenticated = computed(() => authStore.isAuthenticated);
+const featuredSurveys = computed(() => surveyStore.featuredActiveSurveys);
 const surveysToRender = computed(() => {
   if (!isFeaturedMode.value) return surveyStore.publicSurveys;
-  return surveyStore.featuredSurvey ? [surveyStore.featuredSurvey] : [];
+  const activeFeatured = featuredSurveys.value;
+  if (activeFeatured.length === 0) return [];
+
+  const safeIndex = featuredSurveyIndex.value >= activeFeatured.length
+    ? 0
+    : Math.max(0, featuredSurveyIndex.value);
+
+  return [activeFeatured[safeIndex]];
 });
 const isLoading = computed(() => {
   return isFeaturedMode.value ? surveyStore.featuredLoading : surveyStore.publicLoading;
@@ -32,16 +45,9 @@ const showSection = computed(() => {
   if (!isFeaturedMode.value) return true;
   return isLoading.value || surveysToRender.value.length > 0;
 });
-
-const formatDate = (value: Date | null): string => {
-  if (!value) return '';
-  return new Intl.DateTimeFormat('es-AR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(value);
-};
+const canCycleFeaturedSurveys = computed(() => {
+  return isFeaturedMode.value && featuredSurveys.value.length > 1;
+});
 
 const getStatus = (survey: Survey) => surveyStore.normalizeSurveyStatusForDisplay(survey);
 
@@ -55,6 +61,25 @@ const getStatusLabel = (survey: Survey): string => {
 const getStatusClass = (survey: Survey): string => {
   const status = getStatus(survey);
   return `status-${status}`;
+};
+
+const getCountdownLabel = (survey: Survey): string => {
+  if (getStatus(survey) !== 'active') return 'Finalizada';
+  if (!survey.expiresAt) return 'Sin limite';
+
+  const diffMs = survey.expiresAt.getTime() - countdownNow.value;
+  if (diffMs <= 0) return 'Finalizando...';
+
+  const totalSeconds = Math.floor(diffMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 };
 
 const canVote = (survey: Survey): boolean => {
@@ -77,9 +102,10 @@ const setSelection = (surveyId: string, optionIds: string[]) => {
   };
 };
 
-const toggleSingleChoice = (survey: Survey, optionId: string) => {
+const toggleSingleChoice = async (survey: Survey, optionId: string) => {
   if (!canVote(survey)) return;
   setSelection(survey.id, [optionId]);
+  await submitVote(survey);
 };
 
 const toggleMultipleChoice = (survey: Survey, optionId: string) => {
@@ -104,6 +130,37 @@ const getVotePercentage = (survey: Survey, voteCount: number): number => {
   return Math.round((voteCount / survey.totalVotes) * 100);
 };
 
+const getActiveOptions = (survey: Survey) => {
+  return survey.options.filter((item) => item.active);
+};
+
+const isOptionsExpanded = (surveyId: string): boolean => {
+  return Boolean(expandedOptionsBySurvey.value[surveyId]);
+};
+
+const getVisibleOptions = (survey: Survey) => {
+  const activeOptions = getActiveOptions(survey);
+  if (activeOptions.length <= MAX_VISIBLE_OPTIONS) return activeOptions;
+  if (isOptionsExpanded(survey.id)) return activeOptions;
+  return activeOptions.slice(0, MAX_VISIBLE_OPTIONS);
+};
+
+const getHiddenOptionsCount = (survey: Survey): number => {
+  const count = getActiveOptions(survey).length - MAX_VISIBLE_OPTIONS;
+  return count > 0 ? count : 0;
+};
+
+const hasHiddenOptions = (survey: Survey): boolean => {
+  return getHiddenOptionsCount(survey) > 0;
+};
+
+const toggleOptionsExpanded = (surveyId: string) => {
+  expandedOptionsBySurvey.value = {
+    ...expandedOptionsBySurvey.value,
+    [surveyId]: !isOptionsExpanded(surveyId)
+  };
+};
+
 const clearLocalError = (surveyId: string) => {
   if (!localErrors.value[surveyId]) return;
   const next = { ...localErrors.value };
@@ -118,9 +175,31 @@ const setLocalError = (surveyId: string, message: string) => {
   };
 };
 
+const promptLoginToVote = async () => {
+  const shouldGoToLogin = window.confirm(
+    'Para votar necesitas iniciar sesion. ¿Quieres ir al login ahora?'
+  );
+  if (shouldGoToLogin) {
+    await router.push('/login');
+  }
+};
+
+const handleOptionClick = async (survey: Survey) => {
+  if (isAuthenticated.value) return;
+  if (getStatus(survey) !== 'active') return;
+  await promptLoginToVote();
+};
+
+const goToNextFeaturedSurvey = () => {
+  if (!canCycleFeaturedSurveys.value) return;
+  const total = featuredSurveys.value.length;
+  if (total <= 1) return;
+  featuredSurveyIndex.value = (featuredSurveyIndex.value + 1) % total;
+};
+
 const submitVote = async (survey: Survey) => {
   if (!isAuthenticated.value) {
-    await router.push('/login');
+    await promptLoginToVote();
     return;
   }
   clearLocalError(survey.id);
@@ -145,18 +224,40 @@ const submitVote = async (survey: Survey) => {
 };
 
 onMounted(() => {
-  if (isFeaturedMode.value) {
-    surveyStore.initFeaturedSurveyListener();
-  } else {
+  const tickMs = isFeaturedMode.value ? 1000 : 10000;
+  countdownTimer = setInterval(() => {
+    countdownNow.value = Date.now();
+  }, tickMs);
+
+  if (!isFeaturedMode.value) {
     surveyStore.initPublicSurveysListener();
   }
   surveyStore.initUserVotesListener();
 });
 
+watch(
+  featuredSurveys,
+  (list) => {
+    if (!isFeaturedMode.value) return;
+    if (list.length === 0) {
+      featuredSurveyIndex.value = 0;
+      return;
+    }
+
+    if (featuredSurveyIndex.value >= list.length) {
+      featuredSurveyIndex.value = 0;
+    }
+  },
+  { immediate: true }
+);
+
 onBeforeUnmount(() => {
-  if (isFeaturedMode.value) {
-    surveyStore.cleanupFeaturedSurvey();
-  } else {
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+
+  if (!isFeaturedMode.value) {
     surveyStore.cleanupPublicSurveys();
   }
 });
@@ -192,15 +293,16 @@ onBeforeUnmount(() => {
 
         <div class="survey-meta">
           <span>{{ survey.totalVotes }} votos</span>
-          <span v-if="survey.expiresAt">Cierra: {{ formatDate(survey.expiresAt) }}</span>
+          <span>Tiempo restante: <strong class="countdown-value">{{ getCountdownLabel(survey) }}</strong></span>
         </div>
 
         <div class="survey-options">
           <label
-            v-for="option in survey.options.filter((item) => item.active)"
+            v-for="option in getVisibleOptions(survey)"
             :key="`${survey.id}_${option.id}`"
             class="survey-option"
             :class="{ selected: isOptionSelected(survey, option.id) }"
+            @click="handleOptionClick(survey)"
           >
             <div class="option-row">
               <template v-if="canVote(survey)">
@@ -234,9 +336,23 @@ onBeforeUnmount(() => {
           </label>
         </div>
 
+        <div v-if="hasHiddenOptions(survey)" class="options-toggle-wrap">
+          <button
+            class="more-options-btn"
+            type="button"
+            @click="toggleOptionsExpanded(survey.id)"
+          >
+            {{
+              isOptionsExpanded(survey.id)
+                ? 'Ver menos opciones'
+                : `Ver mas opciones (+${getHiddenOptionsCount(survey)})`
+            }}
+          </button>
+        </div>
+
         <footer class="survey-actions">
           <button
-            v-if="canVote(survey)"
+            v-if="canVote(survey) && survey.isMultipleChoice"
             class="vote-btn"
             :disabled="surveyStore.isVoteSubmitting(survey.id)"
             @click="submitVote(survey)"
@@ -247,6 +363,13 @@ onBeforeUnmount(() => {
                 : 'Votar'
             }}
           </button>
+
+          <p
+            v-else-if="canVote(survey) && !survey.isMultipleChoice"
+            class="survey-hint"
+          >
+            Selecciona una opcion para votar automaticamente.
+          </p>
 
           <p
             v-else-if="!isAuthenticated && getStatus(survey) === 'active'"
@@ -262,6 +385,15 @@ onBeforeUnmount(() => {
 
         <p v-if="localErrors[survey.id]" class="survey-error">{{ localErrors[survey.id] }}</p>
       </article>
+
+      <div v-if="canCycleFeaturedSurveys" class="featured-nav">
+        <span class="featured-counter">
+          Encuesta {{ featuredSurveyIndex + 1 }} de {{ featuredSurveys.length }}
+        </span>
+        <button class="more-btn" type="button" @click="goToNextFeaturedSurvey">
+          Siguiente encuesta
+        </button>
+      </div>
 
       <div v-if="!isFeaturedMode" class="survey-more">
         <button
@@ -382,10 +514,29 @@ onBeforeUnmount(() => {
   color: var(--text);
 }
 
+.countdown-value {
+  font-weight: 800;
+  color: var(--text-h);
+}
+
 .survey-options {
   margin-top: 0.85rem;
   display: grid;
   gap: 0.6rem;
+}
+
+.options-toggle-wrap {
+  margin-top: 0.55rem;
+}
+
+.more-options-btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 0.42rem 0.75rem;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .survey-option {
@@ -474,6 +625,19 @@ onBeforeUnmount(() => {
 
 .survey-more {
   text-align: center;
+}
+
+.featured-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.featured-counter {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .more-btn {

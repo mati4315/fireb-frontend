@@ -155,7 +155,7 @@ const saveModuleConfig = async () => {
 const buildPayload = (): SaveSurveyPayload => {
   const isMultipleChoice = Boolean(surveyForm.isMultipleChoice);
   const maxVotesPerUser = isMultipleChoice
-    ? Math.max(1, Math.min(20, Number(surveyForm.maxVotesPerUser || 1)))
+    ? Math.max(2, Math.min(20, Number(surveyForm.maxVotesPerUser || 2)))
     : 1;
 
   return {
@@ -194,6 +194,28 @@ const saveSurvey = async () => {
   }
 };
 
+const finalizeSurvey = async () => {
+  if (!editingSurveyId.value) return;
+
+  const confirmed = window.confirm('Seguro que quieres finalizar esta encuesta ahora?');
+  if (!confirmed) return;
+
+  resetFeedback();
+  savingSurvey.value = true;
+
+  try {
+    const payload = buildPayload();
+    payload.status = 'completed';
+    await surveyStore.updateSurvey(editingSurveyId.value, payload);
+    surveyForm.status = 'completed';
+    feedback.value = 'Encuesta finalizada correctamente.';
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo finalizar la encuesta.';
+  } finally {
+    savingSurvey.value = false;
+  }
+};
+
 const deleteSurvey = async (surveyId: string) => {
   const confirmed = window.confirm('Seguro que quieres eliminar esta encuesta?');
   if (!confirmed) return;
@@ -219,6 +241,18 @@ watch(
     moduleEnabled.value = enabled;
   },
   { immediate: true }
+);
+
+watch(
+  () => surveyForm.isMultipleChoice,
+  (enabled) => {
+    if (enabled && surveyForm.maxVotesPerUser < 2) {
+      surveyForm.maxVotesPerUser = 2;
+    }
+    if (!enabled) {
+      surveyForm.maxVotesPerUser = 1;
+    }
+  }
 );
 
 onMounted(() => {
@@ -319,7 +353,7 @@ onBeforeUnmount(() => {
                 v-model.number="surveyForm.maxVotesPerUser"
                 :disabled="!surveyForm.isMultipleChoice"
                 type="number"
-                min="1"
+                :min="surveyForm.isMultipleChoice ? 2 : 1"
                 max="20"
               />
             </label>
@@ -354,6 +388,15 @@ onBeforeUnmount(() => {
             <button class="ghost" type="button" @click="addOption">Agregar opcion</button>
             <button class="primary" :disabled="savingSurvey" @click="saveSurvey">
               {{ savingSurvey ? 'Guardando...' : editingSurveyId ? 'Actualizar encuesta' : 'Crear encuesta' }}
+            </button>
+            <button
+              v-if="editingSurveyId"
+              class="danger"
+              :disabled="savingSurvey"
+              type="button"
+              @click="finalizeSurvey"
+            >
+              Finalizar encuesta
             </button>
             <button class="ghost" :disabled="savingSurvey" @click="resetForm">Limpiar</button>
           </div>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
+import { useSurveyStore } from '@/stores/surveyStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
@@ -10,6 +11,7 @@ import SurveySection from '@/components/surveys/SurveySection.vue'
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
 const storageStore = useStorageStore()
+const surveyStore = useSurveyStore()
 
 // Form state
 const newPostTitle = ref('')
@@ -22,6 +24,18 @@ const lightboxImages = ref<string[]>([])
 const lightboxStartIndex = ref(0)
 const infiniteSentinel = ref<HTMLElement | null>(null)
 let infiniteObserver: IntersectionObserver | null = null
+
+const shouldShowSurveysTab = computed(() => {
+  if (!feedStore.isModuleEnabled('surveys')) return false
+  if (surveyStore.featuredLoading) return true
+  return Boolean(surveyStore.featuredSurvey)
+})
+
+const visibleTabs = computed(() =>
+  feedStore.availableTabs.filter(
+    (tab) => tab.key !== 'surveys' || shouldShowSurveysTab.value
+  )
+)
 
 const revokePreviewUrl = () => {
   if (!imagePreview.value) return
@@ -64,6 +78,7 @@ const setupInfiniteObserver = async () => {
 
 onMounted(async () => {
   feedStore.initFeed()
+  surveyStore.initFeaturedSurveyListener()
   await setupInfiniteObserver()
 })
 
@@ -73,6 +88,7 @@ onUnmounted(() => {
     infiniteObserver = null
   }
   revokePreviewUrl()
+  surveyStore.cleanupFeaturedSurvey()
   feedStore.cleanup()
 })
 
@@ -174,6 +190,15 @@ watch(
     await setupInfiniteObserver()
   }
 )
+
+watch(
+  () => [shouldShowSurveysTab.value, feedStore.currentTab],
+  ([showSurveysTab, currentTab]) => {
+    if (!showSurveysTab && currentTab === 'surveys') {
+      feedStore.initFeed('todo')
+    }
+  }
+)
 </script>
 
 <template>
@@ -181,7 +206,7 @@ watch(
     <!-- Tabs Section -->
     <div class="feed-tabs">
       <button
-        v-for="tab in feedStore.availableTabs"
+        v-for="tab in visibleTabs"
         :key="tab.key"
         :class="['tab-btn', { active: feedStore.currentTab === tab.key }]"
         @click="feedStore.initFeed(tab.key)"

@@ -153,7 +153,7 @@ const normalizeSurveyOptions = (value: unknown): SurveyOption[] => {
 const normalizeSurvey = (id: string, data: Record<string, unknown>): Survey => {
   const isMultipleChoice = Boolean(data.isMultipleChoice);
   const maxVotes = isMultipleChoice
-    ? clampInt(data.maxVotesPerUser, 1, 20)
+    ? clampInt(data.maxVotesPerUser, 2, 20)
     : 1;
 
   return {
@@ -233,14 +233,14 @@ export const useSurveyStore = defineStore('survey', () => {
   const votesUnsubscribe = ref<Unsubscribe | null>(null);
 
   const publicSurveys = computed(() => mergeSurveys(publicLiveSurveys.value, publicExtraSurveys.value));
-  const featuredSurvey = computed<Survey | null>(() => {
+  const featuredActiveSurveys = computed<Survey[]>(() => {
     const nowMs = featuredClockNow.value;
-    for (const survey of featuredLiveSurveys.value) {
-      if (normalizeSurveyStatusForDisplay(survey, nowMs) === 'active') {
-        return survey;
-      }
-    }
-    return null;
+    return featuredLiveSurveys.value.filter((survey) => (
+      normalizeSurveyStatusForDisplay(survey, nowMs) === 'active'
+    ));
+  });
+  const featuredSurvey = computed<Survey | null>(() => {
+    return featuredActiveSurveys.value[0] || null;
   });
 
   const ensureFeaturedClock = () => {
@@ -677,7 +677,7 @@ export const useSurveyStore = defineStore('survey', () => {
     const durationMinutes = resolveDurationMinutesFromPayload(payload.durationMinutes);
     const isMultipleChoice = Boolean(payload.isMultipleChoice);
     const maxVotesPerUser = isMultipleChoice
-      ? clampInt(payload.maxVotesPerUser, 1, 20)
+      ? clampInt(payload.maxVotesPerUser, 2, 20)
       : 1;
     const options = toPersistedOptions(payload.options, [], false);
 
@@ -722,7 +722,7 @@ export const useSurveyStore = defineStore('survey', () => {
     const durationMinutes = resolveDurationMinutesFromPayload(payload.durationMinutes);
     const isMultipleChoice = Boolean(payload.isMultipleChoice);
     const maxVotesPerUser = isMultipleChoice
-      ? clampInt(payload.maxVotesPerUser, 1, 20)
+      ? clampInt(payload.maxVotesPerUser, 2, 20)
       : 1;
 
     const options = toPersistedOptions(payload.options, existingSurvey.options, hasVotes);
@@ -791,6 +791,7 @@ export const useSurveyStore = defineStore('survey', () => {
     publicLoading,
     publicLoadingMore,
     publicHasMore,
+    featuredActiveSurveys,
     featuredSurvey,
     featuredLoading,
     adminSurveys,
