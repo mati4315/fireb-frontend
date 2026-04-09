@@ -15,9 +15,15 @@ type LotteryForm = {
   title: string;
   description: string;
   status: LotteryStatus;
-  startsAt: string;
   endsAt: string;
+  maxNumber: number;
+  maxTicketsPerUser: number;
 };
+
+const MIN_MAX_NUMBER = 10;
+const MAX_MAX_NUMBER = 200;
+const MIN_MAX_TICKETS_PER_USER = 1;
+const MAX_MAX_TICKETS_PER_USER = 5;
 
 const authStore = useAuthStore();
 const moduleStore = useModuleStore();
@@ -36,8 +42,9 @@ const lotteryForm = reactive<LotteryForm>({
   title: '',
   description: '',
   status: 'active',
-  startsAt: '',
-  endsAt: ''
+  endsAt: '',
+  maxNumber: 100,
+  maxTicketsPerUser: 1
 });
 
 const isAuthorized = computed(() => {
@@ -56,17 +63,30 @@ const resetFeedback = () => {
   errorMessage.value = '';
 };
 
-const dateToInputValue = (value: Date | null): string => {
+const dateToDateInputValue = (value: Date | null): string => {
   if (!value) return '';
-  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60 * 1000);
-  return local.toISOString().slice(0, 16);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
-const parseInputDate = (value: string): Date | null => {
+const parseInputDate = (value: string, endOfDay: boolean = false): Date | null => {
   if (!value) return null;
-  const parsed = new Date(value);
+  const parsed = new Date(endOfDay ? `${value}T23:59:59` : `${value}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed;
+};
+
+const formatReadOnlyDate = (value: Date | null): string => {
+  if (!value) return '-';
+  return new Intl.DateTimeFormat('es-AR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(value);
 };
 
 const resetForm = () => {
@@ -74,8 +94,9 @@ const resetForm = () => {
   lotteryForm.title = '';
   lotteryForm.description = '';
   lotteryForm.status = 'active';
-  lotteryForm.startsAt = '';
   lotteryForm.endsAt = '';
+  lotteryForm.maxNumber = 100;
+  lotteryForm.maxTicketsPerUser = 1;
 };
 
 const setFormFromLottery = (lottery: Lottery) => {
@@ -83,22 +104,53 @@ const setFormFromLottery = (lottery: Lottery) => {
   lotteryForm.title = lottery.title;
   lotteryForm.description = lottery.description;
   lotteryForm.status = lottery.status === 'completed' ? 'closed' : lottery.status;
-  lotteryForm.startsAt = dateToInputValue(lottery.startsAt);
-  lotteryForm.endsAt = dateToInputValue(lottery.endsAt);
+  lotteryForm.endsAt = dateToDateInputValue(lottery.endsAt);
+  lotteryForm.maxNumber = lottery.maxNumber;
+  lotteryForm.maxTicketsPerUser = lottery.maxTicketsPerUser;
 };
 
-const buildPayload = (): SaveLotteryPayload => {
-  const startsAt = parseInputDate(lotteryForm.startsAt);
-  const endsAt = parseInputDate(lotteryForm.endsAt);
+const getAvailableNumbers = (lottery: Lottery): number => {
+  return Math.max(0, lottery.maxNumber - lottery.participantsCount);
+};
 
-  if (!startsAt) {
-    throw new Error('Debes seleccionar una fecha de inicio valida.');
-  }
+const selectedEditingLottery = computed(() => {
+  if (!editingLotteryId.value) return null;
+  return lotteries.value.find((lottery) => lottery.id === editingLotteryId.value) || null;
+});
+
+const readOnlyStartDateLabel = computed(() => {
+  const source = selectedEditingLottery.value?.startsAt || new Date();
+  return formatReadOnlyDate(source);
+});
+
+const buildPayload = (): SaveLotteryPayload => {
+  const startsAt = selectedEditingLottery.value?.startsAt || new Date();
+  const endsAt = parseInputDate(lotteryForm.endsAt, true);
+  const maxNumber = Number(lotteryForm.maxNumber);
+  const maxTicketsPerUser = Number(lotteryForm.maxTicketsPerUser);
+
   if (!endsAt) {
     throw new Error('Debes seleccionar una fecha de cierre valida.');
   }
   if (endsAt.getTime() <= startsAt.getTime()) {
     throw new Error('La fecha de cierre debe ser posterior al inicio.');
+  }
+  if (!Number.isFinite(maxNumber) || Math.floor(maxNumber) !== maxNumber) {
+    throw new Error('maxNumber debe ser un entero.');
+  }
+  if (maxNumber < MIN_MAX_NUMBER || maxNumber > MAX_MAX_NUMBER) {
+    throw new Error(`maxNumber debe estar entre ${MIN_MAX_NUMBER} y ${MAX_MAX_NUMBER}.`);
+  }
+  if (!Number.isFinite(maxTicketsPerUser) || Math.floor(maxTicketsPerUser) !== maxTicketsPerUser) {
+    throw new Error('maxTicketsPerUser debe ser un entero.');
+  }
+  if (
+    maxTicketsPerUser < MIN_MAX_TICKETS_PER_USER ||
+    maxTicketsPerUser > MAX_MAX_TICKETS_PER_USER
+  ) {
+    throw new Error(
+      `maxTicketsPerUser debe estar entre ${MIN_MAX_TICKETS_PER_USER} y ${MAX_MAX_TICKETS_PER_USER}.`
+    );
   }
 
   return {
@@ -106,7 +158,9 @@ const buildPayload = (): SaveLotteryPayload => {
     description: lotteryForm.description,
     status: lotteryForm.status,
     startsAt,
-    endsAt
+    endsAt,
+    maxNumber,
+    maxTicketsPerUser
   };
 };
 
@@ -283,12 +337,35 @@ onBeforeUnmount(() => {
 
           <div class="cols-2">
             <label class="field">
-              <span>Inicio</span>
-              <input v-model="lotteryForm.startsAt" type="datetime-local" />
+              <span>Hoy</span>
+              <div class="readonly-date">{{ readOnlyStartDateLabel }}</div>
             </label>
             <label class="field">
               <span>Cierre</span>
-              <input v-model="lotteryForm.endsAt" type="datetime-local" />
+              <input v-model="lotteryForm.endsAt" type="date" />
+            </label>
+          </div>
+
+          <div class="cols-2">
+            <label class="field">
+              <span>Maximo de numeros (10-200)</span>
+              <input
+                v-model.number="lotteryForm.maxNumber"
+                type="number"
+                min="10"
+                max="200"
+                step="1"
+              />
+            </label>
+            <label class="field">
+              <span>Tickets por usuario (1-5)</span>
+              <input
+                v-model.number="lotteryForm.maxTicketsPerUser"
+                type="number"
+                min="1"
+                max="5"
+                step="1"
+              />
             </label>
           </div>
 
@@ -316,11 +393,20 @@ onBeforeUnmount(() => {
                 Participantes {{ lottery.participantsCount }}
               </small>
               <small>
+                Vendidos <strong>{{ lottery.participantsCount }} / {{ lottery.maxNumber }}</strong> |
+                Disponibles <strong>{{ getAvailableNumbers(lottery) }}</strong>
+              </small>
+              <small>
+                Limite por usuario <strong>{{ lottery.maxTicketsPerUser }}</strong> |
+                Schema v{{ lottery.entrySchemaVersion }} ({{ lottery.migrationStatus }})
+              </small>
+              <small>
                 Inicio {{ lottery.startsAt ? lottery.startsAt.toLocaleString('es-AR') : '-' }} |
                 Cierre {{ lottery.endsAt ? lottery.endsAt.toLocaleString('es-AR') : '-' }}
               </small>
               <small v-if="lottery.winner">
                 Ganador: <strong>{{ lottery.winner.userName }}</strong>
+                <span v-if="lottery.winner.selectedNumber"> | Participo con el N° {{ lottery.winner.selectedNumber }}</span>
               </small>
             </div>
 
@@ -459,6 +545,17 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 0.58rem 0.7rem;
   font: inherit;
+}
+
+.readonly-date {
+  border: 1px dashed var(--border);
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  border-radius: 10px;
+  padding: 0.58rem 0.7rem;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
 }
 
 .actions {
