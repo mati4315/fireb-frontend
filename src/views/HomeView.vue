@@ -19,6 +19,7 @@ import {
   processImageForPost,
   validateImageFile
 } from '@/utils/imageProcessing'
+import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -306,6 +307,49 @@ const handleCreatePost = async () => {
       err instanceof Error ? err.message : 'No se pudo publicar. Intenta nuevamente.'
   } finally {
     creatingPost.value = false
+  }
+}
+
+const isAdmin = computed(() => authStore.userProfile?.rol === 'admin')
+
+const getPostMenuOptions = (item: any): MenuOption[] => {
+  const isOwner = authStore.user?.uid === item.userId
+  const options: MenuOption[] = []
+  
+  if (isOwner || isAdmin.value) {
+    if (item.type === 'post') {
+      options.push({ id: 'edit', label: 'Editar' })
+    }
+    options.push({ 
+      id: 'delete', 
+      label: 'Eliminar', 
+      danger: true,
+      requiresConfirm: true,
+      confirmTitle: 'Eliminar publicación',
+      confirmMsg: '¿Seguro que deseas eliminar esta publicación? Esta acción no se puede deshacer.',
+      confirmButtonText: 'Eliminar'
+    })
+  }
+  return options
+}
+
+const handlePostMenuAction = async (actionId: string, item: any) => {
+  if (actionId === 'delete') {
+    try {
+      await feedStore.deletePost(item.id)
+    } catch (e: any) {
+      console.error('Error deleting post:', e)
+    }
+  } else if (actionId === 'edit') {
+    const newTitle = prompt('Editar título:', item.titulo || '')
+    const newContent = prompt('Editar descripción:', item.descripcion || '')
+    if (newContent !== null && newContent.trim() !== '') {
+      try {
+        await feedStore.editPost(item.id, newTitle || '', newContent)
+      } catch (e: any) {
+        console.error('Error editing post:', e)
+      }
+    }
   }
 }
 
@@ -650,7 +694,14 @@ watch(
               <span class="post-date">{{ formatDate(item.createdAt) }}</span>
             </div>
           </div>
-          <div v-if="item.type === 'news'" class="tag news">Noticia</div>
+          <div class="post-header-actions">
+            <div v-if="item.type === 'news'" class="tag news">Noticia</div>
+            <OptionsMenu
+              v-if="getPostMenuOptions(item).length > 0"
+              :options="getPostMenuOptions(item)"
+              @action="handlePostMenuAction($event, item)"
+            />
+          </div>
         </header>
 
         <div class="post-content">
@@ -1001,6 +1052,12 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+}
+
+.post-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .post-user {

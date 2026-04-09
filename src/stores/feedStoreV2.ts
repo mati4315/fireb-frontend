@@ -233,6 +233,42 @@ export const useFeedStore = defineStore('feed', () => {
     return { id: docRef.id, ...newPost };
   };
 
+  const deletePost = async (postId: string) => {
+    if (!authStore.user) {
+      throw new Error('No autenticado');
+    }
+    const { doc, updateDoc } = await import('firebase/firestore');
+    await updateDoc(doc(db, 'content', postId), {
+      deletedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+
+    // Remove locally
+    contentItems.value = contentItems.value.filter(item => item.id !== postId);
+    rebuildMergedFeed();
+  };
+
+  const editPost = async (postId: string, title: string, content: string) => {
+    if (!authStore.user) {
+      throw new Error('No autenticado');
+    }
+    const { doc, updateDoc } = await import('firebase/firestore');
+    await updateDoc(doc(db, 'content', postId), {
+      titulo: title,
+      descripcion: content,
+      updatedAt: serverTimestamp()
+    });
+
+    // Update locally
+    const existing = contentItems.value.find(item => item.id === postId);
+    if (existing) {
+      existing.titulo = title;
+      existing.descripcion = content;
+      existing.updatedAt = new Date().toISOString(); // local approximation
+      rebuildMergedFeed();
+    }
+  };
+
   const trackAdImpression = (item: AdFeedItem) => {
     if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
     adsStore.trackAdImpression(
@@ -306,6 +342,8 @@ export const useFeedStore = defineStore('feed', () => {
     initFeed,
     loadMore,
     createPost,
+    deletePost,
+    editPost,
     trackAdImpression,
     trackAdClick,
     cleanup

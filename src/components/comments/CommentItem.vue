@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -58,6 +59,30 @@ const toggleExpandedText = () => {
   expandedText.value = !expandedText.value;
 };
 
+const getCommentMenuOptions = computed<MenuOption[]>(() => {
+  const options: MenuOption[] = [];
+  if (props.canEdit) {
+    options.push({ id: 'edit', label: 'Editar' });
+  }
+  if (props.canDelete) {
+    options.push({
+      id: 'delete',
+      label: 'Eliminar',
+      danger: true,
+      requiresConfirm: true,
+      confirmTitle: 'Eliminar comentario',
+      confirmMsg: '¿Seguro que deseas eliminar este comentario?',
+      confirmButtonText: 'Eliminar'
+    });
+  }
+  return options;
+});
+
+const handleCommentMenuAction = (actionId: string) => {
+  if (actionId === 'edit') emit('edit');
+  if (actionId === 'delete') emit('remove');
+};
+
 watch(
   () => props.item.id,
   () => {
@@ -90,7 +115,14 @@ const formatDate = (value: any) => {
           <span>{{ formatDate(item.createdAt) }}</span>
         </div>
       </div>
-      <span v-if="item.isEdited" class="edited">Editado</span>
+      <div class="comment-head-actions">
+        <span v-if="item.isEdited" class="edited">Editado</span>
+        <OptionsMenu
+          v-if="getCommentMenuOptions.length > 0"
+          :options="getCommentMenuOptions"
+          @action="handleCommentMenuAction"
+        />
+      </div>
     </header>
 
     <p class="text">{{ visibleText }}</p>
@@ -107,12 +139,6 @@ const formatDate = (value: any) => {
     <footer v-if="showActions" class="actions">
       <button v-if="canReply" class="action-btn" type="button" @click="emit('reply')">
         Responder
-      </button>
-      <button v-if="canEdit" class="action-btn" type="button" @click="emit('edit')">
-        Editar
-      </button>
-      <button v-if="canDelete" class="action-btn danger" type="button" @click="emit('remove')">
-        Eliminar
       </button>
       <span v-if="!isReply && repliesCount > 0" class="count">
         {{ repliesCount }} respuestas
@@ -138,6 +164,12 @@ const formatDate = (value: any) => {
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+}
+
+.comment-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .user {
