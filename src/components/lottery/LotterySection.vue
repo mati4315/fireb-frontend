@@ -122,6 +122,12 @@ const getAvailableCount = (lottery: Lottery): number => {
   return Math.max(0, lottery.maxNumber - lottery.participantsCount);
 };
 
+const getSoldProgressPercent = (lottery: Lottery): number => {
+  if (lottery.maxNumber <= 0) return 0;
+  const ratio = (lottery.participantsCount / lottery.maxNumber) * 100;
+  return Math.max(0, Math.min(100, Math.round(ratio)));
+};
+
 const getUserTicketCount = (lotteryId: string): number => {
   return lotteryStore.getUserTicketsCount(lotteryId);
 };
@@ -356,6 +362,15 @@ onBeforeUnmount(() => {
         :key="lottery.id"
         class="lottery-card"
       >
+        <div v-if="lottery.imageUrl" class="lottery-cover-wrap">
+          <img
+            :src="lottery.imageUrl"
+            alt="Imagen de loteria"
+            class="lottery-cover"
+            loading="lazy"
+          />
+        </div>
+
         <header class="lottery-head">
           <div>
             <h3>{{ lottery.title }}</h3>
@@ -373,6 +388,16 @@ onBeforeUnmount(() => {
           <span>Disponibles: <strong>{{ getAvailableCount(lottery) }}</strong></span>
           <span>Tiempo: <strong>{{ getCountdownLabel(lottery) }}</strong></span>
           <span>Tus numeros: <strong>{{ getUserNumbersLabel(lottery.id) }}</strong></span>
+        </div>
+
+        <div class="lottery-progress">
+          <div class="progress-top">
+            <strong>{{ getSoldProgressPercent(lottery) }}%</strong>
+            <span>{{ lottery.participantsCount }} vendidos / {{ getAvailableCount(lottery) }} disponibles</span>
+          </div>
+          <div class="progress-track" role="progressbar" :aria-valuenow="getSoldProgressPercent(lottery)" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-fill" :style="{ width: `${getSoldProgressPercent(lottery)}%` }"></div>
+          </div>
         </div>
 
         <div v-if="lottery.winner" class="winner-banner">
@@ -586,6 +611,19 @@ onBeforeUnmount(() => {
   border-radius: 18px;
   background: var(--card-bg);
   padding: 1rem;
+  overflow: hidden;
+}
+
+.lottery-cover-wrap {
+  margin: -1rem -1rem 0.85rem;
+  height: 150px;
+  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+}
+
+.lottery-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .lottery-head {
@@ -639,6 +677,40 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
   color: var(--text);
   font-size: 0.86rem;
+}
+
+.lottery-progress {
+  margin-top: 0.8rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 70%, white 30%);
+}
+
+.progress-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--text-h);
+  font-size: 0.83rem;
+}
+
+.progress-track {
+  margin-top: 0.45rem;
+  width: 100%;
+  height: 9px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #16a34a, #15803d);
+  transition: width 0.25s ease;
 }
 
 .winner-banner {

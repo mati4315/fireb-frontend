@@ -4,7 +4,6 @@ import {
   Timestamp,
   addDoc,
   collection,
-  collectionGroup,
   doc,
   getDocs,
   limit,
@@ -36,6 +35,7 @@ export type Lottery = {
   id: string;
   title: string;
   description: string;
+  imageUrl: string;
   status: LotteryStatus;
   startsAt: Date | null;
   endsAt: Date | null;
@@ -72,6 +72,7 @@ export type LotteryNumberCell = {
 export type SaveLotteryPayload = {
   title: string;
   description: string;
+  imageUrl?: string;
   status: LotteryStatus;
   startsAt: Date;
   endsAt: Date;
@@ -102,7 +103,6 @@ type DrawLotteryWinnerResponse = {
 const PUBLIC_PAGE_SIZE = 20;
 const ADMIN_PAGE_SIZE = 120;
 const NUMBER_PAGE_SIZE = 50;
-const USER_ENTRIES_LIMIT = 500;
 const DEFAULT_MAX_NUMBER = 100;
 const DEFAULT_MAX_TICKETS_PER_USER = 1;
 const MIN_MAX_NUMBER = 10;
@@ -179,6 +179,7 @@ const normalizeLottery = (id: string, data: Record<string, unknown>): Lottery =>
     id,
     title: typeof data.title === 'string' ? data.title.trim() : '',
     description: typeof data.description === 'string' ? data.description.trim() : '',
+    imageUrl: typeof data.imageUrl === 'string' ? data.imageUrl.trim() : '',
     status: normalizeStatus(data.status),
     startsAt: toDate(data.startsAt),
     endsAt: toDate(data.endsAt),
@@ -444,48 +445,60 @@ export const useLotteryStore = defineStore('lottery', () => {
       return;
     }
 
-    const joinedQuery = query(
-      collectionGroup(db, 'entries'),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc'),
-      limit(USER_ENTRIES_LIMIT)
-    );
-
-    userEntriesUnsubscribe.value = onSnapshot(
-      joinedQuery,
-      (snapshot) => {
-        const grouped: Record<string, number[]> = {};
-
-        for (const entryDoc of snapshot.docs) {
-          const data = entryDoc.data() || {};
-          const lotteryId = typeof data.lotteryId === 'string'
-            ? data.lotteryId
-            : entryDoc.ref.parent.parent?.id || '';
-          if (!lotteryId) continue;
-
-          const selectedNumber = parseSelectedNumber(data.selectedNumber)
-            || parseSelectedNumber(entryDoc.id.replace(/^n_/, ''));
-          if (!selectedNumber) continue;
-
-          if (!grouped[lotteryId]) grouped[lotteryId] = [];
-          grouped[lotteryId].push(selectedNumber);
-        }
-
-        const nextNumbers: Record<string, number[]> = {};
-        const nextCounts: Record<string, number> = {};
-        for (const [lotteryId, numbers] of Object.entries(grouped)) {
-          const normalized = Array.from(new Set(numbers)).sort((a, b) => a - b);
-          nextNumbers[lotteryId] = normalized;
-          nextCounts[lotteryId] = normalized.length;
-        }
-
-        userNumbersByLottery.value = nextNumbers;
-        userTicketsCountByLottery.value = nextCounts;
-      },
-      (error) => {
-        console.error('Error loading user lottery numbers:', error);
+    const reloadFromKnownLotteries = async () => {
+      const uniqueLotteryIds = Array.from(
+        new Set([
+          ...publicLotteries.value.map((lottery) => lottery.id),
+          ...adminLotteries.value.map((lottery) => lottery.id)
+        ])
+      );
+      if (uniqueLotteryIds.length === 0) {
+        userNumbersByLottery.value = {};
+        userTicketsCountByLottery.value = {};
+        return;
       }
-    );
+
+      const grouped: Record<string, number[]> = {};
+      await Promise.all(
+        uniqueLotteryIds.map(async (lotteryId) => {
+          try {
+            const perLotteryQuery = query(
+              collection(db, 'lotteries', lotteryId, 'entries'),
+              where('userId', '==', userId),
+              limit(MAX_MAX_TICKETS_PER_USER + 2)
+            );
+            const snapshot = await getDocs(perLotteryQuery);
+            if (snapshot.empty) return;
+
+            grouped[lotteryId] = snapshot.docs
+              .map((entryDoc) => {
+                const data = entryDoc.data() || {};
+                return parseSelectedNumber(data.selectedNumber)
+                  || parseSelectedNumber(entryDoc.id.replace(/^n_/, ''));
+              })
+              .filter((value): value is number => value != null)
+              .sort((a, b) => a - b);
+          } catch {
+            // Best effort por loteria.
+          }
+        })
+      );
+
+      const nextNumbers: Record<string, number[]> = {};
+      const nextCounts: Record<string, number> = {};
+      for (const [lotteryId, numbers] of Object.entries(grouped)) {
+        const normalized = Array.from(new Set(numbers)).sort((a, b) => a - b);
+        if (normalized.length === 0) continue;
+        nextNumbers[lotteryId] = normalized;
+        nextCounts[lotteryId] = normalized.length;
+      }
+
+      userNumbersByLottery.value = nextNumbers;
+      userTicketsCountByLottery.value = nextCounts;
+    };
+
+    void reloadFromKnownLotteries();
+    userEntriesUnsubscribe.value = null;
   };
 
   watch(
@@ -494,6 +507,18 @@ export const useLotteryStore = defineStore('lottery', () => {
       initUserEntriesListener();
     },
     { immediate: true }
+  );
+
+  watch(
+    () => ({
+      publicIds: publicLotteries.value.map((lottery) => lottery.id).join(','),
+      adminIds: adminLotteries.value.map((lottery) => lottery.id).join(','),
+      uid: authStore.user?.uid || ''
+    }),
+    () => {
+      if (!authStore.user?.uid) return;
+      void initUserEntriesListener();
+    }
   );
 
   const isLotteryOpenForEntry = (lottery: Lottery, nowMs: number = Date.now()): boolean => {
@@ -815,6 +840,9 @@ export const useLotteryStore = defineStore('lottery', () => {
   const validateLotteryPayload = (payload: SaveLotteryPayload) => {
     const title = trimLimited(payload.title, 150);
     const description = trimLimited(payload.description, 2000);
+    const imageUrl = typeof payload.imageUrl === 'string'
+      ? trimLimited(payload.imageUrl, 2000)
+      : '';
 
     if (!title) {
       throw new Error('El titulo es obligatorio.');
@@ -856,6 +884,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       startsAt: payload.startsAt,
       endsAt: payload.endsAt,
       status: payload.status,
+      imageUrl,
       maxNumber,
       maxTicketsPerUser
     };
@@ -868,6 +897,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     await addDoc(collection(db, 'lotteries'), {
       title: sanitized.title,
       description: sanitized.description,
+      imageUrl: sanitized.imageUrl || '',
       status: sanitized.status,
       startsAt: Timestamp.fromDate(sanitized.startsAt),
       endsAt: Timestamp.fromDate(sanitized.endsAt),
@@ -894,6 +924,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       {
         title: sanitized.title,
         description: sanitized.description,
+        imageUrl: sanitized.imageUrl || '',
         status: sanitized.status,
         startsAt: Timestamp.fromDate(sanitized.startsAt),
         endsAt: Timestamp.fromDate(sanitized.endsAt),

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useModuleStore } from '@/stores/moduleStore';
+import { useStorageStore } from '@/stores/storageStore';
 import {
   useLotteryStore,
   type Lottery,
@@ -14,6 +15,7 @@ import { isStaffUser } from '@/utils/roles';
 type LotteryForm = {
   title: string;
   description: string;
+  imageUrl: string;
   status: LotteryStatus;
   endsAt: string;
   maxNumber: number;
@@ -28,6 +30,7 @@ const MAX_MAX_TICKETS_PER_USER = 5;
 const authStore = useAuthStore();
 const moduleStore = useModuleStore();
 const lotteryStore = useLotteryStore();
+const storageStore = useStorageStore();
 
 const moduleEnabled = ref(true);
 const savingConfig = ref(false);
@@ -37,10 +40,15 @@ const drawingLotteryId = ref<string | null>(null);
 const editingLotteryId = ref<string | null>(null);
 const feedback = ref('');
 const errorMessage = ref('');
+const logoFile = ref<File | null>(null);
+const logoPreviewUrl = ref('');
+const logoPreviewObjectUrl = ref<string | null>(null);
+const logoInputRef = ref<HTMLInputElement | null>(null);
 
 const lotteryForm = reactive<LotteryForm>({
   title: '',
   description: '',
+  imageUrl: '',
   status: 'active',
   endsAt: '',
   maxNumber: 100,
@@ -78,6 +86,55 @@ const parseInputDate = (value: string, endOfDay: boolean = false): Date | null =
   return parsed;
 };
 
+const cropLogoToSquare = async (file: File): Promise<File> => {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('No se pudo leer la imagen del logo.'));
+      img.src = objectUrl;
+    });
+
+    const sourceSize = Math.min(image.naturalWidth, image.naturalHeight);
+    if (!sourceSize || sourceSize < 2) {
+      throw new Error('Imagen de logo invalida.');
+    }
+
+    const sx = Math.floor((image.naturalWidth - sourceSize) / 2);
+    const sy = Math.floor((image.naturalHeight - sourceSize) / 2);
+    const targetSize = 720;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetSize;
+    canvas.height = targetSize;
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('No se pudo preparar el recorte del logo.');
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+    context.drawImage(image, sx, sy, sourceSize, sourceSize, 0, 0, targetSize, targetSize);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/webp', 0.92);
+    });
+    if (!blob) {
+      throw new Error('No se pudo exportar el logo recortado.');
+    }
+
+    const safeName = (file.name || 'lottery_logo').replace(/\.[^/.]+$/, '');
+    return new File([blob], `${safeName}.webp`, {
+      type: 'image/webp',
+      lastModified: Date.now()
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
 const formatReadOnlyDate = (value: Date | null): string => {
   if (!value) return '-';
   return new Intl.DateTimeFormat('es-AR', {
@@ -90,23 +147,43 @@ const formatReadOnlyDate = (value: Date | null): string => {
 };
 
 const resetForm = () => {
+  if (logoPreviewObjectUrl.value) {
+    URL.revokeObjectURL(logoPreviewObjectUrl.value);
+    logoPreviewObjectUrl.value = null;
+  }
   editingLotteryId.value = null;
   lotteryForm.title = '';
   lotteryForm.description = '';
+  lotteryForm.imageUrl = '';
   lotteryForm.status = 'active';
   lotteryForm.endsAt = '';
   lotteryForm.maxNumber = 100;
   lotteryForm.maxTicketsPerUser = 1;
+  logoFile.value = null;
+  logoPreviewUrl.value = '';
+  if (logoInputRef.value) {
+    logoInputRef.value.value = '';
+  }
 };
 
 const setFormFromLottery = (lottery: Lottery) => {
+  if (logoPreviewObjectUrl.value) {
+    URL.revokeObjectURL(logoPreviewObjectUrl.value);
+    logoPreviewObjectUrl.value = null;
+  }
   editingLotteryId.value = lottery.id;
   lotteryForm.title = lottery.title;
   lotteryForm.description = lottery.description;
+  lotteryForm.imageUrl = lottery.imageUrl || '';
   lotteryForm.status = lottery.status === 'completed' ? 'closed' : lottery.status;
   lotteryForm.endsAt = dateToDateInputValue(lottery.endsAt);
   lotteryForm.maxNumber = lottery.maxNumber;
   lotteryForm.maxTicketsPerUser = lottery.maxTicketsPerUser;
+  logoFile.value = null;
+  logoPreviewUrl.value = lottery.imageUrl || '';
+  if (logoInputRef.value) {
+    logoInputRef.value.value = '';
+  }
 };
 
 const getAvailableNumbers = (lottery: Lottery): number => {
@@ -123,7 +200,7 @@ const readOnlyStartDateLabel = computed(() => {
   return formatReadOnlyDate(source);
 });
 
-const buildPayload = (): SaveLotteryPayload => {
+const buildPayload = (imageUrl: string): SaveLotteryPayload => {
   const startsAt = selectedEditingLottery.value?.startsAt || new Date();
   const endsAt = parseInputDate(lotteryForm.endsAt, true);
   const maxNumber = Number(lotteryForm.maxNumber);
@@ -156,6 +233,7 @@ const buildPayload = (): SaveLotteryPayload => {
   return {
     title: lotteryForm.title,
     description: lotteryForm.description,
+    imageUrl,
     status: lotteryForm.status,
     startsAt,
     endsAt,
@@ -164,17 +242,73 @@ const buildPayload = (): SaveLotteryPayload => {
   };
 };
 
+const handleLogoFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const selected = target.files?.[0] || null;
+  if (!selected) return;
+
+  if (!selected.type.startsWith('image/')) {
+    errorMessage.value = 'El logo debe ser una imagen valida.';
+    target.value = '';
+    return;
+  }
+  if (selected.size > 5 * 1024 * 1024) {
+    errorMessage.value = 'El logo no puede superar 5MB.';
+    target.value = '';
+    return;
+  }
+
+  errorMessage.value = '';
+  logoFile.value = selected;
+  if (logoPreviewObjectUrl.value) {
+    URL.revokeObjectURL(logoPreviewObjectUrl.value);
+  }
+  logoPreviewObjectUrl.value = URL.createObjectURL(selected);
+  logoPreviewUrl.value = logoPreviewObjectUrl.value;
+};
+
+const clearLogoSelection = () => {
+  if (logoPreviewObjectUrl.value) {
+    URL.revokeObjectURL(logoPreviewObjectUrl.value);
+    logoPreviewObjectUrl.value = null;
+  }
+  logoFile.value = null;
+  logoPreviewUrl.value = '';
+  lotteryForm.imageUrl = '';
+  if (logoInputRef.value) {
+    logoInputRef.value.value = '';
+  }
+};
+
 const saveLottery = async () => {
   resetFeedback();
   savingLottery.value = true;
   try {
-    const payload = buildPayload();
+    let finalImageUrl = lotteryForm.imageUrl || '';
+    let uploadWarning = '';
+    if (logoFile.value) {
+      try {
+        const processedLogo = await cropLogoToSquare(logoFile.value);
+        const ownerId = authStore.user?.uid || 'staff';
+        const extension = (processedLogo.name.split('.').pop() || 'webp').toLowerCase();
+        const path = `posts/${ownerId}/lotteries/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
+        const uploaded = await storageStore.uploadFileWithProgress(processedLogo, path);
+        finalImageUrl = uploaded.url;
+      } catch {
+        uploadWarning = 'No se pudo subir el logo. La loteria se guardo sin imagen.';
+      }
+    }
+
+    const payload = buildPayload(finalImageUrl.trim());
     if (editingLotteryId.value) {
       await lotteryStore.updateLottery(editingLotteryId.value, payload);
       feedback.value = 'Loteria actualizada.';
     } else {
       await lotteryStore.createLottery(payload);
       feedback.value = 'Loteria creada.';
+    }
+    if (uploadWarning) {
+      feedback.value = `${feedback.value} ${uploadWarning}`.trim();
     }
     resetForm();
   } catch (error: any) {
@@ -267,6 +401,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  if (logoPreviewObjectUrl.value) {
+    URL.revokeObjectURL(logoPreviewObjectUrl.value);
+    logoPreviewObjectUrl.value = null;
+  }
   lotteryStore.cleanupAdminLotteries();
 });
 </script>
@@ -327,6 +465,24 @@ onBeforeUnmount(() => {
           </label>
 
           <label class="field">
+            <span>Logo opcional</span>
+            <input
+              ref="logoInputRef"
+              type="file"
+              accept="image/*"
+              @change="handleLogoFileSelect"
+            />
+            <small class="field-hint">PNG/JPG/WebP hasta 5MB.</small>
+          </label>
+
+          <div v-if="logoPreviewUrl || lotteryForm.imageUrl" class="logo-preview-wrap">
+            <img :src="logoPreviewUrl || lotteryForm.imageUrl" alt="Logo loteria" class="logo-preview" />
+            <button class="ghost danger-outline" type="button" @click="clearLogoSelection">
+              Quitar logo
+            </button>
+          </div>
+
+          <label class="field">
             <span>Estado inicial</span>
             <select v-model="lotteryForm.status">
               <option value="draft">Borrador</option>
@@ -371,7 +527,11 @@ onBeforeUnmount(() => {
 
           <div class="actions">
             <button class="primary" :disabled="savingLottery" @click="saveLottery">
-              {{ savingLottery ? 'Guardando...' : editingLotteryId ? 'Actualizar loteria' : 'Crear loteria' }}
+              {{
+                savingLottery
+                  ? `Guardando... ${storageStore.uploading ? `${Math.round(storageStore.uploadProgress)}%` : ''}`
+                  : editingLotteryId ? 'Actualizar loteria' : 'Crear loteria'
+              }}
             </button>
             <button class="ghost" :disabled="savingLottery" @click="resetForm">Limpiar</button>
           </div>
@@ -385,6 +545,13 @@ onBeforeUnmount(() => {
 
         <div v-else class="lottery-list">
           <div v-for="lottery in lotteries" :key="lottery.id" class="lottery-item">
+            <img
+              v-if="lottery.imageUrl"
+              :src="lottery.imageUrl"
+              alt="Logo loteria"
+              class="lottery-thumb"
+              loading="lazy"
+            />
             <div class="lottery-main">
               <h3>{{ lottery.title || 'Sin titulo' }}</h3>
               <p>{{ lottery.description || 'Sin descripcion' }}</p>
@@ -536,6 +703,12 @@ onBeforeUnmount(() => {
   font-size: 0.92rem;
 }
 
+.field-hint {
+  color: var(--text);
+  opacity: 0.7;
+  font-size: 0.8rem;
+}
+
 .field input,
 .field textarea,
 .field select {
@@ -556,6 +729,22 @@ onBeforeUnmount(() => {
   font-weight: 600;
   pointer-events: none;
   user-select: none;
+}
+
+.logo-preview-wrap {
+  margin-top: 0.7rem;
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.logo-preview {
+  width: 86px;
+  height: 86px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--border);
 }
 
 .actions {
@@ -584,6 +773,11 @@ button.ghost {
   border: 1px solid var(--border);
 }
 
+button.ghost.danger-outline {
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
 button.danger {
   background: #991b1b;
   color: #fff;
@@ -610,6 +804,14 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.lottery-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--border);
 }
 
 .lottery-main h3 {
