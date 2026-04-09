@@ -53,7 +53,7 @@ export const useFeedStore = defineStore('feed', () => {
   const getTabConstraints = (tab: FeedTab): QueryConstraint[] => {
     const constraints: QueryConstraint[] = [where('deletedAt', '==', null)];
 
-    if (tab !== 'todo' && tab !== 'surveys') {
+    if (tab !== 'todo' && tab !== 'surveys' && tab !== 'lottery') {
       const cfg = tabConfig[tab];
       constraints.push(where('module', '==', cfg.module));
     }
@@ -69,7 +69,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const rebuildMergedFeed = () => {
-    if (currentTab.value === 'surveys') {
+    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') {
       allItems.value = [];
       return;
     }
@@ -104,9 +104,9 @@ export const useFeedStore = defineStore('feed', () => {
     contentItems.value = [];
     allItems.value = [];
     loading.value = true;
-    hasMore.value = safeTab !== 'surveys';
+    hasMore.value = safeTab !== 'surveys' && safeTab !== 'lottery';
 
-    if (safeTab === 'surveys') {
+    if (safeTab === 'surveys' || safeTab === 'lottery') {
       loading.value = false;
       return;
     }
@@ -136,7 +136,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const loadMore = async () => {
-    if (currentTab.value === 'surveys') return;
+    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
     if (!hasMore.value || loading.value || contentItems.value.length === 0) return;
 
     const lastContentItem = contentItems.value[contentItems.value.length - 1];
@@ -194,9 +194,18 @@ export const useFeedStore = defineStore('feed', () => {
       throw new Error('El modulo comunidad esta deshabilitado');
     }
 
-    if (!authStore.user || !authStore.userProfile) {
+    if (!authStore.user) {
       throw new Error('No autenticado');
     }
+
+    const fallbackName =
+      authStore.user.displayName ||
+      authStore.user.email?.split('@')[0] ||
+      'Usuario';
+    const safeUserName =
+      authStore.userProfile?.nombre?.trim() || fallbackName.trim();
+    const safeProfilePic =
+      authStore.userProfile?.profilePictureUrl || authStore.user.photoURL || '';
 
     const newPost = {
       type: 'post',
@@ -208,8 +217,8 @@ export const useFeedStore = defineStore('feed', () => {
       images: images || [],
       imagesV2: imagesV2 || [],
       userId: authStore.user.uid,
-      userName: authStore.userProfile.nombre,
-      userProfilePicUrl: authStore.userProfile.profilePictureUrl,
+      userName: safeUserName,
+      userProfilePicUrl: safeProfilePic,
       stats: {
         likesCount: 0,
         commentsCount: 0,
@@ -225,7 +234,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdImpression = (item: AdFeedItem) => {
-    if (currentTab.value === 'surveys') return;
+    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
     adsStore.trackAdImpression(
       item,
       currentTab.value as FeedTabKey,
@@ -234,7 +243,7 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdClick = (item: AdFeedItem) => {
-    if (currentTab.value === 'surveys') return;
+    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
     adsStore.trackAdClick(
       item,
       currentTab.value as FeedTabKey,
@@ -266,9 +275,12 @@ export const useFeedStore = defineStore('feed', () => {
   );
 
   const isModuleEnabled = (
-    moduleName: 'news' | 'community' | 'comments' | 'surveys' | 'ads'
+    moduleName: 'news' | 'community' | 'likes' | 'comments' | 'surveys' | 'lottery' | 'ads'
   ) =>
     moduleStore.isModuleEnabled(moduleName);
+
+  const isLikesEnabledForModule = (moduleName: 'news' | 'community') =>
+    moduleStore.isLikesEnabledForModule(moduleName);
 
   const isCommentsEnabledForModule = (moduleName: 'news' | 'community') =>
     moduleStore.isCommentsEnabledForModule(moduleName);
@@ -289,6 +301,7 @@ export const useFeedStore = defineStore('feed', () => {
     hasMore,
     availableTabs,
     isModuleEnabled,
+    isLikesEnabledForModule,
     isCommentsEnabledForModule,
     initFeed,
     loadMore,

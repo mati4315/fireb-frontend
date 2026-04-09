@@ -6,6 +6,8 @@ import {
   signOut,
   onAuthStateChanged,
   GoogleAuthProvider,
+  FacebookAuthProvider,
+  OAuthProvider,
   signInWithRedirect,
   getRedirectResult
 } from 'firebase/auth';
@@ -20,6 +22,31 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null);
 
   const isAuthenticated = computed(() => !!user.value);
+  const socialProviders = computed(() => {
+    const raw = (import.meta.env.VITE_AUTH_SOCIAL_PROVIDERS || 'google.com') as string;
+    const unique = new Set(
+      raw
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    if (unique.size === 0) {
+      unique.add('google.com');
+    }
+
+    const metaByProviderId: Record<string, { label: string }> = {
+      'google.com': { label: 'Google' },
+      'facebook.com': { label: 'Facebook' },
+      'apple.com': { label: 'Apple' },
+      'github.com': { label: 'GitHub' }
+    };
+
+    return Array.from(unique).map((id) => ({
+      id,
+      label: metaByProviderId[id]?.label || id
+    }));
+  });
 
   const refreshTokenClaims = async (firebaseUser: any, forceRefresh = false) => {
     try {
@@ -201,12 +228,19 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithProvider = async (providerId: string) => {
     loading.value = true;
     error.value = null;
 
     try {
-      const provider = new GoogleAuthProvider();
+      let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
+      if (providerId === 'google.com') {
+        provider = new GoogleAuthProvider();
+      } else if (providerId === 'facebook.com') {
+        provider = new FacebookAuthProvider();
+      } else {
+        provider = new OAuthProvider(providerId);
+      }
       // Usar redirect en vez de popup para evitar bloqueos de COOP en localhost
       await signInWithRedirect(auth, provider);
       // La página se recargará, el resultado se maneja en initAuthListener
@@ -215,6 +249,10 @@ export const useAuthStore = defineStore('auth', () => {
       loading.value = false;
       return { success: false, error: err.message };
     }
+  };
+
+  const loginWithGoogle = async () => {
+    return loginWithProvider('google.com');
   };
 
   const logout = async () => {
@@ -235,9 +273,11 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     isAuthenticated,
+    socialProviders,
     initAuthListener,
     login,
     signup,
+    loginWithProvider,
     loginWithGoogle,
     logout
   };

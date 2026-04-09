@@ -4,10 +4,14 @@ import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
 import { useSurveyStore } from '@/stores/surveyStore'
+import { useLotteryStore } from '@/stores/lotteryStore'
 import { useCommentStore } from '@/stores/commentStore'
+import { useLikesStore } from '@/stores/likesStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
+import AuthPromptModal from '@/components/common/AuthPromptModal.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
+import LotterySection from '@/components/lottery/LotterySection.vue'
 import CommentSection from '@/components/comments/CommentSection.vue'
 import CommentPreviewList from '@/components/comments/CommentPreviewList.vue'
 import {
@@ -20,7 +24,9 @@ const feedStore = useFeedStore()
 const authStore = useAuthStore()
 const storageStore = useStorageStore()
 const surveyStore = useSurveyStore()
+const lotteryStore = useLotteryStore()
 const commentStore = useCommentStore()
+const likesStore = useLikesStore()
 
 // Form state
 const newPostTitle = ref('')
@@ -36,6 +42,7 @@ const lightboxImages = ref<string[]>([])
 const lightboxStartIndex = ref(0)
 const infiniteSentinel = ref<HTMLElement | null>(null)
 const expandedComments = ref<Record<string, boolean>>({})
+const showLikeLoginPrompt = ref(false)
 let infiniteObserver: IntersectionObserver | null = null
 
 const shouldShowSurveysTab = computed(() => {
@@ -105,6 +112,7 @@ onUnmounted(() => {
   }
   revokeSelectedImagePreviews()
   surveyStore.cleanupFeaturedSurvey()
+  lotteryStore.cleanupPublicLotteries()
   feedStore.cleanup()
 })
 
@@ -325,7 +333,72 @@ const closeLightbox = () => {
 const resolveContentModule = (item: any): 'news' | 'community' | null => {
   const moduleName = item?.module
   if (moduleName === 'news' || moduleName === 'community') return moduleName
+  if (item?.type === 'news') return 'news'
+  if (item?.type === 'post') return 'community'
   return null
+}
+
+const isLikesEnabledForItem = (item: any): boolean => {
+  const moduleName = resolveContentModule(item)
+  if (!moduleName) return false
+  return likesStore.isLikesEnabledForModule(moduleName)
+}
+
+const isLikePendingForItem = (item: any): boolean => likesStore.isLikePending(item.id)
+
+const isLikedByMe = (item: any): boolean => likesStore.isLiked(item.id)
+
+const getLikeErrorMessage = (item: any): string | null => likesStore.getLikeError(item.id)
+
+const getLikesCount = (item: any): number => {
+  const parsed = Number(item?.stats?.likesCount ?? 0)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, Math.floor(parsed))
+}
+
+const primeVisibleLikes = async () => {
+  if (!authStore.user?.uid) return
+
+  const contentIds = feedStore.allItems
+    .filter((item) => !item.isAd && isLikesEnabledForItem(item))
+    .map((item) => item.id)
+
+  if (contentIds.length === 0) return
+  await likesStore.primeLikesForContentIds(contentIds)
+}
+
+const handleToggleLike = async (item: any) => {
+  if (!authStore.isAuthenticated) {
+    showLikeLoginPrompt.value = true
+    return
+  }
+  if (!isLikesEnabledForItem(item)) return
+  if (likesStore.isLikePending(item.id)) return
+
+  try {
+    await likesStore.primeLikesForContentIds([item.id])
+    const previousCount = getLikesCount(item)
+    const wasLiked = likesStore.isLiked(item.id)
+    const delta = wasLiked ? -1 : 1
+
+    if (!item.stats || typeof item.stats !== 'object') {
+      item.stats = {}
+    }
+    item.stats.likesCount = Math.max(0, previousCount + delta)
+
+    try {
+      await likesStore.toggleLikeOptimistic(item.id)
+    } catch (error) {
+      item.stats.likesCount = previousCount
+      console.error('Error toggling like:', error)
+    }
+  } catch (error) {
+    console.error('Error preparing like toggle:', error)
+  }
+}
+
+const closeLikeLoginPrompt = () => {
+  showLikeLoginPrompt.value = false
 }
 
 const canShowCommentsForItem = (item: any): boolean => {
@@ -405,6 +478,21 @@ const formatDate = (date: any) => {
 }
 
 watch(
+  () => authStore.user?.uid || '',
+  () => {
+    void primeVisibleLikes()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => feedStore.allItems.map((item) => item.id).join('|'),
+  () => {
+    void primeVisibleLikes()
+  }
+)
+
+watch(
   () => [feedStore.hasMore, feedStore.allItems.length],
   async () => {
     await setupInfiniteObserver()
@@ -446,7 +534,8 @@ watch(
         authStore.isAuthenticated &&
         feedStore.isModuleEnabled('community') &&
         feedStore.currentTab !== 'news' &&
-        feedStore.currentTab !== 'surveys'
+        feedStore.currentTab !== 'surveys' &&
+        feedStore.currentTab !== 'lottery'
       "
       class="create-post-section"
     >
@@ -522,9 +611,10 @@ watch(
 
     <!-- Feed List -->
     <SurveySection v-if="feedStore.currentTab === 'surveys'" />
+    <LotterySection v-if="feedStore.currentTab === 'lottery'" />
 
     <div
-      v-if="feedStore.currentTab !== 'surveys' && feedStore.loading && feedStore.allItems.length === 0"
+      v-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.loading && feedStore.allItems.length === 0"
       class="loading-state"
     >
       <div class="spinner"></div>
@@ -532,7 +622,7 @@ watch(
     </div>
 
     <div
-      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.allItems.length === 0"
+      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.allItems.length === 0"
       class="empty-state"
     >
       <div class="empty-icon">📭</div>
@@ -541,7 +631,7 @@ watch(
       <p v-else>Aún no hay noticias oficiales.</p>
     </div>
 
-    <div v-else-if="feedStore.currentTab !== 'surveys'" class="post-list">
+    <div v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery'" class="post-list">
       <div v-for="item in feedStore.allItems" :key="item.id">
         <FeedAdItem
           v-if="item.isAd"
@@ -587,9 +677,14 @@ watch(
         </div>
 
         <footer class="post-footer">
-          <button class="interaction-btn">
+          <button
+            class="interaction-btn"
+            :class="{ active: isLikedByMe(item) }"
+            :disabled="!isLikesEnabledForItem(item) || isLikePendingForItem(item)"
+            @click="handleToggleLike(item)"
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-            <span>{{ item.stats?.likesCount || 0 }}</span>
+            <span>{{ getLikesCount(item) }}</span>
           </button>
           <button
             class="interaction-btn"
@@ -604,6 +699,9 @@ watch(
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
           </button>
         </footer>
+        <p v-if="getLikeErrorMessage(item)" class="interaction-error">
+          {{ getLikeErrorMessage(item) }}
+        </p>
 
         <CommentPreviewList
           v-if="shouldShowCommentPreview(item) && resolveContentModule(item)"
@@ -631,6 +729,13 @@ watch(
       :images="lightboxImages"
       :initial-index="lightboxStartIndex"
       @close="closeLightbox"
+    />
+
+    <AuthPromptModal
+      :open="showLikeLoginPrompt"
+      title="Inicia sesion para dar me gusta"
+      message="Con tu cuenta puedes guardar tus likes y participar en la comunidad."
+      @close="closeLikeLoginPrompt"
     />
   </div>
 </template>
@@ -1030,6 +1135,13 @@ watch(
 
 .interaction-btn.share {
   margin-left: auto;
+}
+
+.interaction-error {
+  margin: 0.45rem 0 0;
+  color: #b91c1c;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 /* Loading & Empty */

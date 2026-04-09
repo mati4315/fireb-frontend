@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import { RouterLink } from 'vue-router';
 import CommentForm from './CommentForm.vue';
 import CommentItem from './CommentItem.vue';
+import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
 import { useCommentStore, type ContentModule } from '@/stores/commentStore';
 import { useAuthStore } from '@/stores/authStore';
 import { isAdminUser } from '@/utils/roles';
@@ -19,6 +19,7 @@ const creatingComment = ref(false);
 const editingCommentId = ref<string | null>(null);
 const replyingToCommentId = ref<string | null>(null);
 const editingReplyKey = ref<string | null>(null);
+const showCommentLoginPrompt = ref(false);
 
 const commentsEnabled = computed(() =>
   commentStore.isCommentsEnabledForModule(props.module)
@@ -125,6 +126,14 @@ const removeReply = async (commentId: string, replyId: string) => {
   }
 };
 
+const openCommentLoginPrompt = () => {
+  showCommentLoginPrompt.value = true;
+};
+
+const closeCommentLoginPrompt = () => {
+  showCommentLoginPrompt.value = false;
+};
+
 watch(
   commentsEnabled,
   async (enabled) => {
@@ -174,7 +183,9 @@ onBeforeUnmount(() => {
       </div>
       <div v-else class="guest-box">
         <p>Inicia sesion para comentar y responder.</p>
-        <RouterLink to="/login" class="login-link">Iniciar sesion</RouterLink>
+        <button type="button" class="login-link" @click="openCommentLoginPrompt">
+          Iniciar sesion
+        </button>
       </div>
 
       <p v-if="commentsLoading && comments.length === 0" class="state-msg">
@@ -274,6 +285,13 @@ onBeforeUnmount(() => {
       >
         Cargar mas comentarios
       </button>
+
+      <AuthPromptModal
+        :open="showCommentLoginPrompt"
+        title="Inicia sesion para comentar"
+        message="Con tu cuenta puedes comentar, responder y seguir la conversacion."
+        @close="closeCommentLoginPrompt"
+      />
     </template>
   </section>
 </template>
@@ -317,6 +335,10 @@ onBeforeUnmount(() => {
   color: var(--accent);
   font-weight: 700;
   text-decoration: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
 }
 
 .state-msg {

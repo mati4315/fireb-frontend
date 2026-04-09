@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useSurveyStore, type Survey } from '@/stores/surveyStore';
+import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
 
-const router = useRouter();
 const authStore = useAuthStore();
 const surveyStore = useSurveyStore();
 const props = withDefaults(
@@ -19,6 +18,7 @@ const props = withDefaults(
 const localSelections = ref<Record<string, string[]>>({});
 const localErrors = ref<Record<string, string>>({});
 const expandedOptionsBySurvey = ref<Record<string, boolean>>({});
+const showSurveyLoginPrompt = ref(false);
 const countdownNow = ref(Date.now());
 const featuredSurveyIndex = ref(0);
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -175,19 +175,18 @@ const setLocalError = (surveyId: string, message: string) => {
   };
 };
 
-const promptLoginToVote = async () => {
-  const shouldGoToLogin = window.confirm(
-    'Para votar necesitas iniciar sesion. ¿Quieres ir al login ahora?'
-  );
-  if (shouldGoToLogin) {
-    await router.push('/login');
-  }
+const promptLoginToVote = () => {
+  showSurveyLoginPrompt.value = true;
+};
+
+const closeSurveyLoginPrompt = () => {
+  showSurveyLoginPrompt.value = false;
 };
 
 const handleOptionClick = async (survey: Survey) => {
   if (isAuthenticated.value) return;
   if (getStatus(survey) !== 'active') return;
-  await promptLoginToVote();
+  promptLoginToVote();
 };
 
 const goToNextFeaturedSurvey = () => {
@@ -199,7 +198,7 @@ const goToNextFeaturedSurvey = () => {
 
 const submitVote = async (survey: Survey) => {
   if (!isAuthenticated.value) {
-    await promptLoginToVote();
+    promptLoginToVote();
     return;
   }
   clearLocalError(survey.id);
@@ -406,6 +405,13 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+
+    <AuthPromptModal
+      :open="showSurveyLoginPrompt"
+      title="Inicia sesion para participar"
+      message="Con tu cuenta puedes votar en encuestas y guardar tu participacion."
+      @close="closeSurveyLoginPrompt"
+    />
   </section>
 </template>
 
@@ -654,4 +660,5 @@ onBeforeUnmount(() => {
   opacity: 0.7;
   cursor: default;
 }
+
 </style>

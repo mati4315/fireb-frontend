@@ -4,7 +4,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 export type FeedTabKey = 'todo' | 'news' | 'post';
-export type HomeTabKey = FeedTabKey | 'surveys';
+export type HomeTabKey = FeedTabKey | 'surveys' | 'lottery';
 
 export interface AdsModuleConfig {
   enabled: boolean;
@@ -22,24 +22,36 @@ export interface AdsModuleConfig {
 export interface ModulesConfig {
   news: { enabled: boolean };
   community: { enabled: boolean };
+  likes: {
+    enabled: boolean;
+    newsEnabled: boolean;
+    communityEnabled: boolean;
+  };
   comments: {
     enabled: boolean;
     newsEnabled: boolean;
     communityEnabled: boolean;
   };
   surveys: { enabled: boolean };
+  lottery: { enabled: boolean };
   ads: AdsModuleConfig;
 }
 
 const DEFAULT_MODULES_CONFIG: ModulesConfig = {
   news: { enabled: true },
   community: { enabled: true },
+  likes: {
+    enabled: true,
+    newsEnabled: true,
+    communityEnabled: true
+  },
   comments: {
     enabled: true,
     newsEnabled: true,
     communityEnabled: true
   },
   surveys: { enabled: true },
+  lottery: { enabled: true },
   ads: {
     enabled: false,
     maxAdsPerFeed: 2,
@@ -77,8 +89,10 @@ const sanitizeTabs = (value: unknown): FeedTabKey[] => {
 const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawNews = raw?.news ?? {};
   const rawCommunity = raw?.community ?? {};
+  const rawLikes = raw?.likes ?? {};
   const rawComments = raw?.comments ?? {};
   const rawSurveys = raw?.surveys ?? {};
+  const rawLottery = raw?.lottery ?? {};
   const rawAds = raw?.ads ?? {};
 
   return {
@@ -87,6 +101,14 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
     },
     community: {
       enabled: toBoolean(rawCommunity.enabled, DEFAULT_MODULES_CONFIG.community.enabled)
+    },
+    likes: {
+      enabled: toBoolean(rawLikes.enabled, DEFAULT_MODULES_CONFIG.likes.enabled),
+      newsEnabled: toBoolean(rawLikes.newsEnabled, DEFAULT_MODULES_CONFIG.likes.newsEnabled),
+      communityEnabled: toBoolean(
+        rawLikes.communityEnabled,
+        DEFAULT_MODULES_CONFIG.likes.communityEnabled
+      )
     },
     comments: {
       enabled: toBoolean(rawComments.enabled, DEFAULT_MODULES_CONFIG.comments.enabled),
@@ -101,6 +123,9 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
     },
     surveys: {
       enabled: toBoolean(rawSurveys.enabled, DEFAULT_MODULES_CONFIG.surveys.enabled)
+    },
+    lottery: {
+      enabled: toBoolean(rawLottery.enabled, DEFAULT_MODULES_CONFIG.lottery.enabled)
     },
     ads: {
       enabled: toBoolean(rawAds.enabled, DEFAULT_MODULES_CONFIG.ads.enabled),
@@ -156,9 +181,17 @@ export const useModuleStore = defineStore('module', () => {
   const isModuleEnabled = (moduleName: keyof ModulesConfig): boolean => {
     if (moduleName === 'news') return modules.value.news.enabled;
     if (moduleName === 'community') return modules.value.community.enabled;
+    if (moduleName === 'likes') return modules.value.likes.enabled;
     if (moduleName === 'comments') return modules.value.comments.enabled;
     if (moduleName === 'surveys') return modules.value.surveys.enabled;
+    if (moduleName === 'lottery') return modules.value.lottery.enabled;
     return modules.value.ads.enabled;
+  };
+
+  const isLikesEnabledForModule = (moduleName: 'news' | 'community'): boolean => {
+    if (!modules.value.likes.enabled) return false;
+    if (moduleName === 'news') return modules.value.likes.newsEnabled;
+    return modules.value.likes.communityEnabled;
   };
 
   const isCommentsEnabledForModule = (moduleName: 'news' | 'community'): boolean => {
@@ -178,6 +211,9 @@ export const useModuleStore = defineStore('module', () => {
     }
     if (modules.value.surveys.enabled) {
       tabs.push({ key: 'surveys', label: 'Encuestas' });
+    }
+    if (modules.value.lottery.enabled) {
+      tabs.push({ key: 'lottery', label: 'Loteria' });
     }
 
     return tabs;
@@ -219,6 +255,7 @@ export const useModuleStore = defineStore('module', () => {
     loading,
     availableTabs,
     isModuleEnabled,
+    isLikesEnabledForModule,
     isCommentsEnabledForModule,
     initModulesListener,
     cleanup

@@ -39,6 +39,12 @@ const router = createRouter({
       component: () => import('@/views/SurveysManagerView.vue'),
     },
     {
+      path: '/loteria/gestion',
+      name: 'lottery-manager',
+      meta: { requiresStaff: true },
+      component: () => import('@/views/LotteryManagerView.vue'),
+    },
+    {
       path: '/comentarios/gestion',
       name: 'comments-manager',
       meta: { requiresAdmin: true },

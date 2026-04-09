@@ -110,6 +110,15 @@ onBeforeUnmount(() => {
               </RouterLink>
 
               <RouterLink
+                v-if="canManageStaff"
+                to="/loteria/gestion"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestion Loteria
+              </RouterLink>
+
+              <RouterLink
                 v-if="canManageComments"
                 to="/comentarios/gestion"
                 class="dropdown-item"
