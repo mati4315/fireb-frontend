@@ -1043,6 +1043,12 @@ watch(
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
+.feed-tabs::after {
+  content: '';
+  flex: 0 0 1.5rem; /* Spacer to preserve right padding on scroll */
+  height: 1px;
+}
+
 /* Estado normal: en el flujo del documento */
 .tabs-at-top {
   position: relative;
@@ -1590,6 +1596,10 @@ watch(
     padding: 0 1rem;
     margin-bottom: 0.5rem;
     gap: 1.25rem;
+  }
+
+  .feed-tabs::after {
+    flex: 0 0 1rem; /* Adjust spacer for mobile */
   }
   
   .feed-tabs::-webkit-scrollbar {

@@ -1014,4 +1014,32 @@ button:disabled {
     display: none;
   }
 }
+
+@media (max-width: 640px) {
+  .lottery-card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .lottery-cover-wrap {
+    margin: -1rem -1rem 0.85rem;
+    height: 140px;
+  }
+
+  .lottery-meta {
+    font-size: 0.78rem;
+    gap: 0.25rem;
+  }
+
+  .numbers-panel {
+    padding-top: 1rem;
+  }
+
+  .numbers-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
 </style>
