@@ -1634,8 +1634,8 @@ watch(
     scroll-snap-type: x mandatory;
     gap: 0.6rem;
     padding: 0 1rem 0.5rem;
-    width: calc(100% + 2rem);
-    margin-left: -1rem;
+    margin: 0 -1rem;
+    width: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
