@@ -9,6 +9,18 @@ import { isAdminUser, isStaffUser } from '@/utils/roles'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
+const scrollY = ref(0)
+const handleScrollY = () => { scrollY.value = window.scrollY }
+
+onMounted(() => {
+  window.addEventListener('scroll', handleScrollY, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', handleScrollY)
+})
+
+const shouldHideHeader = computed(() => !isHeaderVisible.value && scrollY.value > 64)
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
@@ -72,7 +84,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-container" :style="{ '--header-height': '64px' }">
-    <header class="main-header" :class="{ 'header-hidden': !isHeaderVisible }">
+    <header class="main-header" :class="{ 'header-hidden': shouldHideHeader }">
       <div class="nav-content">
         <RouterLink to="/" class="logo">
           <span class="logo-text">Cdelu<span class="accent">AR</span></span>
@@ -178,7 +190,7 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
-  transition: transform 0.3s ease-in-out;
+  /* Animación eliminada a petición del usuario */
 }
 
 .main-header.header-hidden {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
@@ -27,6 +27,16 @@ import { runWithConcurrency } from '@/utils/concurrency'
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
+const scrollY = ref(window.scrollY)
+const handleScrollY = () => { scrollY.value = window.scrollY }
+
+onMounted(() => {
+  window.addEventListener('scroll', handleScrollY, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', handleScrollY)
+})
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -698,7 +708,14 @@ watch(
 
 <template>
   <div class="feed-container">
-    <div class="feed-tabs" :class="{ 'tabs-top': !isHeaderVisible }" :style="{ top: isHeaderVisible ? 'var(--header-height)' : '0' }">
+    <div 
+      class="feed-tabs" 
+      :class="{ 
+        'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
+        'tabs-at-top': scrollY <= 64,
+        'tabs-hidden-up': isHeaderVisible && scrollY > 64
+      }"
+    >
       <button
         v-for="tab in visibleTabs"
         :key="tab.key"
@@ -1006,39 +1023,55 @@ watch(
   padding: 2rem 1rem;
 }
 
-/* Feed Tabs Sticky */
+/* Feed Tabs Sticky & Unified Refined */
 .feed-tabs {
   display: flex;
   gap: 1.5rem;
-  margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--border);
   padding: 0 1.5rem;
-  position: sticky;
-  top: var(--header-height);
   z-index: 999;
-  background: var(--bg);
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   height: var(--header-height);
   align-items: center;
-  transition: top 0.3s ease-in-out;
   overflow-x: auto;
   flex-wrap: nowrap;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
+  margin-bottom: 1.5rem;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+/* Estado normal: en el flujo del documento */
+.tabs-at-top {
+  position: relative;
+  transform: none;
+  opacity: 1;
+}
+
+/* Estado pegado: cuando el header principal se oculta */
+.tabs-fixed-top {
+  position: sticky;
+  top: 0;
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Estado oculto: cuando vuelves a subir y quieres ver el main-header */
+.tabs-hidden-up {
+  position: sticky;
+  top: 0;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
 }
 
 .feed-tabs::-webkit-scrollbar {
   display: none; /* Chrome/Safari/Edge */
 }
 
-/* Adjust top when header is hidden */
-:global(.header-hidden) + .content-wrapper .feed-tabs {
-  top: 0;
-}
-
-/* Alternative approach using the composable result for better precision */
-.feed-tabs-stuck {
-  top: 0 !important;
-}
+/* Removed conflicting top adjustment */
 
 .tab-btn {
   white-space: nowrap;
