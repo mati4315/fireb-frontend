@@ -11,8 +11,9 @@ import {
   signInWithRedirect,
   getRedirectResult
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '@/config/firebase';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null);
@@ -20,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
   const tokenClaims = ref<Record<string, unknown>>({});
   const loading = ref(false);
   const error = ref<string | null>(null);
+  const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
 
   const isAuthenticated = computed(() => !!user.value);
   const socialProviders = computed(() => {
@@ -48,6 +50,38 @@ export const useAuthStore = defineStore('auth', () => {
     }));
   });
 
+  const normalizeUsername = (value: string) =>
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 30);
+
+  const buildFallbackUsername = (firebaseUser: any) => {
+    const fromEmail = typeof firebaseUser?.email === 'string'
+      ? firebaseUser.email.split('@')[0]
+      : '';
+    const candidate = normalizeUsername(fromEmail || `user_${firebaseUser?.uid || ''}`);
+    if (candidate.length >= 3) return candidate;
+
+    const fromUid = normalizeUsername(`user_${String(firebaseUser?.uid || '').slice(0, 8)}`);
+    return fromUid.length >= 3 ? fromUid : 'user_perfil';
+  };
+
+  const setUserProfile = (profile: any) => {
+    if (!profile) {
+      userProfile.value = null;
+      return;
+    }
+
+    userProfile.value = {
+      ...(userProfile.value || {}),
+      ...profile
+    };
+  };
+
   const refreshTokenClaims = async (firebaseUser: any, forceRefresh = false) => {
     try {
       const idTokenResult = await firebaseUser.getIdTokenResult(forceRefresh);
@@ -58,91 +92,105 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  // Inicializar escucha de autenticación
+  const refreshUserProfile = async (uid?: string) => {
+    const targetUid = uid || user.value?.uid;
+    if (!targetUid) {
+      userProfile.value = null;
+      return null;
+    }
+
+    try {
+      const userDoc = await getDoc(doc(db, 'users', targetUid));
+      if (!userDoc.exists()) {
+        userProfile.value = null;
+        return null;
+      }
+
+      const profile = userDoc.data();
+      setUserProfile(profile);
+      return profile;
+    } catch (err) {
+      console.error('Error loading user profile:', err);
+      return null;
+    }
+  };
+
+  const ensureProfileDocument = async (
+    firebaseUser: any,
+    preferred?: { nombre?: string; username?: string; profilePictureUrl?: string }
+  ) => {
+    const existingProfile = await refreshUserProfile(firebaseUser.uid);
+    if (existingProfile) return existingProfile;
+
+    const nombre = (preferred?.nombre || firebaseUser.displayName || 'Usuario')
+      .trim()
+      .slice(0, 120);
+    const preferredUsername = normalizeUsername(preferred?.username || '');
+    const username = /^[a-z0-9_]{3,30}$/.test(preferredUsername)
+      ? preferredUsername
+      : buildFallbackUsername(firebaseUser);
+    const profilePictureUrl = (preferred?.profilePictureUrl || firebaseUser.photoURL || '')
+      .toString()
+      .trim();
+
+    await updateMyProfileCallable({
+      nombre,
+      username,
+      bio: '',
+      location: '',
+      website: '',
+      profilePictureUrl
+    });
+
+    const refreshed = await refreshUserProfile(firebaseUser.uid);
+    if (!refreshed) {
+      throw new Error('No se pudo crear el perfil de usuario.');
+    }
+
+    return refreshed;
+  };
+
   const initAuthListener = () => {
     return new Promise<void>((resolve) => {
-      // 1. Manejar resultado de redirección (Google Auth)
-      getRedirectResult(auth).then(async (result) => {
-        if (result?.user) {
-          await handleAuthSuccess(result.user);
-        }
-      }).catch((err) => {
-        console.error('Error with redirect result:', err);
-        error.value = err.message;
-      });
+      getRedirectResult(auth)
+        .then(async (result) => {
+          if (result?.user) {
+            await handleAuthSuccess(result.user);
+          }
+        })
+        .catch((err) => {
+          console.error('Error with redirect result:', err);
+          error.value = err.message;
+        });
 
-      // 2. Escuchar cambios de estado
       onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           user.value = firebaseUser;
           await refreshTokenClaims(firebaseUser, true);
-          
-          // Cargar perfil del usuario
+
           try {
-            const userDoc = await getDoc(
-              doc(db, 'users', firebaseUser.uid)
-            );
-            if (userDoc.exists()) {
-              userProfile.value = userDoc.data();
+            const profile = await refreshUserProfile(firebaseUser.uid);
+            if (!profile) {
+              await ensureProfileDocument(firebaseUser);
             }
           } catch (err) {
-            console.error('Error loading user profile:', err);
+            console.error('Error initializing user profile:', err);
           }
         } else {
           user.value = null;
           userProfile.value = null;
           tokenClaims.value = {};
         }
+
         resolve();
       });
     });
   };
 
-  // Función auxiliar para manejar éxito de autenticación (Popup o Redirect)
   const handleAuthSuccess = async (firebaseUser: any) => {
     user.value = firebaseUser;
-    await refreshTokenClaims(firebaseUser);
-
-    const userDocRef = doc(db, 'users', firebaseUser.uid);
-    const userDoc = await getDoc(userDocRef);
-
-    if (userDoc.exists()) {
-      userProfile.value = userDoc.data();
-    } else {
-      const email = firebaseUser.email || '';
-      const nombre = firebaseUser.displayName || 'Usuario Google';
-      const baseUsername = email ? email.split('@')[0] : `user${Math.floor(Math.random() * 10000)}`;
-      const username = baseUsername.toLowerCase().replace(/[^a-z0-9_]/g, '');
-
-      const profile = {
-        id: firebaseUser.uid,
-        email,
-        nombre,
-        username,
-        rol: 'user',
-        bio: '',
-        location: '',
-        website: '',
-        profilePictureUrl: firebaseUser.photoURL || '',
-        isVerified: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          postsCount: 0,
-          followersCount: 0,
-          followingCount: 0,
-          likesTotalCount: 0
-        },
-        settings: {
-          notificationsEnabled: true,
-          privateAccount: false,
-          lastLogin: new Date().toISOString()
-        }
-      };
-
-      await setDoc(userDocRef, profile);
-      userProfile.value = profile;
-    }
+    await refreshTokenClaims(firebaseUser, true);
+    await ensureProfileDocument(firebaseUser);
   };
 
   const login = async (email: string, password: string) => {
@@ -159,12 +207,9 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
 
-      // Cargar perfil
-      const userDoc = await getDoc(
-        doc(db, 'users', firebaseUser.uid)
-      );
-      if (userDoc.exists()) {
-        userProfile.value = userDoc.data();
+      const profile = await refreshUserProfile(firebaseUser.uid);
+      if (!profile) {
+        await ensureProfileDocument(firebaseUser);
       }
 
       return { success: true };
@@ -181,44 +226,28 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
 
     try {
-      // Crear usuario en Firebase Auth
+      const safeUsername = normalizeUsername(username);
+      if (!/^[a-z0-9_]{3,30}$/.test(safeUsername)) {
+        throw new Error('Username invalido. Usa entre 3 y 30 caracteres: a-z, 0-9 y _.');
+      }
+      if (!nombre.trim()) {
+        throw new Error('El nombre es obligatorio.');
+      }
+
       const { user: firebaseUser } = await createUserWithEmailAndPassword(
         auth,
         email,
         password
       );
 
-      // Crear documento de perfil
-      const profile = {
-        id: firebaseUser.uid,
-        email,
-        nombre,
-        username,
-        rol: 'user',
-        bio: '',
-        location: '',
-        website: '',
-        profilePictureUrl: '',
-        isVerified: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        stats: {
-          postsCount: 0,
-          followersCount: 0,
-          followingCount: 0,
-          likesTotalCount: 0
-        },
-        settings: {
-          notificationsEnabled: true,
-          privateAccount: false,
-          lastLogin: new Date().toISOString()
-        }
-      };
-
-      await setDoc(doc(db, 'users', firebaseUser.uid), profile);
-
       user.value = firebaseUser;
-      userProfile.value = profile;
+      await refreshTokenClaims(firebaseUser, true);
+      await ensureProfileDocument(firebaseUser, {
+        nombre,
+        username: safeUsername,
+        profilePictureUrl: ''
+      });
+
       return { success: true };
     } catch (err: any) {
       error.value = err.message;
@@ -241,9 +270,8 @@ export const useAuthStore = defineStore('auth', () => {
       } else {
         provider = new OAuthProvider(providerId);
       }
-      // Usar redirect en vez de popup para evitar bloqueos de COOP en localhost
+
       await signInWithRedirect(auth, provider);
-      // La página se recargará, el resultado se maneja en initAuthListener
     } catch (err: any) {
       error.value = err.message;
       loading.value = false;
@@ -274,6 +302,8 @@ export const useAuthStore = defineStore('auth', () => {
     error,
     isAuthenticated,
     socialProviders,
+    setUserProfile,
+    refreshUserProfile,
     initAuthListener,
     login,
     signup,

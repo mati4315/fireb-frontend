@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
@@ -7,6 +8,7 @@ import { useSurveyStore } from '@/stores/surveyStore'
 import { useLotteryStore } from '@/stores/lotteryStore'
 import { useCommentStore } from '@/stores/commentStore'
 import { useLikesStore } from '@/stores/likesStore'
+import { useProfileStore } from '@/stores/profileStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue'
@@ -28,6 +30,8 @@ const surveyStore = useSurveyStore()
 const lotteryStore = useLotteryStore()
 const commentStore = useCommentStore()
 const likesStore = useLikesStore()
+const profileStore = useProfileStore()
+const router = useRouter()
 
 // Form state
 const newPostTitle = ref('')
@@ -361,6 +365,37 @@ const handleAdClick = (item: any) => {
   feedStore.trackAdClick(item)
 }
 
+const openUserProfile = async (item: any) => {
+  const targetUserId = typeof item?.userId === 'string' ? item.userId.trim() : ''
+  if (!targetUserId) return
+
+  try {
+    if (authStore.user?.uid === targetUserId) {
+      await router.push('/perfil')
+      return
+    }
+
+    const explicitUsername = typeof item?.userUsername === 'string'
+      ? item.userUsername
+      : (typeof item?.username === 'string' ? item.username : '')
+    const normalizedUsername = profileStore.normalizeUsernameInput(explicitUsername || '')
+    if (normalizedUsername) {
+      await router.push(`/perfil/${normalizedUsername}`)
+      return
+    }
+
+    const publicProfile = await profileStore.getPublicProfileByUid(targetUserId)
+    if (publicProfile?.usernameLower) {
+      await router.push(`/perfil/${publicProfile.usernameLower}`)
+      return
+    }
+
+    await router.push(`/perfil/${targetUserId}`)
+  } catch (error) {
+    console.error('Error opening user profile:', error)
+  }
+}
+
 const openLightbox = (images: string[], startIndex: number = 0) => {
   const validImages = (images || []).filter((image) => typeof image === 'string' && image.trim().length > 0)
   if (validImages.length === 0) return
@@ -686,14 +721,14 @@ watch(
 
         <div v-else class="post-card">
         <header class="post-header">
-          <div class="post-user">
+          <button class="post-user post-user-btn" type="button" @click="openUserProfile(item)">
             <img v-if="item.userProfilePicUrl" :src="item.userProfilePicUrl" class="mini-avatar" />
             <div v-else class="mini-avatar-placeholder">{{ item.userName?.charAt(0) || 'U' }}</div>
             <div class="user-details">
               <span class="user-name">{{ item.userName || 'Usuario' }}</span>
               <span class="post-date">{{ formatDate(item.createdAt) }}</span>
             </div>
-          </div>
+          </button>
           <div class="post-header-actions">
             <div v-if="item.type === 'news'" class="tag news">Noticia</div>
             <OptionsMenu
@@ -1064,6 +1099,20 @@ watch(
   display: flex;
   gap: 0.75rem;
   align-items: center;
+}
+
+.post-user-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.post-user-btn:hover .user-name {
+  color: var(--accent);
 }
 
 .mini-avatar, .mini-avatar-placeholder {

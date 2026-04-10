@@ -218,6 +218,7 @@ export const useFeedStore = defineStore('feed', () => {
       imagesV2: imagesV2 || [],
       userId: authStore.user.uid,
       userName: safeUserName,
+      userUsername: authStore.userProfile?.username || '',
       userProfilePicUrl: safeProfilePic,
       stats: {
         likesCount: 0,

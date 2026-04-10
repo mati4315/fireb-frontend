@@ -92,6 +92,14 @@ onBeforeUnmount(() => {
 
             <div v-if="isUserMenuOpen" class="user-dropdown">
               <RouterLink
+                to="/perfil"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Mi Perfil
+              </RouterLink>
+
+              <RouterLink
                 v-if="canManageStaff"
                 to="/ads"
                 class="dropdown-item"

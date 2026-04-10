@@ -17,6 +17,17 @@ const router = createRouter({
       component: () => import('@/views/LoginView.vue'),
     },
     {
+      path: '/perfil',
+      name: 'profile-self',
+      meta: { requiresAuth: true },
+      component: () => import('@/views/ProfileView.vue'),
+    },
+    {
+      path: '/perfil/:username',
+      name: 'profile-public',
+      component: () => import('@/views/ProfileView.vue'),
+    },
+    {
       path: '/privacidad',
       name: 'privacy',
       component: () => import('@/views/PrivacyView.vue'),
@@ -55,6 +66,10 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authStore = useAuthStore()
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return { name: 'login' }
+  }
+
   const rol = authStore.userProfile?.rol
   const email = authStore.user?.email || authStore.userProfile?.email
   const uid = authStore.user?.uid

@@ -46,8 +46,8 @@ export const useInteractionStore = defineStore('interaction', () => {
     if (!authStore.user) return;
     const currentUserId = authStore.user.uid;
 
-    const followerRef = doc(db, 'relationships', 'follows', targetUserId, 'followers', currentUserId);
-    const followingRef = doc(db, 'relationships', 'follows', currentUserId, 'following', targetUserId);
+    const followerRef = doc(db, 'relationships', targetUserId, 'followers', currentUserId);
+    const followingRef = doc(db, 'relationships', currentUserId, 'following', targetUserId);
 
     try {
       await setDoc(followerRef, { createdAt: serverTimestamp() });
@@ -62,8 +62,8 @@ export const useInteractionStore = defineStore('interaction', () => {
     if (!authStore.user) return;
     const currentUserId = authStore.user.uid;
 
-    const followerRef = doc(db, 'relationships', 'follows', targetUserId, 'followers', currentUserId);
-    const followingRef = doc(db, 'relationships', 'follows', currentUserId, 'following', targetUserId);
+    const followerRef = doc(db, 'relationships', targetUserId, 'followers', currentUserId);
+    const followingRef = doc(db, 'relationships', currentUserId, 'following', targetUserId);
 
     try {
       await deleteDoc(followerRef);
