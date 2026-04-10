@@ -21,6 +21,7 @@ import {
   processImageForPost,
   validateImageFile
 } from '@/utils/imageProcessing'
+import { runWithConcurrency } from '@/utils/concurrency'
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
 
 const feedStore = useFeedStore()
@@ -195,23 +196,7 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
   return []
 }
 
-const runWithConcurrency = async <T,>(
-  tasks: Array<() => Promise<T>>,
-  concurrency: number
-): Promise<T[]> => {
-  const results: T[] = []
-  let taskIndex = 0
 
-  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
-    while (taskIndex < tasks.length) {
-      const currentIndex = taskIndex++
-      results[currentIndex] = await tasks[currentIndex]()
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
 
 const handleCreatePost = async () => {
   if (!newPostContent.value.trim()) return
@@ -916,26 +901,29 @@ watch(
 
             <div class="post-content">
               <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicacion'">{{ item.titulo }}</h3>
+
+              <div v-if="normalizeImageList(item).length > 0" 
+                   class="post-images" 
+                   :class="{ 'has-carousel': normalizeImageList(item).length > 2, 'single-img': normalizeImageList(item).length === 1 }">
+                <button
+                  v-for="(image, imageIndex) in normalizeImageList(item)"
+                  :key="`${item.id}_${imageIndex}`"
+                  class="post-image-btn"
+                  type="button"
+                  @click="openLightbox(normalizeImageList(item).map((entry) => entry.url), Number(imageIndex))"
+                >
+                  <img :src="image.thumbUrl" class="main-image" loading="lazy" />
+                </button>
+              </div>
+
               <div
                 v-if="item.isOficial"
                 class="html-desc"
                 v-html="item.descripcion"
                 @click="handleHtmlImageClick"
               ></div>
-          <p v-else>{{ item.descripcion }}</p>
-          
-          <div v-if="normalizeImageList(item).length > 0" class="post-images">
-            <button
-              v-for="(image, imageIndex) in normalizeImageList(item)"
-              :key="`${item.id}_${imageIndex}`"
-              class="post-image-btn"
-              type="button"
-              @click="openLightbox(normalizeImageList(item).map((entry) => entry.url), Number(imageIndex))"
-            >
-              <img :src="image.thumbUrl" class="main-image" loading="lazy" />
-            </button>
-          </div>
-        </div>
+              <p v-else style="white-space: pre-wrap; margin-top: 0.5rem;">{{ item.descripcion }}</p>
+            </div>
 
         <footer class="post-footer">
           <button
@@ -1372,8 +1360,25 @@ watch(
 .main-image {
   width: 100%;
   display: block;
-  height: 220px;
+  height: 250px;
   object-fit: cover;
+  transition: opacity 0.2s;
+}
+
+.post-images.single-img {
+  display: flex;
+  justify-content: center;
+}
+
+.post-images.single-img .post-image-btn {
+  width: 100%;
+  max-width: 500px;
+}
+
+.post-images.single-img .main-image {
+  height: auto;
+  max-height: 450px;
+  border-radius: 12px;
 }
 
 .post-footer {
@@ -1456,6 +1461,80 @@ watch(
   color: var(--text);
   background: var(--card-bg);
   font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .feed-container {
+    padding: 1rem 0;
+  }
+
+  .create-post-section {
+    padding: 0 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .feed-tabs {
+    padding: 0 0.8rem;
+    margin-bottom: 1rem;
+    gap: 0.5rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  
+  .feed-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .post-card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    padding: 1rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .post-images {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .main-image {
+    height: 180px;
+  }
+
+  .post-images.single-img .main-image {
+    max-height: 380px;
+    height: auto;
+    border-radius: 0;
+  }
+
+  .post-images.has-carousel {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 0.6rem;
+    padding: 0 1rem 0.5rem;
+    width: calc(100% + 2rem);
+    margin-left: -1rem;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .post-images.has-carousel::-webkit-scrollbar {
+    display: none;
+  }
+
+  .post-images.has-carousel .post-image-btn {
+    flex: 0 0 82%;
+    scroll-snap-align: center;
+    border-radius: 12px;
+  }
+
+  .interaction-btn {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.8rem;
+    gap: 0.35rem;
+  }
 }
 </style>
 

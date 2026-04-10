@@ -7,6 +7,8 @@ import { useStorageStore } from '@/stores/storageStore';
 import { useFeedStore } from '@/stores/feedStore';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
+import ImageLightbox from '@/components/common/ImageLightbox.vue';
+import { runWithConcurrency } from '@/utils/concurrency'; // Assuming this exists based on HomeView logic or I'll check it. Actually HomeView has it inline.
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 
@@ -56,6 +58,10 @@ const editingPosts = ref<Record<string, {
   uploadProgress: number;
   error: string | null;
 }>>({});
+
+const lightboxOpen = ref(false);
+const lightboxImages = ref<string[]>([]);
+const lightboxStartIndex = ref(0);
 
 const isOwnProfile = computed(() => {
   return Boolean(authStore.user?.uid) && viewedUserId.value === authStore.user?.uid;
@@ -569,6 +575,19 @@ const toggleFollow = async () => {
   }
 };
 
+const openLightbox = (images: string[], startIndex: number = 0) => {
+  const validImages = (images || []).filter((image) => typeof image === 'string' && image.trim().length > 0);
+  if (validImages.length === 0) return;
+
+  lightboxImages.value = validImages;
+  lightboxStartIndex.value = Math.max(0, Math.min(startIndex, validImages.length - 1));
+  lightboxOpen.value = true;
+};
+
+const closeLightbox = () => {
+  lightboxOpen.value = false;
+};
+
 const loadMorePosts = async () => {
   if (!viewedUserId.value || loadingPosts.value || !hasMorePosts.value) return;
   await profileStore.loadUserPosts(viewedUserId.value);
@@ -787,8 +806,7 @@ onBeforeUnmount(() => {
           
           <template v-else>
             <header class="post-header">
-              <div class="header-left" style="display: flex; flex-direction: column; gap: 0.2rem">
-                <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">{{ post.titulo }}</h3>
+              <div class="header-left">
                 <span class="post-date">{{ formatDate(post.createdAt) }}</span>
               </div>
               <div class="post-header-actions">
@@ -800,17 +818,25 @@ onBeforeUnmount(() => {
               </div>
             </header>
 
-            <p>{{ post.descripcion }}</p>
+            <div class="post-content">
+              <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">{{ post.titulo }}</h3>
 
-          <div v-if="normalizeImageList(post).length > 0" class="post-images">
-            <img
-              v-for="(image, imageIndex) in normalizeImageList(post)"
-              :key="`${post.id}_${imageIndex}`"
-              :src="image.thumbUrl"
-              alt="Imagen de publicacion"
-              loading="lazy"
-            />
-          </div>
+              <div v-if="normalizeImageList(post).length > 0" 
+                   class="post-images" 
+                   :class="{ 'has-carousel': normalizeImageList(post).length > 2, 'single-img': normalizeImageList(post).length === 1 }">
+                <button
+                  v-for="(image, imageIndex) in normalizeImageList(post)"
+                  :key="`${post.id}_${imageIndex}`"
+                  class="post-image-btn"
+                  type="button"
+                  @click="openLightbox(normalizeImageList(post).map((entry) => entry.url), Number(imageIndex))"
+                >
+                  <img :src="image.thumbUrl" class="main-image" loading="lazy" />
+                </button>
+              </div>
+
+              <p style="white-space: pre-wrap; margin-top: 0.5rem;">{{ post.descripcion }}</p>
+            </div>
           </template>
         </article>
 
@@ -825,6 +851,13 @@ onBeforeUnmount(() => {
       </section>
     </template>
   </section>
+  
+  <ImageLightbox
+    v-if="lightboxOpen"
+    :images="lightboxImages"
+    :start-index="lightboxStartIndex"
+    @close="closeLightbox"
+  />
 </template>
 
 <style scoped>
@@ -1100,5 +1133,124 @@ label small {
   .form-grid {
     grid-template-columns: 1fr;
   }
+}
+
+@media (max-width: 640px) {
+  .profile-page {
+    padding: 1rem 0;
+    gap: 1rem;
+  }
+
+  .profile-hero, 
+  .profile-stats,
+  .profile-editor,
+  .profile-posts header {
+    padding: 0 1rem;
+  }
+
+  .profile-hero {
+    grid-template-columns: 1fr;
+    text-align: center;
+    justify-items: center;
+  }
+
+  .avatar-wrap {
+    width: 110px;
+    height: 110px;
+  }
+
+  .title-row {
+    justify-content: center;
+  }
+
+  .stats-row {
+    justify-content: center;
+  }
+
+  .actions-row {
+    align-items: center;
+    width: 100%;
+  }
+
+  .primary-btn, .secondary-btn {
+    width: 100%;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .post-card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    padding: 1rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .post-images {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .post-images.single-img .main-image {
+    max-height: 380px;
+    height: auto;
+    border-radius: 0;
+  }
+
+  .post-images.has-carousel {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 0.6rem;
+    padding: 0 1rem 0.5rem;
+    width: calc(100% + 2rem);
+    margin-left: -1rem;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .post-images.has-carousel::-webkit-scrollbar {
+    display: none;
+  }
+
+  .post-images.has-carousel .post-image-btn {
+    flex: 0 0 82%;
+    scroll-snap-align: center;
+    border-radius: 12px;
+  }
+}
+.post-image-btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: transparent;
+}
+
+.main-image {
+  width: 100%;
+  display: block;
+  height: 250px;
+  object-fit: cover;
+  transition: opacity 0.2s;
+}
+
+.post-images.single-img {
+  display: flex;
+  justify-content: center;
+}
+
+.post-images.single-img .post-image-btn {
+  width: 100%;
+  max-width: 500px;
+}
+
+.post-images.single-img .main-image {
+  height: auto;
+  max-height: 450px;
+  border-radius: 12px;
 }
 </style>
