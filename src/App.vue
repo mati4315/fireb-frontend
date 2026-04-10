@@ -83,8 +83,11 @@ onBeforeUnmount(() => {
           <div v-else ref="userMenuRef" class="user-menu">
             <button class="user-trigger" @click.stop="toggleUserMenu">
               <div class="user-info">
-                <div class="avatar-placeholder">
-                  {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
+                <div class="avatar-container">
+                  <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" class="nav-avatar" alt="Avatar" />
+                  <div v-else class="avatar-placeholder">
+                    {{ authStore.userProfile?.nombre?.charAt(0) || 'U' }}
+                  </div>
                 </div>
                 <span class="user-name">{{ authStore.userProfile?.nombre || 'Mi Perfil' }}</span>
               </div>
@@ -189,6 +192,13 @@ onBeforeUnmount(() => {
   font-weight: 800;
   color: var(--text-h);
   letter-spacing: -0.5px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.logo:hover .logo-text {
+  transform: scale(1.02);
 }
 
 .accent {
@@ -241,19 +251,33 @@ onBeforeUnmount(() => {
   gap: 0.45rem;
 }
 
-.avatar-placeholder {
+.avatar-container {
   width: 32px;
   height: 32px;
   border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.nav-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar-placeholder {
-  background: var(--accent);
+  width: 100%;
+  height: 100%;
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: bold;
+  font-size: 0.8rem;
 }
 
 .theme-toggle {

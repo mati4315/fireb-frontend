@@ -4,7 +4,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useProfileStore, type PublicProfile } from '@/stores/profileStore';
 import { useStorageStore } from '@/stores/storageStore';
+import { useFeedStore } from '@/stores/feedStore';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
+import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 
@@ -13,6 +15,7 @@ const router = useRouter();
 const authStore = useAuthStore();
 const profileStore = useProfileStore();
 const storageStore = useStorageStore();
+const feedStore = useFeedStore();
 
 const loadingProfile = ref(false);
 const profileError = ref<string | null>(null);
@@ -42,6 +45,17 @@ const selectedAvatarFile = ref<File | null>(null);
 const avatarPreviewUrl = ref('');
 const avatarUploading = ref(false);
 const avatarUploadProgress = ref(0);
+
+const MAX_POST_IMAGES = 4;
+const editingPosts = ref<Record<string, { 
+  titulo: string; 
+  descripcion: string; 
+  saving: boolean;
+  existingImages: Array<{ url: string; thumbUrl: string; path?: string; thumbPath?: string; width?: number; height?: number; sizeBytes?: number }>;
+  newImages: Array<{ id: string; file: File; previewUrl: string }>;
+  uploadProgress: number;
+  error: string | null;
+}>>({});
 
 const isOwnProfile = computed(() => {
   return Boolean(authStore.user?.uid) && viewedUserId.value === authStore.user?.uid;
@@ -112,6 +126,179 @@ const formatDate = (date: any) => {
     hour: '2-digit',
     minute: '2-digit'
   }).format(parsed);
+};
+
+const isAdmin = computed(() => authStore.userProfile?.rol === 'admin');
+
+const getPostMenuOptions = (post: any): MenuOption[] => {
+  const isOwner = authStore.user?.uid === post.userId;
+  const options: MenuOption[] = [];
+  
+  if (isOwner || isAdmin.value) {
+    if (post.type === 'post') {
+      options.push({ id: 'edit', label: 'Editar' });
+    }
+    options.push({ 
+      id: 'delete', 
+      label: 'Eliminar', 
+      danger: true,
+      requiresConfirm: true,
+      confirmTitle: 'Eliminar publicación',
+      confirmMsg: '¿Seguro que deseas eliminar esta publicación? Esta acción no se puede deshacer.',
+      confirmButtonText: 'Eliminar'
+    });
+  }
+  return options;
+};
+
+const handlePostMenuAction = async (actionId: string, post: any) => {
+  if (actionId === 'delete') {
+    try {
+      await feedStore.deletePost(post.id);
+      await profileStore.loadUserPosts(post.userId, true);
+    } catch (e: any) {
+      console.error('Error deleting post:', e);
+    }
+  } else if (actionId === 'edit') {
+    editingPosts.value[post.id] = {
+      titulo: post.titulo === 'Nueva Publicacion' ? '' : (post.titulo || ''),
+      descripcion: post.descripcion || '',
+      saving: false,
+      existingImages: post.imagesV2?.length ? [...post.imagesV2] : (post.images?.length ? post.images.map((url: string) => ({url, thumbUrl: url})) : []),
+      newImages: [],
+      uploadProgress: 0,
+      error: null
+    };
+  }
+};
+
+const handleEditFileSelect = (event: Event, postId: string) => {
+  const target = event.target as HTMLTextAreaElement | HTMLInputElement
+  const files = (target as HTMLInputElement).files ? Array.from((target as HTMLInputElement).files!) : []
+  if (files.length === 0) return
+
+  const editData = editingPosts.value[postId]
+  editData.error = null
+  const currentTotal = editData.existingImages.length + editData.newImages.length
+  const remaining = MAX_POST_IMAGES - currentTotal
+  
+  if (remaining <= 0) {
+    editData.error = `Maximo ${MAX_POST_IMAGES} imagenes por publicacion.`
+    target.value = ''
+    return
+  }
+
+  const nextFiles = files.slice(0, remaining)
+  for (const file of nextFiles) {
+    const err = validateImageFile(file)
+    if (err) {
+      editData.error = err
+      continue
+    }
+    editData.newImages.push({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      previewUrl: URL.createObjectURL(file)
+    })
+  }
+  target.value = ''
+}
+
+const removeEditExistingImage = (postId: string, index: number) => {
+  editingPosts.value[postId].existingImages.splice(index, 1)
+}
+
+const removeEditNewImage = (postId: string, index: number) => {
+  const image = editingPosts.value[postId].newImages[index]
+  URL.revokeObjectURL(image.previewUrl)
+  editingPosts.value[postId].newImages.splice(index, 1)
+}
+
+const cancelEditPost = (postId: string) => {
+  const editData = editingPosts.value[postId]
+  if (editData) {
+    editData.newImages.forEach(img => URL.revokeObjectURL(img.previewUrl))
+    delete editingPosts.value[postId]
+  }
+};
+
+const autoResizeTextarea = (event: Event) => {
+  const target = event.target as HTMLTextAreaElement;
+  target.style.height = 'auto';
+  target.style.height = `${target.scrollHeight}px`;
+};
+
+const runWithConcurrency = async <T,>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number
+): Promise<T[]> => {
+  const results: T[] = []
+  let taskIndex = 0
+
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (taskIndex < tasks.length) {
+      const currentIndex = taskIndex++
+      results[currentIndex] = await tasks[currentIndex]()
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
+const saveEditPost = async (post: any) => {
+  const editData = editingPosts.value[post.id];
+  if (!editData || !editData.descripcion.trim()) return;
+
+  editData.saving = true;
+  editData.error = null;
+
+  try {
+    const uploadTasks = editData.newImages.map((selectedImage, index) => async () => {
+      try {
+        const processed = await processImageForPost(selectedImage.file)
+        const prefix = `posts/${authStore.user?.uid}/${Date.now()}_e${index}_${selectedImage.id}`
+        const originalPath = `${prefix}_o.${processed.optimizedFile.type === 'image/webp' ? 'webp' : 'jpg'}`
+        const thumbPath = `${prefix}_t.${processed.thumbFile.type === 'image/webp' ? 'webp' : 'jpg'}`
+        
+        const [mainUpload, thumbUpload] = await Promise.all([
+          storageStore.uploadFileWithProgress(processed.optimizedFile, originalPath, () => {}),
+          storageStore.uploadFileWithProgress(processed.thumbFile, thumbPath, () => {})
+        ])
+        
+        return {
+          url: mainUpload.url,
+          thumbUrl: thumbUpload.url,
+          path: mainUpload.path,
+          thumbPath: thumbUpload.path,
+          width: processed.width,
+          height: processed.height,
+          sizeBytes: mainUpload.sizeBytes
+        }
+      } catch {
+        return null
+      }
+    })
+
+    const uploadedNewImages = uploadTasks.length > 0 ? await runWithConcurrency(uploadTasks, 2) : []
+    const validNewImages = uploadedNewImages.filter(Boolean) as any[]
+
+    if (editData.newImages.length > 0 && validNewImages.length < editData.newImages.length) {
+      editData.error = `Algunas imagenes no se pudieron subir.`
+    }
+
+    const combinedImages = [...editData.existingImages, ...validNewImages]
+
+    await feedStore.editPost(post.id, editData.titulo.trim() || 'Nueva Publicacion', editData.descripcion.trim(), combinedImages, combinedImages.map(img => img.url));
+    await profileStore.loadUserPosts(post.userId, true);
+    
+    editData.newImages.forEach(img => URL.revokeObjectURL(img.previewUrl))
+    delete editingPosts.value[post.id];
+  } catch (e: any) {
+    console.error('Error saving post edit:', e);
+    editData.saving = false;
+    editData.error = e.message || 'No se pudo editar.'
+  }
 };
 
 const clearAvatarPreview = () => {
@@ -543,12 +730,77 @@ onBeforeUnmount(() => {
         </div>
 
         <article v-for="post in posts" :key="post.id" class="post-card">
-          <header>
-            <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">{{ post.titulo }}</h3>
-            <span class="post-date">{{ formatDate(post.createdAt) }}</span>
-          </header>
+          <template v-if="editingPosts[post.id]">
+            <header class="post-header">
+              <div class="header-left">
+                <h3 style="margin-bottom: 0.5rem">Editar Publicación</h3>
+              </div>
+            </header>
+            <div class="inline-editor" style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <label>
+                Título
+                <input v-model="editingPosts[post.id].titulo" type="text" placeholder="Título (opcional)" :disabled="editingPosts[post.id].saving" />
+              </label>
+              <label>
+                Descripción
+                <textarea v-model="editingPosts[post.id].descripcion" rows="3" placeholder="Escribe tu publicación..." :disabled="editingPosts[post.id].saving" class="inline-editor-textarea" @input="autoResizeTextarea"></textarea>
+              </label>
 
-          <p>{{ post.descripcion }}</p>
+              <div v-if="editingPosts[post.id].existingImages.length > 0 || editingPosts[post.id].newImages.length > 0" class="image-preview-grid">
+                <div v-for="(image, index) in editingPosts[post.id].existingImages" :key="'ex_'+index" class="preview-thumb-btn">
+                  <img :src="image.thumbUrl" class="preview-img" style="opacity: 0.8" />
+                  <span class="preview-remove" @click="removeEditExistingImage(post.id, index)">x</span>
+                </div>
+                <div v-for="(image, index) in editingPosts[post.id].newImages" :key="'new_'+image.id" class="preview-thumb-btn">
+                  <img :src="image.previewUrl" class="preview-img" />
+                  <span class="preview-remove" @click="removeEditNewImage(post.id, index)">x</span>
+                </div>
+                <div class="preview-counter">{{ editingPosts[post.id].existingImages.length + editingPosts[post.id].newImages.length }} / {{ MAX_POST_IMAGES }}</div>
+              </div>
+
+              <p v-if="editingPosts[post.id].error" class="composer-error">{{ editingPosts[post.id].error }}</p>
+
+              <div class="editor-actions" style="display: flex; gap: 0.5rem; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+                <div>
+                  <label class="icon-btn" :class="{ disabled: (editingPosts[post.id].existingImages.length + editingPosts[post.id].newImages.length) >= MAX_POST_IMAGES }" style="background: var(--social-bg); padding: 0.5rem 0.8rem; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; font-weight: 600;">
+                    <input
+                      type="file"
+                      multiple
+                      @change="(e) => handleEditFileSelect(e, post.id)"
+                      accept="image/*"
+                      hidden
+                      :disabled="(editingPosts[post.id].existingImages.length + editingPosts[post.id].newImages.length) >= MAX_POST_IMAGES"
+                    />
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                    <span>Fotos</span>
+                  </label>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button class="secondary-btn" @click="cancelEditPost(post.id)" :disabled="editingPosts[post.id].saving" style="font-size: 0.9rem;">Cancelar</button>
+                  <button class="primary-btn" @click="saveEditPost(post)" :disabled="editingPosts[post.id].saving || !editingPosts[post.id].descripcion.trim()" :style="{ opacity: (editingPosts[post.id].saving || !editingPosts[post.id].descripcion.trim()) ? 0.6 : 1 }" style="font-size: 0.9rem;">
+                    {{ editingPosts[post.id].saving ? 'Guardando...' : 'Confirmar' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+          
+          <template v-else>
+            <header class="post-header">
+              <div class="header-left" style="display: flex; flex-direction: column; gap: 0.2rem">
+                <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">{{ post.titulo }}</h3>
+                <span class="post-date">{{ formatDate(post.createdAt) }}</span>
+              </div>
+              <div class="post-header-actions">
+                <OptionsMenu
+                  v-if="getPostMenuOptions(post).length > 0"
+                  :options="getPostMenuOptions(post)"
+                  @action="handlePostMenuAction($event, post)"
+                />
+              </div>
+            </header>
+
+            <p>{{ post.descripcion }}</p>
 
           <div v-if="normalizeImageList(post).length > 0" class="post-images">
             <img
@@ -559,6 +811,7 @@ onBeforeUnmount(() => {
               loading="lazy"
             />
           </div>
+          </template>
         </article>
 
         <button

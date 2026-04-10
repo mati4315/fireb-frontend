@@ -20,7 +20,9 @@ export const useAuthStore = defineStore('auth', () => {
   const userProfile = ref<any>(null);
   const tokenClaims = ref<Record<string, unknown>>({});
   const loading = ref(false);
+  const isInitialized = ref(false);
   const error = ref<string | null>(null);
+  let initPromise: Promise<void> | null = null;
   const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
 
   const isAuthenticated = computed(() => !!user.value);
@@ -151,7 +153,9 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const initAuthListener = () => {
-    return new Promise<void>((resolve) => {
+    if (initPromise) return initPromise;
+
+    return initPromise = new Promise<void>((resolve) => {
       getRedirectResult(auth)
         .then(async (result) => {
           if (result?.user) {
@@ -182,6 +186,7 @@ export const useAuthStore = defineStore('auth', () => {
           tokenClaims.value = {};
         }
 
+        isInitialized.value = true;
         resolve();
       });
     });
@@ -301,6 +306,7 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     isAuthenticated,
+    isInitialized,
     socialProviders,
     setUserProfile,
     refreshUserProfile,

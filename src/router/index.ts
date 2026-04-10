@@ -64,8 +64,11 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
+  
+  // Esperar a que Firebase inicialice antes de evaluar rutas protegidas
+  await authStore.initAuthListener()
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return { name: 'login' }
   }

@@ -249,22 +249,34 @@ export const useFeedStore = defineStore('feed', () => {
     rebuildMergedFeed();
   };
 
-  const editPost = async (postId: string, title: string, content: string) => {
+  const editPost = async (postId: string, title: string, content: string, imagesV2?: any[], images?: string[]) => {
     if (!authStore.user) {
       throw new Error('No autenticado');
     }
     const { doc, updateDoc } = await import('firebase/firestore');
-    await updateDoc(doc(db, 'content', postId), {
+    
+    const updateData: any = {
       titulo: title,
       descripcion: content,
       updatedAt: serverTimestamp()
-    });
+    };
+    
+    if (imagesV2 !== undefined) {
+      updateData.imagesV2 = imagesV2;
+      updateData.images = images || [];
+    }
+    
+    await updateDoc(doc(db, 'content', postId), updateData);
 
     // Update locally
     const existing = contentItems.value.find(item => item.id === postId);
     if (existing) {
       existing.titulo = title;
       existing.descripcion = content;
+      if (imagesV2 !== undefined) {
+        existing.imagesV2 = imagesV2;
+        existing.images = images || [];
+      }
       existing.updatedAt = new Date().toISOString(); // local approximation
       rebuildMergedFeed();
     }
