@@ -1,3 +1,7 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   /* -- Brand Colors -- */
   --accent: #fb8c00;
