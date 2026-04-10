@@ -72,6 +72,10 @@ const editingPosts = ref<Record<string, {
 }>>({})
 const expandedComments = ref<Record<string, boolean>>({})
 const showLikeLoginPrompt = ref(false)
+const scrollPositions = ref<Record<string, number>>({})
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const touchStartTime = ref(0)
 let infiniteObserver: IntersectionObserver | null = null
 
 const shouldShowSurveysTab = computed(() => {
@@ -126,6 +130,61 @@ const setupInfiniteObserver = async () => {
   )
 
   infiniteObserver.observe(infiniteSentinel.value)
+}
+
+const setActiveTab = async (tabKey: string) => {
+  if (feedStore.currentTab === tabKey) return
+
+  // Save current scroll position
+  scrollPositions.value[feedStore.currentTab] = window.scrollY
+
+  feedStore.initFeed(tabKey)
+
+  // Restore scroll position
+  await nextTick()
+  const savedPos = scrollPositions.value[tabKey] || 0
+  
+  // Pequeño delay adicional para asegurar que el contenido se renderice
+  setTimeout(() => {
+    window.scrollTo({
+      top: savedPos,
+      behavior: 'instant'
+    })
+  }, 0)
+}
+
+// Swipe detection logic
+const handleTouchStart = (e: TouchEvent) => {
+  touchStartX.value = e.touches[0].clientX
+  touchStartY.value = e.touches[0].clientY
+  touchStartTime.value = Date.now()
+}
+
+const handleTouchEnd = (e: TouchEvent) => {
+  const deltaX = e.changedTouches[0].clientX - touchStartX.value
+  const deltaY = e.changedTouches[0].clientY - touchStartY.value
+  const deltaTime = Date.now() - touchStartTime.value
+
+  // Thresholds
+  const minSwipeDistance = 50
+  const maxVerticalDistance = 100
+  const maxTime = 300
+
+  if (Math.abs(deltaX) > minSwipeDistance && 
+      Math.abs(deltaY) < maxVerticalDistance && 
+      deltaTime < maxTime) {
+    
+    const tabs = visibleTabs.value
+    const currentIndex = tabs.findIndex(t => t.key === feedStore.currentTab)
+    
+    if (deltaX < 0 && currentIndex < tabs.length - 1) {
+      // Swipe left -> Next tab
+      setActiveTab(tabs[currentIndex + 1].key)
+    } else if (deltaX > 0 && currentIndex > 0) {
+      // Swipe right -> Previous tab
+      setActiveTab(tabs[currentIndex - 1].key)
+    }
+  }
 }
 
 onMounted(async () => {
@@ -707,24 +766,30 @@ watch(
 </script>
 
 <template>
-  <div class="feed-container">
-    <div 
-      class="feed-tabs" 
-      :class="{ 
-        'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
-        'tabs-at-top': scrollY <= 64,
-        'tabs-hidden-up': isHeaderVisible && scrollY > 64
-      }"
-    >
-      <button
-        v-for="tab in visibleTabs"
-        :key="tab.key"
-        :class="['tab-btn', { active: feedStore.currentTab === tab.key }]"
-        @click="feedStore.initFeed(tab.key)"
+  <div 
+    class="home-view"
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
+  >
+    <div class="feed-container">
+      <div 
+        class="feed-tabs"
+        :class="{ 
+          'tabs-at-top': scrollY <= 64,
+          'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
+          'tabs-hidden-up': isHeaderVisible && scrollY > 64
+        }"
       >
-        {{ tab.label }}
-      </button>
-    </div>
+        <button
+          v-for="tab in visibleTabs"
+          :key="tab.key"
+          class="tab-btn"
+          :class="{ active: feedStore.currentTab === tab.key }"
+          @click="setActiveTab(tab.key)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
 
     <SurveySection
       v-if="feedStore.currentTab === 'todo' && feedStore.isModuleEnabled('surveys')"
@@ -1013,6 +1078,7 @@ watch(
       message="Con tu cuenta puedes guardar tus likes y participar en la comunidad."
       @close="closeLikeLoginPrompt"
     />
+    </div>
   </div>
 </template>
 

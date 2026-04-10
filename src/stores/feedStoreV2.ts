@@ -35,6 +35,27 @@ export const useFeedStore = defineStore('feed', () => {
   const hasMore = ref(true);
   const unsubscribe = ref<Unsubscribe | null>(null);
 
+  // Tab State Cache for persistence
+  interface TabState {
+    contentItems: any[];
+    allItems: any[];
+    hasMore: boolean;
+    unsubscribe: Unsubscribe | null;
+  }
+  const tabStates = ref<Record<string, TabState>>({});
+
+  const getTabState = (tab: string): TabState => {
+    if (!tabStates.value[tab]) {
+      tabStates.value[tab] = {
+        contentItems: [],
+        allItems: [],
+        hasMore: true,
+        unsubscribe: null
+      };
+    }
+    return tabStates.value[tab];
+  };
+
   const tabConfig: Record<'news' | 'post', { module: string }> = {
     news: { module: 'news' },
     post: { module: 'community' }
@@ -82,6 +103,11 @@ export const useFeedStore = defineStore('feed', () => {
       tab,
       moduleStore.modules.ads
     );
+
+    // Also update current tab state in cache
+    const state = getTabState(currentTab.value);
+    state.allItems = [...allItems.value];
+    state.contentItems = [...contentItems.value];
   };
 
   const initFeed = (tabName: string = 'todo') => {
@@ -90,19 +116,38 @@ export const useFeedStore = defineStore('feed', () => {
 
     const safeTab = resolveTab(tabName);
 
+    // If same tab, do nothing
     if (currentTab.value === safeTab && unsubscribe.value) {
       rebuildMergedFeed();
       return;
     }
 
+    // Save current state before switching
     if (unsubscribe.value) {
-      unsubscribe.value();
-      unsubscribe.value = null;
+      const state = getTabState(currentTab.value);
+      state.contentItems = [...contentItems.value];
+      state.allItems = [...allItems.value];
+      state.hasMore = hasMore.value;
+      state.unsubscribe = unsubscribe.value;
     }
 
     currentTab.value = safeTab;
+
+    // Check if we have a cached state for the new tab
+    const cached = getTabState(safeTab);
+    if (cached.unsubscribe) {
+      contentItems.value = [...cached.contentItems];
+      hasMore.value = cached.hasMore;
+      unsubscribe.value = cached.unsubscribe;
+      rebuildMergedFeed();
+      loading.value = false;
+      return;
+    }
+
+    // No cached state, initialize new listener
     contentItems.value = [];
     allItems.value = [];
+    unsubscribe.value = null;
     loading.value = true;
     hasMore.value = safeTab !== 'surveys' && safeTab !== 'lottery';
 
@@ -117,30 +162,45 @@ export const useFeedStore = defineStore('feed', () => {
       limit(PAGE_SIZE)
     );
 
+    const targetTab = safeTab;
     unsubscribe.value = onSnapshot(
       q,
       (snapshot) => {
-        contentItems.value = snapshot.docs.map((contentDoc) => ({
+        const items = snapshot.docs.map((contentDoc) => ({
           id: contentDoc.id,
           ...contentDoc.data()
         }));
-        hasMore.value = snapshot.size >= PAGE_SIZE;
-        rebuildMergedFeed();
-        loading.value = false;
+        
+        const state = getTabState(targetTab);
+        state.contentItems = items;
+        state.hasMore = snapshot.size >= PAGE_SIZE;
+
+        if (currentTab.value === targetTab) {
+          contentItems.value = items;
+          hasMore.value = state.hasMore;
+          rebuildMergedFeed();
+          loading.value = false;
+        }
       },
       (error) => {
         console.error('Error initializing feed:', error);
-        loading.value = false;
+        if (currentTab.value === targetTab) {
+          loading.value = false;
+        }
       }
     );
+    
+    getTabState(safeTab).unsubscribe = unsubscribe.value;
   };
 
   const loadMore = async () => {
     if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
     if (!hasMore.value || loading.value || contentItems.value.length === 0) return;
 
+    const tabAtStart = currentTab.value;
     const lastContentItem = contentItems.value[contentItems.value.length - 1];
     const cursor = lastContentItem?.createdAt || lastContentItem?.updatedAt;
+    
     if (!cursor) {
       hasMore.value = false;
       return;
@@ -150,7 +210,7 @@ export const useFeedStore = defineStore('feed', () => {
     try {
       const q = query(
         collection(db, 'content'),
-        ...getTabConstraints(currentTab.value),
+        ...getTabConstraints(tabAtStart),
         startAfter(cursor),
         limit(PAGE_SIZE)
       );
@@ -161,18 +221,27 @@ export const useFeedStore = defineStore('feed', () => {
         ...contentDoc.data()
       }));
 
+      // If tab changed while loading, update the target tab state
+      const state = getTabState(tabAtStart);
+      
       const dedupedItems = newItems.filter(
-        (newItem) =>
-          !contentItems.value.some((existingItem) => existingItem.id === newItem.id)
+        (newItem) => !state.contentItems.some((existingItem) => existingItem.id === newItem.id)
       );
 
-      contentItems.value.push(...dedupedItems);
-      hasMore.value = snapshot.size >= PAGE_SIZE;
-      rebuildMergedFeed();
+      state.contentItems.push(...dedupedItems);
+      state.hasMore = snapshot.size >= PAGE_SIZE;
+
+      if (currentTab.value === tabAtStart) {
+        contentItems.value = [...state.contentItems];
+        hasMore.value = state.hasMore;
+        rebuildMergedFeed();
+      }
     } catch (error) {
       console.error('Error loading more feed items:', error);
     } finally {
-      loading.value = false;
+      if (currentTab.value === tabAtStart) {
+        loading.value = false;
+      }
     }
   };
 
