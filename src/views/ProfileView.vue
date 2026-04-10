@@ -290,11 +290,11 @@ const handleSaveProfile = async () => {
       avatarUploadProgress.value = 0;
 
       const processed = await processImageForPost(selectedAvatarFile.value);
-      const extension = processed.optimizedFile.type === 'image/webp' ? 'webp' : 'jpg';
-      const path = `avatars/${authStore.user.uid}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
+      const extension = processed.thumbFile.type === 'image/webp' ? 'webp' : 'jpg';
+      const path = `avatars/${authStore.user.uid}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_t.${extension}`;
 
       const uploadResult = await storageStore.uploadFileWithProgress(
-        processed.optimizedFile,
+        processed.thumbFile,
         path,
         (progress) => {
           avatarUploadProgress.value = Math.round(progress);

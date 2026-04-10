@@ -19,7 +19,7 @@ export const useStorageStore = defineStore('storage', () => {
   const uploadProgress = ref<number>(0);
   const uploading = ref<boolean>(false);
   const error = ref<string | null>(null);
-  const uploadProvider = String(import.meta.env.VITE_IMAGE_UPLOAD_PROVIDER || 'firebase').toLowerCase();
+  const uploadProvider = String(import.meta.env.VITE_IMAGE_UPLOAD_PROVIDER || 'hosting').toLowerCase();
   const useHostingUpload = uploadProvider === 'hosting';
 
   const fileToBase64 = async (file: File): Promise<string> => (
