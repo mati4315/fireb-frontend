@@ -6,6 +6,10 @@ import { useThemeStore } from '@/stores/themeStore'
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
+import { useHeaderScroll } from '@/composables/useHeaderScroll'
+
+const { isVisible: isHeaderVisible } = useHeaderScroll()
+
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const route = useRoute()
@@ -67,15 +71,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app-container">
-    <header class="main-header">
+  <div class="app-container" :style="{ '--header-height': '64px' }">
+    <header class="main-header" :class="{ 'header-hidden': !isHeaderVisible }">
       <div class="nav-content">
         <RouterLink to="/" class="logo">
           <span class="logo-text">Cdelu<span class="accent">AR</span></span>
         </RouterLink>
         
         <nav class="main-nav">
-          
+          <div class="theme-wrapper" @click="themeStore.toggleTheme">
+            <span class="theme-label">Modo:</span>
+            <button class="theme-toggle" aria-label="Cambiar tema">
+              <span v-if="themeStore.isDark">☀️</span>
+              <span v-else>🌙</span>
+            </button>
+          </div>
+
           <template v-if="!authStore.isAuthenticated">
             <RouterLink to="/login" class="login-btn">Iniciar Sesión</RouterLink>
           </template>
@@ -143,11 +154,6 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-
-          <button @click="themeStore.toggleTheme" class="theme-toggle" aria-label="Cambiar tema">
-            <span v-if="themeStore.isDark">☀️</span>
-            <span v-else>🌙</span>
-          </button>
         </nav>
       </div>
     </header>
@@ -172,6 +178,11 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
+  transition: transform 0.3s ease-in-out;
+}
+
+.main-header.header-hidden {
+  transform: translateY(-100%);
 }
 
 .nav-content {
@@ -208,7 +219,28 @@ onBeforeUnmount(() => {
 .main-nav {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  gap: 1.25rem;
+}
+
+.theme-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  border-radius: 99px;
+  transition: background 0.2s;
+}
+
+.theme-wrapper:hover {
+  background: var(--accent-bg);
+}
+
+.theme-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-s);
+  user-select: none;
 }
 
 .login-btn {
@@ -391,6 +423,14 @@ onBeforeUnmount(() => {
     width: 32px;
     height: 32px;
     font-size: 1rem;
+  }
+
+  .theme-label {
+    display: none;
+  }
+
+  .theme-wrapper {
+    padding: 0;
   }
 }
 </style>

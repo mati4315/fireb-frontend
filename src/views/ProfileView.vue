@@ -234,23 +234,6 @@ const autoResizeTextarea = (event: Event) => {
   target.style.height = `${target.scrollHeight}px`;
 };
 
-const runWithConcurrency = async <T,>(
-  tasks: Array<() => Promise<T>>,
-  concurrency: number
-): Promise<T[]> => {
-  const results: T[] = []
-  let taskIndex = 0
-
-  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
-    while (taskIndex < tasks.length) {
-      const currentIndex = taskIndex++
-      results[currentIndex] = await tasks[currentIndex]()
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
 
 const saveEditPost = async (post: any) => {
   const editData = editingPosts.value[post.id];
@@ -853,9 +836,9 @@ onBeforeUnmount(() => {
   </section>
   
   <ImageLightbox
-    v-if="lightboxOpen"
+    :open="lightboxOpen"
     :images="lightboxImages"
-    :start-index="lightboxStartIndex"
+    :initial-index="lightboxStartIndex"
     @close="closeLightbox"
   />
 </template>

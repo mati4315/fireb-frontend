@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
 import { useStorageStore } from '@/stores/storageStore'
@@ -9,6 +10,7 @@ import { useLotteryStore } from '@/stores/lotteryStore'
 import { useCommentStore } from '@/stores/commentStore'
 import { useLikesStore } from '@/stores/likesStore'
 import { useProfileStore } from '@/stores/profileStore'
+
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue'
@@ -23,6 +25,8 @@ import {
 } from '@/utils/imageProcessing'
 import { runWithConcurrency } from '@/utils/concurrency'
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
+
+const { isVisible: isHeaderVisible } = useHeaderScroll()
 
 const feedStore = useFeedStore()
 const authStore = useAuthStore()
@@ -694,8 +698,7 @@ watch(
 
 <template>
   <div class="feed-container">
-    <!-- Tabs Section -->
-    <div class="feed-tabs">
+    <div class="feed-tabs" :class="{ 'tabs-top': !isHeaderVisible }" :style="{ top: isHeaderVisible ? 'var(--header-height)' : '0' }">
       <button
         v-for="tab in visibleTabs"
         :key="tab.key"
@@ -723,19 +726,25 @@ watch(
       class="create-post-section"
     >
       <div class="create-card" :class="{ expanded: isExpanded }">
-        <div class="user-avatar">
+        <div v-if="!isExpanded" class="user-avatar">
           <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" />
           <div v-else class="avatar-placeholder">{{ authStore.userProfile?.nombre?.charAt(0) }}</div>
         </div>
-        
-        <div class="form-container">
+
+        <div v-if="isExpanded" class="composer-top">
+          <div class="user-avatar">
+            <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" />
+            <div v-else class="avatar-placeholder">{{ authStore.userProfile?.nombre?.charAt(0) }}</div>
+          </div>
           <input 
-            v-if="isExpanded"
             v-model="newPostTitle"
             type="text" 
             placeholder="Título (opcional)" 
-            class="title-input"
+            class="title-input-top"
           />
+        </div>
+        
+        <div class="form-container">
           <textarea 
             v-model="newPostContent"
             placeholder="¿Qué estás pensando?" 
@@ -997,19 +1006,46 @@ watch(
   padding: 2rem 1rem;
 }
 
-/* Feed Tabs */
+/* Feed Tabs Sticky */
 .feed-tabs {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
   margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
+  padding: 0 1.5rem;
+  position: sticky;
+  top: var(--header-height);
+  z-index: 999;
+  background: var(--bg);
+  height: var(--header-height);
+  align-items: center;
+  transition: top 0.3s ease-in-out;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+}
+
+.feed-tabs::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Edge */
+}
+
+/* Adjust top when header is hidden */
+:global(.header-hidden) + .content-wrapper .feed-tabs {
+  top: 0;
+}
+
+/* Alternative approach using the composable result for better precision */
+.feed-tabs-stuck {
+  top: 0 !important;
 }
 
 .tab-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
   background: none;
   border: none;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 0.25rem;
   font-size: 1rem;
   font-weight: 600;
   color: var(--text);
@@ -1051,10 +1087,47 @@ watch(
   box-shadow: 0 4px 20px rgba(0,0,0,0.05);
   border: 1px solid var(--border);
   transition: all 0.3s ease;
+  align-items: flex-start;
+}
+
+.create-card:not(.expanded) {
+  align-items: center;
+}
+
+
+.create-card.expanded {
+  flex-direction: column;
+}
+
+.composer-top {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: width 0.3s ease;
+  width: 100%;
+}
+
+.create-card:not(.expanded) .composer-top {
+  width: auto;
 }
 
 .create-card.expanded {
   flex-direction: column;
+  align-items: stretch;
+}
+
+.create-card.expanded .composer-top {
+  margin-bottom: 0.5rem;
+}
+
+.title-input-top {
+  flex: 1;
+  border: none;
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: transparent;
+  color: var(--text-h);
+  outline: none;
 }
 
 .user-avatar {
@@ -1083,6 +1156,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  width: 100%;
 }
 
 .title-input {
@@ -1101,8 +1175,14 @@ watch(
   background: transparent;
   color: var(--text);
   outline: none;
+  min-height: 40px;
+  line-height: normal;
+}
+
+.create-card.expanded .content-input {
   min-height: 80px;
 }
+
 
 .image-preview-grid {
   margin-top: 0.5rem;
@@ -1474,12 +1554,9 @@ watch(
   }
 
   .feed-tabs {
-    padding: 0 0.8rem;
-    margin-bottom: 1rem;
-    gap: 0.5rem;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    padding: 0 1rem;
+    margin-bottom: 0.5rem;
+    gap: 1.25rem;
   }
   
   .feed-tabs::-webkit-scrollbar {
