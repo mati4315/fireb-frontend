@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { doc, getDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -25,6 +25,7 @@ import {
   buildContentDetailPath,
   buildContentDetailPathByValues,
   normalizeContentSlug,
+  normalizeNewsPublicRef,
   type ContentModuleKey
 } from '@/utils/contentLinks'
 import {
@@ -638,6 +639,58 @@ const fetchContentDocById = async (contentId: string): Promise<any | null> => {
   return { id: snapshot.id, ...snapshot.data() }
 }
 
+const fetchContentDocByPublicId = async (
+  moduleName: ContentModuleKey,
+  publicRef: string
+): Promise<any | null> => {
+  const normalizedPublicId = normalizeNewsPublicRef(publicRef)
+  if (!normalizedPublicId) return null
+
+  try {
+    const publicKey = `${moduleName}__${normalizedPublicId}`
+    const publicSnapshot = await getDoc(doc(db, '_content_public_ids', publicKey))
+    if (publicSnapshot.exists()) {
+      const mappedContentId = String(publicSnapshot.data()?.contentId || '').trim()
+      if (mappedContentId) {
+        const mappedDoc = await fetchContentDocById(mappedContentId)
+        if (mappedDoc) return mappedDoc
+      }
+    }
+  } catch (error) {
+    console.warn('Public ID index lookup failed, using fallback query', error)
+  }
+
+  const fallbackQuery = query(
+    collection(db, 'content'),
+    where('module', '==', moduleName),
+    where('postId', '==', Number(normalizedPublicId)),
+    where('deletedAt', '==', null),
+    limit(1)
+  )
+  const fallbackSnapshot = await getDocs(fallbackQuery)
+  if (fallbackSnapshot.empty) return null
+  const fallbackDoc = fallbackSnapshot.docs[0]
+  return { id: fallbackDoc.id, ...fallbackDoc.data() }
+}
+
+const extractNewsRefFromItem = (item: any): string => {
+  const candidates = [
+    item?.publicId,
+    item?.postId,
+    item?.custom_fields?.postId,
+    item?.custom_fields?.postID,
+    item?.custom_fields?.id,
+    item?.custom_fields
+  ]
+
+  for (const candidate of candidates) {
+    const normalized = normalizeNewsPublicRef(candidate)
+    if (normalized) return normalized
+  }
+
+  return ''
+}
+
 const fetchContentDocBySlug = async (
   moduleName: ContentModuleKey,
   slug: string
@@ -671,6 +724,9 @@ const getDetailPath = (item: any): string | null => {
   if (!moduleName) return null
   return buildContentDetailPath(moduleName, {
     id: item.id,
+    publicId: item.publicId,
+    postId: item.postId,
+    custom_fields: item.custom_fields,
     slug: item.slug,
     titulo: item.titulo || item.id
   })
@@ -741,7 +797,16 @@ const resolveDetailRoute = async () => {
   detailNotFound.value = false
 
   try {
-    let found = await fetchContentDocById(refValue)
+    let found: any | null = null
+
+    if (moduleName === 'news') {
+      found = await fetchContentDocByPublicId(moduleName, refValue)
+      if (!found) {
+        found = await fetchContentDocById(refValue)
+      }
+    } else {
+      found = await fetchContentDocById(refValue)
+    }
 
     if (!found) {
       const slugCandidate = detailSlugParam.value || refValue
@@ -755,6 +820,13 @@ const resolveDetailRoute = async () => {
       return
     }
 
+    if (moduleName === 'news') {
+      const newsPublicRef = extractNewsRefFromItem(found)
+      if (!newsPublicRef) {
+        // fallback temporal a id interno mientras se propaga postId/publicId
+      }
+    }
+
     detailTargetItem.value = found
     detailNotFound.value = false
     expandedComments.value = {
@@ -764,7 +836,9 @@ const resolveDetailRoute = async () => {
 
     const canonicalPath = buildContentDetailPathByValues(
       moduleName,
-      found.id,
+      moduleName === 'news'
+        ? String(extractNewsRefFromItem(found) || found.id || '')
+        : String(found.id || ''),
       found.slug || found.titulo || found.id
     )
 
