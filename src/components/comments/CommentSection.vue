@@ -221,7 +221,7 @@ onBeforeUnmount(() => {
               v-if="replyingToCommentId === comment.id"
               placeholder="Escribe una respuesta"
               submit-label="Responder"
-              :max-length="300"
+              :max-length="600"
               compact
               @submit="createReply(comment.id, $event)"
               @cancel="replyingToCommentId = null"
@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
                     v-if="editingReplyKey === getReplyKey(comment.id, reply.id)"
                     :initial-value="reply.text"
                     submit-label="Guardar"
-                    :max-length="300"
+                    :max-length="600"
                     compact
                     @submit="saveReplyEdit(comment.id, reply.id, $event)"
                     @cancel="editingReplyKey = null"

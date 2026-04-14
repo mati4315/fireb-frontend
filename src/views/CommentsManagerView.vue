@@ -346,7 +346,7 @@ onBeforeUnmount(() => {
               v-model="editingText"
               class="edit-input"
               rows="3"
-              maxlength="500"
+              :maxlength="item.type === 'reply' ? 600 : 1000"
             />
             <p v-else class="text">{{ item.text }}</p>
 

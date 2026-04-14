@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
   compact: false,
   loading: false,
   showCancel: true,
-  maxLength: 500
+  maxLength: 1000
 });
 
 const emit = defineEmits<{

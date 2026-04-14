@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { doc, getDoc } from 'firebase/firestore'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -14,10 +15,18 @@ import { useProfileStore } from '@/stores/profileStore'
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
 import ImageLightbox from '@/components/common/ImageLightbox.vue'
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue'
+import ExpandableText from '@/components/common/ExpandableText.vue'
 import SurveySection from '@/components/surveys/SurveySection.vue'
 import LotterySection from '@/components/lottery/LotterySection.vue'
 import CommentSection from '@/components/comments/CommentSection.vue'
 import CommentPreviewList from '@/components/comments/CommentPreviewList.vue'
+import { db } from '@/config/firebase'
+import {
+  buildContentDetailPath,
+  buildContentDetailPathByValues,
+  normalizeContentSlug,
+  type ContentModuleKey
+} from '@/utils/contentLinks'
 import {
   MAX_POST_IMAGES,
   processImageForPost,
@@ -47,6 +56,7 @@ const commentStore = useCommentStore()
 const likesStore = useLikesStore()
 const profileStore = useProfileStore()
 const router = useRouter()
+const route = useRoute()
 
 // Form state
 const newPostTitle = ref('')
@@ -76,6 +86,9 @@ const scrollPositions = ref<Record<string, number>>({})
 const touchStartX = ref(0)
 const touchStartY = ref(0)
 const touchStartTime = ref(0)
+const detailLoading = ref(false)
+const detailNotFound = ref(false)
+const detailTargetItem = ref<any | null>(null)
 let infiniteObserver: IntersectionObserver | null = null
 
 const shouldShowSurveysTab = computed(() => {
@@ -88,6 +101,20 @@ const visibleTabs = computed(() =>
   feedStore.availableTabs.filter(
     (tab) => tab.key !== 'surveys' || shouldShowSurveysTab.value
   )
+)
+
+const detailModuleFromRoute = computed<ContentModuleKey | null>(() => {
+  if (route.name === 'news-detail') return 'news'
+  if (route.name === 'community-detail') return 'community'
+  return null
+})
+
+const isDetailRoute = computed(() => detailModuleFromRoute.value !== null)
+const detailRef = computed(() =>
+  typeof route.params.ref === 'string' ? route.params.ref.trim() : ''
+)
+const detailSlugParam = computed(() =>
+  typeof route.params.slug === 'string' ? route.params.slug.trim() : ''
 )
 
 const revokeSelectedImagePreviews = () => {
@@ -134,6 +161,10 @@ const setupInfiniteObserver = async () => {
 
 const setActiveTab = async (tabKey: string) => {
   if (feedStore.currentTab === tabKey) return
+
+  if (isDetailRoute.value) {
+    await router.push('/')
+  }
 
   // Save current scroll position
   scrollPositions.value[feedStore.currentTab] = window.scrollY
@@ -188,8 +219,14 @@ const handleTouchEnd = (e: TouchEvent) => {
 }
 
 onMounted(async () => {
-  feedStore.initFeed()
+  const initialTab = detailModuleFromRoute.value
+    ? getTargetTabForModule(detailModuleFromRoute.value)
+    : 'todo'
+  feedStore.initFeed(initialTab)
   surveyStore.initFeaturedSurveyListener()
+  if (isDetailRoute.value) {
+    await resolveDetailRoute()
+  }
   await setupInfiniteObserver()
 })
 
@@ -586,6 +623,38 @@ const closeLightbox = () => {
   lightboxOpen.value = false
 }
 
+const getTargetTabForModule = (moduleName: ContentModuleKey): 'news' | 'post' =>
+  moduleName === 'news' ? 'news' : 'post'
+
+const isAliveContent = (item: any): boolean => item?.deletedAt == null
+
+const fetchContentDocById = async (contentId: string): Promise<any | null> => {
+  const safeId = contentId.trim()
+  if (!safeId) return null
+
+  const snapshot = await getDoc(doc(db, 'content', safeId))
+  if (!snapshot.exists()) return null
+
+  return { id: snapshot.id, ...snapshot.data() }
+}
+
+const fetchContentDocBySlug = async (
+  moduleName: ContentModuleKey,
+  slug: string
+): Promise<any | null> => {
+  const normalizedSlug = normalizeContentSlug(slug)
+  if (!normalizedSlug) return null
+
+  const slugKey = `${moduleName}__${normalizedSlug}`
+  const slugSnapshot = await getDoc(doc(db, '_content_slugs', slugKey))
+  if (!slugSnapshot.exists()) return null
+
+  const mappedContentId = String(slugSnapshot.data()?.contentId || '').trim()
+  if (!mappedContentId) return null
+
+  return fetchContentDocById(mappedContentId)
+}
+
 const resolveContentModule = (item: any): 'news' | 'community' | null => {
   const moduleName = item?.module
   if (moduleName === 'news' || moduleName === 'community') return moduleName
@@ -593,6 +662,133 @@ const resolveContentModule = (item: any): 'news' | 'community' | null => {
   if (item?.type === 'post') return 'community'
   return null
 }
+
+const isDetailTarget = (item: any): boolean =>
+  isDetailRoute.value && Boolean(detailTargetItem.value) && detailTargetItem.value?.id === item?.id
+
+const getDetailPath = (item: any): string | null => {
+  const moduleName = resolveContentModule(item)
+  if (!moduleName) return null
+  return buildContentDetailPath(moduleName, {
+    id: item.id,
+    slug: item.slug,
+    titulo: item.titulo || item.id
+  })
+}
+
+const openDetailFromItem = async (item: any, hash: string = '') => {
+  const path = getDetailPath(item)
+  if (!path) return
+  await router.push(hash ? `${path}${hash}` : path)
+}
+
+const buildDetailAbsoluteUrl = (item: any): string | null => {
+  const path = getDetailPath(item)
+  if (!path) return null
+  return new URL(path, window.location.origin).toString()
+}
+
+const handleSharePost = async (item: any) => {
+  const url = buildDetailAbsoluteUrl(item)
+  if (!url) return
+
+  try {
+    if (navigator.share) {
+      await navigator.share({
+        title: item?.titulo || 'Publicacion',
+        text: item?.descripcion || '',
+        url
+      })
+      return
+    }
+  } catch (error) {
+    console.error('Error sharing post:', error)
+  }
+
+  try {
+    await navigator.clipboard.writeText(url)
+  } catch (error) {
+    console.error('Error copying post URL:', error)
+  }
+}
+
+const clearDetailState = () => {
+  detailLoading.value = false
+  detailNotFound.value = false
+  detailTargetItem.value = null
+}
+
+const resolveDetailRoute = async () => {
+  const moduleName = detailModuleFromRoute.value
+  if (!moduleName) {
+    clearDetailState()
+    return
+  }
+
+  const refValue = detailRef.value
+  if (!refValue) {
+    detailNotFound.value = true
+    detailTargetItem.value = null
+    return
+  }
+
+  const targetTab = getTargetTabForModule(moduleName)
+  if (feedStore.currentTab !== targetTab) {
+    feedStore.initFeed(targetTab)
+  }
+
+  detailLoading.value = true
+  detailNotFound.value = false
+
+  try {
+    let found = await fetchContentDocById(refValue)
+
+    if (!found) {
+      const slugCandidate = detailSlugParam.value || refValue
+      found = await fetchContentDocBySlug(moduleName, slugCandidate)
+    }
+
+    const isValidModule = found && resolveContentModule(found) === moduleName
+    if (!found || !isValidModule || !isAliveContent(found)) {
+      detailTargetItem.value = null
+      detailNotFound.value = true
+      return
+    }
+
+    detailTargetItem.value = found
+    detailNotFound.value = false
+    expandedComments.value = {
+      ...expandedComments.value,
+      [found.id]: true
+    }
+
+    const canonicalPath = buildContentDetailPathByValues(
+      moduleName,
+      found.id,
+      found.slug || found.titulo || found.id
+    )
+
+    if (route.path !== canonicalPath) {
+      await router.replace(canonicalPath)
+    }
+  } catch (error) {
+    console.error('Error resolving detail route:', error)
+    detailTargetItem.value = null
+    detailNotFound.value = true
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const displayFeedItems = computed(() => {
+  const baseItems = feedStore.allItems || []
+  if (!isDetailRoute.value || !detailTargetItem.value) {
+    return baseItems
+  }
+
+  const deduped = baseItems.filter((item) => item.id !== detailTargetItem.value.id)
+  return [detailTargetItem.value, ...deduped]
+})
 
 const isLikesEnabledForItem = (item: any): boolean => {
   const moduleName = resolveContentModule(item)
@@ -615,7 +811,7 @@ const getLikesCount = (item: any): number => {
 const primeVisibleLikes = async () => {
   if (!authStore.user?.uid) return
 
-  const contentIds = feedStore.allItems
+  const contentIds = displayFeedItems.value
     .filter((item) => !item.isAd && isLikesEnabledForItem(item))
     .map((item) => item.id)
 
@@ -742,7 +938,7 @@ watch(
 )
 
 watch(
-  () => feedStore.allItems.map((item) => item.id).join('|'),
+  () => displayFeedItems.value.map((item) => item.id).join('|'),
   () => {
     void primeVisibleLikes()
   }
@@ -761,6 +957,13 @@ watch(
     if (!showSurveysTab && currentTab === 'surveys') {
       feedStore.initFeed('todo')
     }
+  }
+)
+
+watch(
+  () => route.fullPath,
+  () => {
+    void resolveDetailRoute()
   }
 )
 </script>
@@ -887,8 +1090,8 @@ watch(
     <SurveySection v-if="feedStore.currentTab === 'surveys'" />
     <LotterySection v-if="feedStore.currentTab === 'lottery'" />
 
-    <div
-      v-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.loading && feedStore.allItems.length === 0"
+    <div 
+      v-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.loading && displayFeedItems.length === 0" 
       class="loading-state"
     >
       <div class="spinner"></div>
@@ -896,7 +1099,7 @@ watch(
     </div>
 
     <div
-      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.allItems.length === 0"
+      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && displayFeedItems.length === 0"
       class="empty-state"
     >
       <div class="empty-icon">📭</div>
@@ -906,7 +1109,14 @@ watch(
     </div>
 
     <div v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery'" class="post-list">
-      <div v-for="item in feedStore.allItems" :key="item.id">
+      <div v-if="isDetailRoute && detailLoading" class="detail-info-card">
+        Cargando publicacion...
+      </div>
+      <div v-else-if="isDetailRoute && detailNotFound" class="detail-info-card error">
+        No encontramos esa publicacion. Mostramos el feed disponible.
+      </div>
+
+      <div v-for="item in displayFeedItems" :key="item.id">
         <FeedAdItem
           v-if="item.isAd"
           :item="item"
@@ -914,7 +1124,7 @@ watch(
           @click-ad="handleAdClick"
         />
 
-        <div v-else class="post-card">
+        <div v-else class="post-card" :id="isDetailTarget(item) ? 'titulo' : undefined">
           <template v-if="editingPosts[item.id]">
             <header class="post-header">
               <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
@@ -991,7 +1201,17 @@ watch(
             </header>
 
             <div class="post-content">
-              <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicacion'">{{ item.titulo }}</h3>
+              <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicacion'">
+                <button
+                  v-if="getDetailPath(item)"
+                  type="button"
+                  class="title-link-btn"
+                  @click="openDetailFromItem(item, '#titulo')"
+                >
+                  {{ item.titulo }}
+                </button>
+                <template v-else>{{ item.titulo }}</template>
+              </h3>
 
               <div v-if="normalizeImageList(item).length > 0" 
                    class="post-images" 
@@ -1007,13 +1227,18 @@ watch(
                 </button>
               </div>
 
-              <div
+              <ExpandableText
                 v-if="item.isOficial"
-                class="html-desc"
-                v-html="item.descripcion"
-                @click="handleHtmlImageClick"
-              ></div>
-              <p v-else style="white-space: pre-wrap; margin-top: 0.5rem;">{{ item.descripcion }}</p>
+                :html="item.descripcion || ''"
+                :is-html="true"
+                :max-preview-length="isDetailTarget(item) ? 200000 : 420"
+                @content-click="handleHtmlImageClick"
+              />
+              <ExpandableText
+                v-else
+                :text="item.descripcion || ''"
+                :max-preview-length="isDetailTarget(item) ? 200000 : 320"
+              />
             </div>
 
         <footer class="post-footer">
@@ -1035,8 +1260,15 @@ watch(
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 1 1-7.6-10.6 8.38 8.38 0 0 1 3.8.9L21 3z"></path></svg>
             <span>{{ getCommentsLabel(item) }}</span>
           </button>
-          <button class="interaction-btn share">
+          <button class="interaction-btn share" @click="handleSharePost(item)">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+          </button>
+          <button
+            class="interaction-btn open-link"
+            :disabled="!getDetailPath(item)"
+            @click="openDetailFromItem(item)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L10.7 5.23"></path><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13.3 18.77"></path></svg>
           </button>
         </footer>
         <p v-if="getLikeErrorMessage(item)" class="interaction-error">
@@ -1519,6 +1751,22 @@ watch(
   color: var(--text-h);
 }
 
+.title-link-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.title-link-btn:hover {
+  color: var(--accent);
+}
+
 .post-content p {
   white-space: pre-wrap;
   color: var(--text);
@@ -1607,6 +1855,21 @@ watch(
 
 .interaction-btn.share {
   margin-left: auto;
+}
+
+.detail-info-card {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  border-radius: 14px;
+  padding: 0.8rem 0.9rem;
+  margin-bottom: 1rem;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.detail-info-card.error {
+  border-color: #f2b4b4;
+  color: #b91c1c;
 }
 
 .interaction-error {
