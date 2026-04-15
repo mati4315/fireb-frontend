@@ -49,6 +49,12 @@ const router = createRouter({
       component: () => import('@/views/ProfileView.vue'),
     },
     {
+      path: '/notificaciones',
+      name: 'notifications',
+      meta: { requiresAuth: true },
+      component: () => import('@/views/NotificationsView.vue'),
+    },
+    {
       path: '/privacidad',
       name: 'privacy',
       component: () => import('@/views/PrivacyView.vue'),

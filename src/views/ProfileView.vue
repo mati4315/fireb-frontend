@@ -9,6 +9,7 @@ import { processImageForPost, validateImageFile } from '@/utils/imageProcessing'
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 import ImageLightbox from '@/components/common/ImageLightbox.vue';
 import { runWithConcurrency } from '@/utils/concurrency'; // Assuming this exists based on HomeView logic or I'll check it. Actually HomeView has it inline.
+import { buildContentDetailPath } from '@/utils/contentLinks';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 
@@ -576,6 +577,33 @@ const loadMorePosts = async () => {
   await profileStore.loadUserPosts(viewedUserId.value);
 };
 
+const resolveContentModule = (item: any): 'news' | 'community' | null => {
+  const moduleName = item?.module;
+  if (moduleName === 'news' || moduleName === 'community') return moduleName;
+  if (item?.type === 'news') return 'news';
+  if (item?.type === 'post') return 'community';
+  return null;
+};
+
+const getDetailPath = (item: any): string | null => {
+  const moduleName = resolveContentModule(item);
+  if (!moduleName) return null;
+  return buildContentDetailPath(moduleName, {
+    id: item.id,
+    publicId: item.publicId,
+    postId: item.postId,
+    custom_fields: item.custom_fields,
+    slug: item.slug,
+    titulo: item.titulo || item.id
+  });
+};
+
+const openDetailFromItem = async (item: any, hash: string = '') => {
+  const path = getDetailPath(item);
+  if (!path) return;
+  await router.push(hash ? `${path}${hash}` : path);
+};
+
 watch(
   () => route.fullPath,
   () => {
@@ -802,7 +830,17 @@ onBeforeUnmount(() => {
             </header>
 
             <div class="post-content">
-              <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">{{ post.titulo }}</h3>
+              <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">
+                <button
+                  v-if="getDetailPath(post)"
+                  type="button"
+                  class="title-link-btn"
+                  @click="openDetailFromItem(post)"
+                >
+                  {{ post.titulo }}
+                </button>
+                <template v-else>{{ post.titulo }}</template>
+              </h3>
 
               <div v-if="normalizeImageList(post).length > 0" 
                    class="post-images" 

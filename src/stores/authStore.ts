@@ -9,7 +9,6 @@ import {
   FacebookAuthProvider,
   OAuthProvider,
   signInWithPopup,
-  signInWithRedirect,
   getRedirectResult
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';

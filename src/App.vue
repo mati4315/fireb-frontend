@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
+import { useNotificationStore } from '@/stores/notificationStore'
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
@@ -24,6 +25,7 @@ const shouldHideHeader = computed(() => !isHeaderVisible.value && scrollY.value 
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const notificationStore = useNotificationStore()
 const route = useRoute()
 
 const isUserMenuOpen = ref(false)
@@ -73,12 +75,25 @@ watch(
   }
 )
 
+watch(
+  () => authStore.user?.uid || '',
+  async (nextUid) => {
+    if (!nextUid) {
+      notificationStore.cleanup()
+      return
+    }
+    await notificationStore.init()
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
   window.addEventListener('click', handleClickOutside)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', handleClickOutside)
+  notificationStore.cleanup()
 })
 </script>
 
@@ -104,6 +119,14 @@ onBeforeUnmount(() => {
           </template>
           
           <div v-else ref="userMenuRef" class="user-menu">
+            <RouterLink to="/notificaciones" class="notif-link" @click="closeUserMenu">
+              <span class="notif-icon">🔔</span>
+              <span class="notif-label">Notificaciones</span>
+              <span v-if="notificationStore.unreadCount > 0" class="notif-badge">
+                {{ notificationStore.unreadCount > 99 ? '99+' : notificationStore.unreadCount }}
+              </span>
+            </RouterLink>
+
             <button class="user-trigger" @click.stop="toggleUserMenu">
               <div class="user-info">
                 <div class="avatar-container">
@@ -123,6 +146,14 @@ onBeforeUnmount(() => {
                 @click="closeUserMenu"
               >
                 Mi Perfil
+              </RouterLink>
+
+              <RouterLink
+                to="/notificaciones"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Notificaciones
               </RouterLink>
 
               <RouterLink
@@ -273,10 +304,48 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   align-items: center;
+   gap: 0.35rem;
   padding: 0.25rem 0.5rem 0.25rem 0.35rem;
   background: var(--accent-bg);
   border-radius: 99px;
   border: 1px solid var(--accent-border);
+}
+
+.notif-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  text-decoration: none;
+  color: var(--text-h);
+  border-radius: 999px;
+  padding: 0.35rem 0.5rem;
+  position: relative;
+}
+
+.notif-link:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.notif-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.notif-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.notif-badge {
+  min-width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #d11a2a;
+  color: #fff;
+  font-size: 0.65rem;
+  line-height: 1rem;
+  text-align: center;
+  padding: 0 0.2rem;
 }
 
 .user-trigger {
@@ -418,6 +487,10 @@ onBeforeUnmount(() => {
   .user-menu {
     max-width: 56vw;
     padding: 0.2rem 0.4rem 0.2rem 0.25rem;
+  }
+
+  .notif-label {
+    display: none;
   }
 
   .avatar-placeholder {

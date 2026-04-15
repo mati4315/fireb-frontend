@@ -22,6 +22,7 @@ export interface AdsModuleConfig {
 export interface ModulesConfig {
   news: { enabled: boolean };
   community: { enabled: boolean };
+  notifications: { enabled: boolean };
   likes: {
     enabled: boolean;
     newsEnabled: boolean;
@@ -40,6 +41,7 @@ export interface ModulesConfig {
 const DEFAULT_MODULES_CONFIG: ModulesConfig = {
   news: { enabled: true },
   community: { enabled: true },
+  notifications: { enabled: true },
   likes: {
     enabled: true,
     newsEnabled: true,
@@ -89,6 +91,7 @@ const sanitizeTabs = (value: unknown): FeedTabKey[] => {
 const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawNews = raw?.news ?? {};
   const rawCommunity = raw?.community ?? {};
+  const rawNotifications = raw?.notifications ?? {};
   const rawLikes = raw?.likes ?? {};
   const rawComments = raw?.comments ?? {};
   const rawSurveys = raw?.surveys ?? {};
@@ -101,6 +104,9 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
     },
     community: {
       enabled: toBoolean(rawCommunity.enabled, DEFAULT_MODULES_CONFIG.community.enabled)
+    },
+    notifications: {
+      enabled: toBoolean(rawNotifications.enabled, DEFAULT_MODULES_CONFIG.notifications.enabled)
     },
     likes: {
       enabled: toBoolean(rawLikes.enabled, DEFAULT_MODULES_CONFIG.likes.enabled),
@@ -181,6 +187,7 @@ export const useModuleStore = defineStore('module', () => {
   const isModuleEnabled = (moduleName: keyof ModulesConfig): boolean => {
     if (moduleName === 'news') return modules.value.news.enabled;
     if (moduleName === 'community') return modules.value.community.enabled;
+    if (moduleName === 'notifications') return modules.value.notifications.enabled;
     if (moduleName === 'likes') return modules.value.likes.enabled;
     if (moduleName === 'comments') return modules.value.comments.enabled;
     if (moduleName === 'surveys') return modules.value.surveys.enabled;
