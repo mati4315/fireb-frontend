@@ -8,6 +8,7 @@ import {
   GoogleAuthProvider,
   FacebookAuthProvider,
   OAuthProvider,
+  signInWithPopup,
   signInWithRedirect,
   getRedirectResult
 } from 'firebase/auth';
@@ -276,9 +277,22 @@ export const useAuthStore = defineStore('auth', () => {
         provider = new OAuthProvider(providerId);
       }
 
-      await signInWithRedirect(auth, provider);
+      const { user: firebaseUser } = await signInWithPopup(auth, provider);
+      user.value = firebaseUser;
+      await refreshTokenClaims(firebaseUser, true);
+      const profile = await refreshUserProfile(firebaseUser.uid);
+      if (!profile) {
+        await ensureProfileDocument(firebaseUser);
+      }
+      loading.value = false;
+      return { success: true };
     } catch (err: any) {
-      error.value = err.message;
+      console.error('Login Error:', err);
+      if (err.code === 'auth/popup-closed-by-user') {
+        error.value = 'El inicio de sesión fue cancelado.';
+      } else {
+        error.value = err.message;
+      }
       loading.value = false;
       return { success: false, error: err.message };
     }
