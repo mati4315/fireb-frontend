@@ -256,7 +256,10 @@ onMounted(async () => {
               <span v-else class="avatar-fallback">{{ item.actorName.charAt(0).toUpperCase() }}</span>
             </div>
             <div class="content">
-              <p class="message">{{ notificationStore.getMessage(item) }}</p>
+              <p class="message">
+                <strong class="message-actor">{{ item.actorName }}</strong>
+                {{ ` ${notificationStore.getMessageSuffix(item)}` }}
+              </p>
               <p class="meta">{{ notificationStore.formatRelativeDate(item.lastEventAt) }}</p>
             </div>
             <span v-if="!item.isRead" class="dot" />
@@ -431,6 +434,10 @@ onMounted(async () => {
 .message {
   margin: 0;
   font-size: 0.94rem;
+}
+
+.message-actor {
+  font-weight: 700;
 }
 
 .meta {

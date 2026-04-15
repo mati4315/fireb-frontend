@@ -68,6 +68,23 @@ const isOwnProfile = computed(() => {
   return Boolean(authStore.user?.uid) && viewedUserId.value === authStore.user?.uid;
 });
 
+const socialProvidersStatus = computed(() => {
+  const knownProviders = [
+    { id: 'google.com', label: 'Google' },
+    { id: 'facebook.com', label: 'Facebook' }
+  ];
+  const providerIds = new Set(
+    (authStore.user?.providerData || [])
+      .map((provider: any) => (typeof provider?.providerId === 'string' ? provider.providerId : ''))
+      .filter(Boolean)
+  );
+
+  return knownProviders.map((provider) => ({
+    ...provider,
+    connected: providerIds.has(provider.id)
+  }));
+});
+
 const posts = computed(() => profileStore.getPostsForUser(viewedUserId.value));
 const hasMorePosts = computed(() => profileStore.hasMorePostsForUser(viewedUserId.value));
 const loadingPosts = computed(() => profileStore.isLoadingPostsForUser(viewedUserId.value));
@@ -708,6 +725,22 @@ onBeforeUnmount(() => {
         <h2>Mi Perfil</h2>
         <p class="secondary">Edita tu perfil publico. Los cambios se reflejan en tus publicaciones y comentarios.</p>
 
+        <div class="social-connected">
+          <h3>Connected social accounts</h3>
+          <div class="social-connected-list">
+            <div
+              v-for="provider in socialProvidersStatus"
+              :key="provider.id"
+              class="social-connected-item"
+            >
+              <span class="social-provider-name">{{ provider.label }}</span>
+              <span class="social-provider-mark" :class="{ off: !provider.connected }">
+                {{ provider.connected ? '✅' : '❌' }}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <label class="avatar-upload">
           <span>Foto de perfil</span>
           <input type="file" accept="image/*" @change="handleAvatarSelect" />
@@ -1022,6 +1055,39 @@ onBeforeUnmount(() => {
 .profile-posts h2 {
   margin: 0;
   color: var(--text-h);
+}
+
+.social-connected {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.social-connected h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-h);
+}
+
+.social-connected-list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.social-connected-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.social-provider-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.social-provider-mark.off {
+  opacity: 0.85;
 }
 
 .form-grid {

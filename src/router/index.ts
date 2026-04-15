@@ -88,6 +88,12 @@ const router = createRouter({
       meta: { requiresAdmin: true },
       component: () => import('@/views/CommentsManagerView.vue'),
     },
+    {
+      path: '/usuarios/gestion',
+      name: 'users-manager',
+      meta: { requiresAdmin: true },
+      component: () => import('@/views/UsersManagerView.vue'),
+    },
   ],
 })
 

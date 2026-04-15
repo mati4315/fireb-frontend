@@ -443,14 +443,18 @@ export const useNotificationStore = defineStore('notifications', () => {
     }
   };
 
-  const getMessage = (item: NotificationRecord): string => {
+  const getMessageSuffix = (item: NotificationRecord): string => {
     if (item.type === 'like') {
       const suffix = item.eventCount > 1 ? ` (${item.eventCount})` : '';
-      return `${item.actorName} le dio me gusta a tu publicacion${suffix}.`;
+      return `le dio me gusta a tu publicacion${suffix}.`;
     }
-    if (item.type === 'comment') return `${item.actorName} comento tu publicacion.`;
-    if (item.type === 'reply') return `${item.actorName} respondio tu comentario.`;
-    return `${item.actorName} empezo a seguirte.`;
+    if (item.type === 'comment') return 'comento tu publicacion.';
+    if (item.type === 'reply') return 'respondio tu comentario.';
+    return 'empezo a seguirte.';
+  };
+
+  const getMessage = (item: NotificationRecord): string => {
+    return `${item.actorName} ${getMessageSuffix(item)}`;
   };
 
   return {
@@ -474,6 +478,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     updatePreferences,
     enableWebPush,
     disableWebPush,
+    getMessageSuffix,
     getMessage,
     formatRelativeDate
   };

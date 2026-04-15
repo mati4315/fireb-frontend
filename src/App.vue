@@ -174,7 +174,10 @@ const openNotificationsConfig = async () => {
                       type="button"
                       @click="openNotificationItem(item)"
                     >
-                      <span class="notif-item-text">{{ notificationStore.getMessage(item) }}</span>
+                      <span class="notif-item-text">
+                        <strong class="notif-actor">{{ item.actorName }}</strong>
+                        {{ ` ${notificationStore.getMessageSuffix(item)}` }}
+                      </span>
                       <span class="notif-item-date">{{ notificationStore.formatRelativeDate(item.lastEventAt) }}</span>
                     </button>
                   </li>
@@ -239,6 +242,15 @@ const openNotificationsConfig = async () => {
                 @click="closeUserMenu"
               >
                 Gestion Comentarios
+              </RouterLink>
+
+              <RouterLink
+                v-if="canManageComments"
+                to="/usuarios/gestion"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestionar Usuarios
               </RouterLink>
 
               <button class="dropdown-item danger" @click="handleLogout">
@@ -455,6 +467,10 @@ const openNotificationsConfig = async () => {
   line-height: 1.25;
 }
 
+.notif-actor {
+  font-weight: 700;
+}
+
 .notif-item-date {
   font-size: 0.74rem;
   color: var(--text-s);
@@ -622,8 +638,14 @@ const openNotificationsConfig = async () => {
   }
 
   .notif-popover {
-    right: -6px;
-    width: min(360px, 92vw);
+    position: fixed;
+    top: calc(var(--header-height, 64px) + 0.5rem);
+    left: 0.6rem;
+    right: 0.6rem;
+    width: auto;
+    max-width: none;
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
   }
 
   .avatar-placeholder {
