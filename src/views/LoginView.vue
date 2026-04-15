@@ -26,7 +26,10 @@ const handleForm = async () => {
 }
 
 const handleGoogleLogin = async () => {
-  await authStore.loginWithGoogle();
+  const result = await authStore.loginWithGoogle();
+  if (result.success) {
+    router.push('/');
+  }
 }
 </script>
 

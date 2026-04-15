@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 
 const props = withDefaults(
@@ -19,6 +20,7 @@ const emit = defineEmits<{
 }>();
 
 const authStore = useAuthStore();
+const router = useRouter();
 
 const providers = computed(() => authStore.socialProviders);
 
@@ -32,7 +34,11 @@ const getProviderClass = (providerId: string): string => {
 };
 
 const loginWithProvider = async (providerId: string) => {
-  await authStore.loginWithProvider(providerId);
+  const result = await authStore.loginWithProvider(providerId);
+  if (result.success) {
+    emit('close');
+    router.push('/');
+  }
 };
 
 const close = () => {
