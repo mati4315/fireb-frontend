@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink, RouterView } from 'vue-router'
+import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
-import { useNotificationStore } from '@/stores/notificationStore'
+import { useNotificationStore, type NotificationRecord } from '@/stores/notificationStore'
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
@@ -27,9 +27,12 @@ const authStore = useAuthStore()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
 const route = useRoute()
+const router = useRouter()
 
 const isUserMenuOpen = ref(false)
 const userMenuRef = ref<HTMLElement | null>(null)
+const isNotificationsOpen = ref(false)
+const notificationsRef = ref<HTMLElement | null>(null)
 
 const canManageStaff = computed(() => {
   const rol = authStore.userProfile?.rol
@@ -53,13 +56,30 @@ const closeUserMenu = () => {
   isUserMenuOpen.value = false
 }
 
+const toggleNotifications = async () => {
+  isNotificationsOpen.value = !isNotificationsOpen.value
+  if (isNotificationsOpen.value) {
+    await notificationStore.init()
+  }
+}
+
+const closeNotifications = () => {
+  isNotificationsOpen.value = false
+}
+
+const quickNotifications = computed(() =>
+  notificationStore.items.slice(0, 6)
+)
+
 const handleClickOutside = (event: MouseEvent) => {
-  if (!isUserMenuOpen.value) return
   const target = event.target as Node | null
   if (!target) return
 
-  if (userMenuRef.value && !userMenuRef.value.contains(target)) {
+  if (isUserMenuOpen.value && userMenuRef.value && !userMenuRef.value.contains(target)) {
     closeUserMenu()
+  }
+  if (isNotificationsOpen.value && notificationsRef.value && !notificationsRef.value.contains(target)) {
+    closeNotifications()
   }
 }
 
@@ -72,6 +92,7 @@ watch(
   () => route.fullPath,
   () => {
     closeUserMenu()
+    closeNotifications()
   }
 )
 
@@ -95,6 +116,19 @@ onBeforeUnmount(() => {
   window.removeEventListener('click', handleClickOutside)
   notificationStore.cleanup()
 })
+
+const openNotificationItem = async (item: NotificationRecord) => {
+  if (!item.isRead) {
+    await notificationStore.markNotificationRead(item.id)
+  }
+  closeNotifications()
+  await router.push(item.targetPath || '/notificaciones')
+}
+
+const openNotificationsConfig = async () => {
+  closeNotifications()
+  await router.push('/notificaciones')
+}
 </script>
 
 <template>
@@ -119,15 +153,39 @@ onBeforeUnmount(() => {
           </template>
           
           <div v-else ref="userMenuRef" class="user-menu">
-            <RouterLink to="/notificaciones" class="notif-link" @click="closeUserMenu">
-              <span class="notif-icon">🔔</span>
-              <span class="notif-label">Notificaciones</span>
-              <span v-if="notificationStore.unreadCount > 0" class="notif-badge">
-                {{ notificationStore.unreadCount > 99 ? '99+' : notificationStore.unreadCount }}
-              </span>
-            </RouterLink>
+            <div ref="notificationsRef" class="notif-wrap">
+              <button class="notif-link" type="button" @click.stop="toggleNotifications">
+                <span class="notif-icon">&#128276;</span>
+                <span class="notif-label">Notificaciones</span>
+                <span v-if="notificationStore.unreadCount > 0" class="notif-badge">
+                  {{ notificationStore.unreadCount > 99 ? '99+' : notificationStore.unreadCount }}
+                </span>
+              </button>
 
-            <button class="user-trigger" @click.stop="toggleUserMenu">
+              <div v-if="isNotificationsOpen" class="notif-popover list-panel">
+                <p v-if="notificationStore.loading" class="notif-state">Cargando notificaciones...</p>
+                <p v-else-if="quickNotifications.length === 0" class="notif-state">Sin notificaciones.</p>
+
+                <ul v-else class="notif-quick-list">
+                  <li v-for="item in quickNotifications" :key="item.id">
+                    <button
+                      class="notif-item-btn"
+                      :class="{ unread: !item.isRead }"
+                      type="button"
+                      @click="openNotificationItem(item)"
+                    >
+                      <span class="notif-item-text">{{ notificationStore.getMessage(item) }}</span>
+                      <span class="notif-item-date">{{ notificationStore.formatRelativeDate(item.lastEventAt) }}</span>
+                    </button>
+                  </li>
+                </ul>
+
+                <button class="notif-config-btn" type="button" @click="openNotificationsConfig">
+                  Configurar notificaciones
+                </button>
+              </div>
+            </div>
+<button class="user-trigger" @click.stop="toggleUserMenu">
               <div class="user-info">
                 <div class="avatar-container">
                   <img v-if="authStore.userProfile?.profilePictureUrl" :src="authStore.userProfile.profilePictureUrl" class="nav-avatar" alt="Avatar" />
@@ -147,16 +205,7 @@ onBeforeUnmount(() => {
               >
                 Mi Perfil
               </RouterLink>
-
-              <RouterLink
-                to="/notificaciones"
-                class="dropdown-item"
-                @click="closeUserMenu"
-              >
-                Notificaciones
-              </RouterLink>
-
-              <RouterLink
+<RouterLink
                 v-if="canManageStaff"
                 to="/ads"
                 class="dropdown-item"
@@ -304,22 +353,28 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   align-items: center;
-   gap: 0.35rem;
+  gap: 0.35rem;
   padding: 0.25rem 0.5rem 0.25rem 0.35rem;
   background: var(--accent-bg);
   border-radius: 99px;
   border: 1px solid var(--accent-border);
 }
 
+.notif-wrap {
+  position: relative;
+}
+
 .notif-link {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  text-decoration: none;
+  border: 0;
+  background: transparent;
   color: var(--text-h);
   border-radius: 999px;
   padding: 0.35rem 0.5rem;
   position: relative;
+  cursor: pointer;
 }
 
 .notif-link:hover {
@@ -346,6 +401,79 @@ onBeforeUnmount(() => {
   line-height: 1rem;
   text-align: center;
   padding: 0 0.2rem;
+}
+
+.notif-popover {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: min(420px, 90vw);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.2);
+  z-index: 25;
+  padding: 0.75rem;
+}
+
+.notif-state {
+  margin: 0;
+  color: var(--text-s);
+  font-size: 0.9rem;
+}
+
+.notif-quick-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.45rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.notif-item-btn {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 0.55rem 0.65rem;
+  display: grid;
+  gap: 0.2rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-item-btn.unread {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.notif-item-text {
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.notif-item-date {
+  font-size: 0.74rem;
+  color: var(--text-s);
+}
+
+.notif-config-btn {
+  margin-top: 0.6rem;
+  width: 100%;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-h);
+  padding: 0.5rem 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notif-config-btn:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .user-trigger {
@@ -493,6 +621,11 @@ onBeforeUnmount(() => {
     display: none;
   }
 
+  .notif-popover {
+    right: -6px;
+    width: min(360px, 92vw);
+  }
+
   .avatar-placeholder {
     width: 28px;
     height: 28px;
@@ -519,4 +652,5 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
 
