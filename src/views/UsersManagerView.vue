@@ -25,6 +25,7 @@ type UserItem = {
   nombre: string;
   username: string;
   email: string;
+  profilePictureUrl?: string;
   rol: UserRole;
   isVerified: boolean;
   createdAt: any;
@@ -290,16 +291,17 @@ onMounted(() => {
               <th>Social</th>
               <th>Rol</th>
               <th>Verificado</th>
+              <th>Perfil</th>
               <th>Creado</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading && users.length === 0">
-              <td colspan="8" class="loading-cell">Cargando usuarios...</td>
+              <td colspan="9" class="loading-cell">Cargando usuarios...</td>
             </tr>
             <tr v-else-if="users.length === 0">
-              <td colspan="8" class="empty-cell">No se encontraron usuarios.</td>
+              <td colspan="9" class="empty-cell">No se encontraron usuarios.</td>
             </tr>
             <tr v-for="user in users" :key="user.id">
               <td class="bold">{{ user.nombre || '-' }}</td>
@@ -325,6 +327,19 @@ onMounted(() => {
               <td>
                 <span v-if="user.isVerified" class="verified-icon">✓</span>
                 <span v-else class="not-verified">-</span>
+              </td>
+              <td>
+                <div class="table-avatar-wrap">
+                  <img
+                    v-if="user.profilePictureUrl"
+                    :src="user.profilePictureUrl"
+                    alt="Avatar"
+                    class="table-avatar"
+                  >
+                  <span v-else class="table-avatar-fallback">
+                    {{ (user.nombre || user.username || 'U').charAt(0).toUpperCase() }}
+                  </span>
+                </div>
               </td>
               <td class="date-cell">{{ formatDate(user.createdAt) }}</td>
               <td class="actions-cell">
@@ -581,6 +596,30 @@ onMounted(() => {
   color: var(--text-muted, #999);
 }
 
+.table-avatar-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.table-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.table-avatar-fallback {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
 .date-cell {
   font-size: 0.85rem;
   color: var(--text);
@@ -805,7 +844,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 768px) {
   .users-table th:nth-child(1), .users-table td:nth-child(1) { display: none; }
-  .users-table th:nth-child(7), .users-table td:nth-child(7) { display: none; }
+  .users-table th:nth-child(8), .users-table td:nth-child(8) { display: none; }
 
   .modal-overlay {
     padding: 0.5rem;

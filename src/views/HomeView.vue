@@ -1001,12 +1001,34 @@ const handleHtmlImageClick = (event: MouseEvent) => {
 const formatDate = (date: any) => {
   if (!date) return ''
   const d = date.toDate ? date.toDate() : new Date(date)
-  return new Intl.DateTimeFormat('es-AR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(d)
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ''
+
+  const now = Date.now()
+  const diffMs = Math.max(0, now - d.getTime())
+  const minuteMs = 60 * 1000
+  const hourMs = 60 * minuteMs
+  const dayMs = 24 * hourMs
+  const weekMs = 7 * dayMs
+
+  if (diffMs < minuteMs) return 'Publicado hace instantes'
+
+  if (diffMs < hourMs) {
+    const minutes = Math.floor(diffMs / minuteMs)
+    return `Publicado hace ${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}`
+  }
+
+  if (diffMs < dayMs) {
+    const hours = Math.floor(diffMs / hourMs)
+    return `Publicado hace ${hours} ${hours === 1 ? 'hora' : 'horas'}`
+  }
+
+  if (diffMs < weekMs) {
+    const days = Math.floor(diffMs / dayMs)
+    return `Publicado hace ${days} ${days === 1 ? 'dia' : 'dias'}`
+  }
+
+  const weeks = Math.floor(diffMs / weekMs)
+  return `Publicado hace ${weeks} ${weeks === 1 ? 'semana' : 'semanas'}`
 }
 
 watch(
