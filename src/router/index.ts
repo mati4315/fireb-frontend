@@ -97,6 +97,20 @@ const router = createRouter({
   ],
 })
 
+const setMetaTag = (name: string, content: string, property = false) => {
+  const selector = property
+    ? `meta[property="${name}"]`
+    : `meta[name="${name}"]`;
+  let tag = document.querySelector(selector) as HTMLMetaElement | null;
+  if (!tag) {
+    tag = document.createElement('meta');
+    if (property) tag.setAttribute('property', name);
+    else tag.setAttribute('name', name);
+    document.head.appendChild(tag);
+  }
+  tag.setAttribute('content', content);
+};
+
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   
@@ -132,5 +146,39 @@ router.beforeEach(async (to) => {
   if (isStaff) return true
   return { name: 'home' }
 })
+
+router.afterEach((to) => {
+  const defaultTitle = 'Cdelu.ar - Noticias y Comunidad';
+  const titleByRoute: Record<string, string> = {
+    home: defaultTitle,
+    'news-detail': 'Noticia - Cdelu.ar',
+    'community-detail': 'Publicacion - Cdelu.ar',
+    login: 'Iniciar Sesion - Cdelu.ar',
+    'profile-self': 'Mi Perfil - Cdelu.ar',
+    'profile-public': 'Perfil - Cdelu.ar',
+    notifications: 'Notificaciones - Cdelu.ar',
+    privacy: 'Politica de Privacidad - Cdelu.ar',
+    terms: 'Terminos y Condiciones - Cdelu.ar'
+  };
+
+  const routeName = typeof to.name === 'string' ? to.name : '';
+  const nextTitle = titleByRoute[routeName] || defaultTitle;
+  document.title = nextTitle;
+
+  const canonicalPath = to.fullPath.startsWith('/') ? to.fullPath : `/${to.fullPath}`;
+  const canonicalUrl = `https://cdelu.ar${canonicalPath}`;
+  let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+  if (!canonical) {
+    canonical = document.createElement('link');
+    canonical.setAttribute('rel', 'canonical');
+    document.head.appendChild(canonical);
+  }
+  canonical.setAttribute('href', canonicalUrl);
+
+  setMetaTag('description', 'Noticias y comunidad en tiempo real de Concepcion del Uruguay.');
+  setMetaTag('og:title', nextTitle, true);
+  setMetaTag('og:url', canonicalUrl, true);
+  setMetaTag('twitter:title', nextTitle);
+});
 
 export default router

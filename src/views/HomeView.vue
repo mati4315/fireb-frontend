@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
@@ -13,13 +13,6 @@ import { useLikesStore } from '@/stores/likesStore'
 import { useProfileStore } from '@/stores/profileStore'
 
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
-import ImageLightbox from '@/components/common/ImageLightbox.vue'
-import AuthPromptModal from '@/components/common/AuthPromptModal.vue'
-import ExpandableText from '@/components/common/ExpandableText.vue'
-import SurveySection from '@/components/surveys/SurveySection.vue'
-import LotterySection from '@/components/lottery/LotterySection.vue'
-import CommentSection from '@/components/comments/CommentSection.vue'
-import CommentPreviewList from '@/components/comments/CommentPreviewList.vue'
 import { db } from '@/config/firebase'
 import {
   buildContentDetailPath,
@@ -34,8 +27,17 @@ import {
   validateImageFile
 } from '@/utils/imageProcessing'
 import { runWithConcurrency } from '@/utils/concurrency'
-import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
+import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
+
+const ImageLightbox = defineAsyncComponent(() => import('@/components/common/ImageLightbox.vue'))
+const AuthPromptModal = defineAsyncComponent(() => import('@/components/common/AuthPromptModal.vue'))
+const ExpandableText = defineAsyncComponent(() => import('@/components/common/ExpandableText.vue'))
+const SurveySection = defineAsyncComponent(() => import('@/components/surveys/SurveySection.vue'))
+const LotterySection = defineAsyncComponent(() => import('@/components/lottery/LotterySection.vue'))
+const CommentSection = defineAsyncComponent(() => import('@/components/comments/CommentSection.vue'))
+const CommentPreviewList = defineAsyncComponent(() => import('@/components/comments/CommentPreviewList.vue'))
+const OptionsMenu = defineAsyncComponent(() => import('@/components/common/OptionsMenu.vue'))
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(window.scrollY)
@@ -286,7 +288,9 @@ const removeSelectedImage = (id: string) => {
   selectedImages.value.splice(index, 1)
 }
 
-const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }> => {
+const normalizeImageList = (
+  item: any
+): Array<{ url: string; thumbUrl: string; width?: number; height?: number }> => {
   const legacyMiniThumb =
     (typeof item?.imgMiniatura === 'string' && item.imgMiniatura.trim()) ||
     (typeof item?.img_miniatura === 'string' && item.img_miniatura.trim()) ||
@@ -303,7 +307,9 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
             ? image.thumbUrl
             : legacyMiniThumb
               ? legacyMiniThumb
-            : image.url
+            : image.url,
+        width: Number.isFinite(Number(image.width)) ? Number(image.width) : undefined,
+        height: Number.isFinite(Number(image.height)) ? Number(image.height) : undefined
       }))
   }
 
@@ -312,12 +318,14 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string, index: number) => ({
         url: image,
-        thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : image
+        thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : image,
+        width: 16,
+        height: 9
       }))
   }
 
   if (legacyMiniThumb) {
-    return [{ url: legacyMiniThumb, thumbUrl: legacyMiniThumb }]
+    return [{ url: legacyMiniThumb, thumbUrl: legacyMiniThumb, width: 16, height: 9 }]
   }
 
   return []
@@ -1316,7 +1324,12 @@ watch(
           <template v-else>
             <header class="post-header">
               <button class="post-user post-user-btn" type="button" @click="openUserProfile(item)">
-                <img v-if="item.userProfilePicUrl" :src="item.userProfilePicUrl" class="mini-avatar" />
+                <img
+                  v-if="item.userProfilePicUrl"
+                  :src="item.userProfilePicUrl"
+                  :alt="`Avatar de ${item.userName || 'usuario'}`"
+                  class="mini-avatar"
+                />
                 <div v-else class="mini-avatar-placeholder">{{ item.userName?.charAt(0) || 'U' }}</div>
                 <div class="user-details">
                   <span class="user-name">{{ item.userName || 'Usuario' }}</span>
@@ -1354,9 +1367,18 @@ watch(
                   :key="`${item.id}_${imageIndex}`"
                   class="post-image-btn"
                   type="button"
+                  :style="{ aspectRatio: image.width && image.height ? `${image.width} / ${image.height}` : '16 / 9' }"
                   @click="openLightbox(normalizeImageList(item).map((entry) => entry.url), Number(imageIndex))"
                 >
-                  <img :src="image.thumbUrl" class="main-image" loading="lazy" decoding="async" />
+                  <img
+                    :src="image.thumbUrl"
+                    :alt="item.titulo ? `Imagen de ${item.titulo}` : 'Imagen de publicacion'"
+                    :width="image.width || 1280"
+                    :height="image.height || 720"
+                    class="main-image"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </button>
               </div>
 
@@ -1396,11 +1418,12 @@ watch(
           <button
             class="interaction-btn open-link"
             :disabled="!getDetailPath(item)"
+            aria-label="Abrir publicacion completa"
             @click="openDetailFromItem(item)"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L10.7 5.23"></path><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13.3 18.77"></path></svg>
           </button>
-          <button class="interaction-btn share" @click="handleSharePost(item)">
+          <button class="interaction-btn share" aria-label="Compartir publicacion" @click="handleSharePost(item)">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
           </button>
         </footer>
@@ -1921,12 +1944,13 @@ watch(
   overflow: hidden;
   cursor: zoom-in;
   background: transparent;
+  aspect-ratio: 16 / 9;
 }
 
 .main-image {
   width: 100%;
   display: block;
-  height: 250px;
+  height: 100%;
   object-fit: cover;
   transition: opacity 0.2s;
 }
@@ -1942,8 +1966,7 @@ watch(
 }
 
 .post-images.single-img .main-image {
-  height: auto;
-  max-height: 450px;
+  height: 100%;
   border-radius: 12px;
 }
 
@@ -2081,12 +2104,11 @@ watch(
   }
 
   .main-image {
-    height: 180px;
+    height: 100%;
   }
 
   .post-images.single-img .main-image {
-    max-height: 380px;
-    height: auto;
+    height: 100%;
     border-radius: 0;
   }
 
@@ -2119,4 +2141,3 @@ watch(
   }
 }
 </style>
-
