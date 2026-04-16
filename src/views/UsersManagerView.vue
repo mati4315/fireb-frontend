@@ -8,7 +8,6 @@ import {
   query,
   startAfter,
   getDocs,
-  updateDoc,
   deleteDoc,
   getCountFromServer,
   type QueryDocumentSnapshot,
@@ -17,9 +16,9 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/config/firebase';
 import { useAuthStore } from '@/stores/authStore';
-import { isAdminUser } from '@/utils/roles';
+import { isAdminUser, isSuperAdminEmail, isSuperAdminUid } from '@/utils/roles';
 
-type UserRole = 'usuario' | 'colaborador' | 'admin' | 'administrador' | 'super_admin';
+type UserRole = 'usuario' | 'colaborador' | 'admin' | 'administrador' | 'super_admin' | 'Sistema-no-user';
 
 type UserItem = {
   id: string;
@@ -42,6 +41,15 @@ const isAuthorized = computed(() => {
   const email = authStore.user?.email || authStore.userProfile?.email;
   const uid = authStore.user?.uid;
   return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims);
+});
+const isSystemAdministrator = computed(() => {
+  const email = authStore.user?.email || authStore.userProfile?.email || '';
+  const uid = authStore.user?.uid || '';
+  const claims = (authStore.tokenClaims || {}) as Record<string, unknown>;
+  return isSuperAdminEmail(email) ||
+    isSuperAdminUid(uid) ||
+    claims.superAdmin === true ||
+    claims.super_admin === true;
 });
 
 const users = ref<UserItem[]>([]);
@@ -67,6 +75,9 @@ const showEditModal = ref(false);
 const editingUser = ref<UserItem | null>(null);
 const editRole = ref<UserRole>('usuario');
 const editIsVerified = ref(false);
+const editNombre = ref('');
+const editUsername = ref('');
+const editEmail = ref('');
 const savingEdit = ref(false);
 
 const resetFeedback = () => {
@@ -169,6 +180,9 @@ const openEditModal = (user: UserItem) => {
   editingUser.value = { ...user };
   editRole.value = user.rol || 'usuario';
   editIsVerified.value = user.isVerified || false;
+  editNombre.value = user.nombre || '';
+  editUsername.value = user.username || '';
+  editEmail.value = user.email || '';
   showEditModal.value = true;
 };
 
@@ -183,17 +197,36 @@ const saveUserEdit = async () => {
   resetFeedback();
 
   try {
-    const userDoc = doc(db, 'users', editingUser.value.id);
-    await updateDoc(userDoc, {
+    const callable = httpsCallable(functions, 'updateUserManagement');
+    const payload: Record<string, unknown> = {
+      userId: editingUser.value.id,
       rol: editRole.value,
       isVerified: editIsVerified.value
-    });
+    };
+    if (isSystemAdministrator.value) {
+      payload.nombre = editNombre.value.trim();
+      payload.username = editUsername.value.trim();
+      payload.email = editEmail.value.trim().toLowerCase();
+    }
+    const response = await callable(payload);
+    const result = (response.data || {}) as {
+      updated?: {
+        rol?: UserRole;
+        isVerified?: boolean;
+        nombre?: string;
+        username?: string;
+        email?: string;
+      };
+    };
     
     // Update local state
     const index = users.value.findIndex(u => u.id === editingUser.value?.id);
     if (index !== -1) {
-      users.value[index].rol = editRole.value;
-      users.value[index].isVerified = editIsVerified.value;
+      users.value[index].rol = (result.updated?.rol || editRole.value) as UserRole;
+      users.value[index].isVerified = result.updated?.isVerified ?? editIsVerified.value;
+      users.value[index].nombre = result.updated?.nombre || users.value[index].nombre;
+      users.value[index].username = result.updated?.username || users.value[index].username;
+      users.value[index].email = result.updated?.email || users.value[index].email;
     }
 
     feedback.value = 'Usuario actualizado correctamente.';
@@ -361,12 +394,47 @@ onMounted(() => {
             <hr class="divider" />
 
             <div class="form-field">
+              <label>Nombre Completo</label>
+              <input
+                v-model="editNombre"
+                type="text"
+                maxlength="120"
+                :disabled="!isSystemAdministrator"
+              />
+            </div>
+
+            <div class="form-field">
+              <label>Usuario</label>
+              <input
+                v-model="editUsername"
+                type="text"
+                maxlength="30"
+                :disabled="!isSystemAdministrator"
+              />
+            </div>
+
+            <div class="form-field">
+              <label>Email</label>
+              <input
+                v-model="editEmail"
+                type="email"
+                maxlength="320"
+                :disabled="!isSystemAdministrator"
+              />
+            </div>
+
+            <p v-if="!isSystemAdministrator" class="helper-note">
+              Solo el administrador del sistema puede editar nombre, usuario y email.
+            </p>
+
+            <div class="form-field">
               <label>Rol del Sistema</label>
               <select v-model="editRole">
                 <option value="usuario">Usuario (Lector)</option>
                 <option value="colaborador">Colaborador (Editor)</option>
                 <option value="admin">Administrador</option>
                 <option value="super_admin">Super Admin</option>
+                <option value="Sistema-no-user">Sistema-no-user</option>
               </select>
             </div>
             
@@ -557,18 +625,24 @@ onMounted(() => {
   background: rgba(0,0,0,0.6);
   backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
   z-index: 1000;
 }
 
 .modal-card {
   background: var(--card-bg);
   width: 100%;
-  max-width: 450px;
+  max-width: 520px;
+  max-height: calc(100vh - 2rem);
   border-radius: 24px;
   overflow: hidden;
   box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  margin: auto 0;
 }
 
 .modal-head {
@@ -593,6 +667,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .user-details-summary {
@@ -655,6 +731,20 @@ onMounted(() => {
   color: var(--text-h);
 }
 
+.form-field input {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.form-field input:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
 .form-field.checkbox label {
   display: flex;
   align-items: center;
@@ -662,11 +752,21 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.helper-note {
+  margin: -0.2rem 0 0;
+  color: var(--text-s, #64748b);
+  font-size: 0.84rem;
+}
+
 .modal-foot {
   padding: 1.25rem 1.5rem;
   border-top: 1px solid var(--border);
   display: flex;
   gap: 0.75rem;
+  background: var(--card-bg);
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
 }
 
 .msg {
@@ -706,5 +806,29 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) {
   .users-table th:nth-child(1), .users-table td:nth-child(1) { display: none; }
   .users-table th:nth-child(7), .users-table td:nth-child(7) { display: none; }
+
+  .modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .modal-card {
+    max-height: calc(100vh - 1rem);
+    border-radius: 16px;
+  }
+
+  .modal-head,
+  .modal-body,
+  .modal-foot {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .modal-foot {
+    flex-direction: column-reverse;
+  }
+
+  .modal-foot button {
+    width: 100%;
+  }
 }
 </style>

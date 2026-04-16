@@ -585,6 +585,13 @@ const openUserProfile = async (item: any) => {
   if (!targetUserId) return
 
   try {
+    const publicProfile = await profileStore.getPublicProfileByUid(targetUserId)
+
+    // Prevent navigation if the user has the 'Sistema-no-user' role
+    if (publicProfile?.rol === 'Sistema-no-user') {
+      return
+    }
+
     if (authStore.user?.uid === targetUserId) {
       await router.push('/perfil')
       return
@@ -599,7 +606,6 @@ const openUserProfile = async (item: any) => {
       return
     }
 
-    const publicProfile = await profileStore.getPublicProfileByUid(targetUserId)
     if (publicProfile?.usernameLower) {
       await router.push(`/perfil/${publicProfile.usernameLower}`)
       return

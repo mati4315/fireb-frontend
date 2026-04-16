@@ -392,6 +392,14 @@ const loadProfileContext = async () => {
       return;
     }
 
+    if (profile.rol === 'Sistema-no-user') {
+      profileError.value = 'Este perfil no está disponible.';
+      currentProfile.value = null;
+      viewedUserId.value = '';
+      router.push('/');
+      return;
+    }
+
     currentProfile.value = profile;
     viewedUserId.value = profile.userId;
 

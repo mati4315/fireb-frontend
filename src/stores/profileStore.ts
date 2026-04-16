@@ -48,6 +48,7 @@ export type PublicProfile = {
   website: string;
   profilePictureUrl: string;
   isVerified: boolean;
+  rol?: string; // Add optional role property
   stats: ProfileStats;
 };
 
@@ -97,6 +98,7 @@ const toPublicProfile = (userId: string, data: Record<string, unknown>): PublicP
     website: String(data.website || '').trim(),
     profilePictureUrl: String(data.profilePictureUrl || '').trim(),
     isVerified: data.isVerified === true,
+    rol: typeof data.rol === 'string' ? data.rol : undefined,
     stats: toStats((data.stats || {}) as RawStats)
   };
 };
