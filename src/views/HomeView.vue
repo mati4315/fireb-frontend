@@ -399,7 +399,7 @@ const handleCreatePost = async () => {
     }
 
     await feedStore.createPost(
-      newPostTitle.value || 'Nueva Publicación',
+      newPostTitle.value.trim(),
       newPostContent.value,
       imagesV2.map((image) => image.url),
       imagesV2
@@ -451,7 +451,7 @@ const handlePostMenuAction = async (actionId: string, item: any) => {
     }
   } else if (actionId === 'edit') {
     editingPosts.value[item.id] = {
-      titulo: item.titulo === 'Nueva Publicacion' ? '' : (item.titulo || ''),
+      titulo: item.titulo || '',
       descripcion: item.descripcion || '',
       saving: false,
       existingImages: item.imagesV2?.length ? [...item.imagesV2] : (item.images?.length ? item.images.map((url: string) => ({url, thumbUrl: url})) : []),
@@ -561,7 +561,7 @@ const saveEditPost = async (item: any) => {
 
     const combinedImages = [...editData.existingImages, ...validNewImages]
 
-    await feedStore.editPost(item.id, editData.titulo.trim() || 'Nueva Publicacion', editData.descripcion.trim(), combinedImages, combinedImages.map(img => img.url))
+    await feedStore.editPost(item.id, editData.titulo.trim(), editData.descripcion.trim(), combinedImages, combinedImages.map(img => img.url))
     
     editData.newImages.forEach(img => URL.revokeObjectURL(img.previewUrl))
     delete editingPosts.value[item.id]
@@ -1313,7 +1313,7 @@ watch(
             </header>
 
             <div class="post-content">
-              <h3 v-if="item.titulo && item.titulo !== 'Nueva Publicacion'">
+              <h3 v-if="item.titulo?.trim()">
                 <button
                   v-if="getDetailPath(item)"
                   type="button"

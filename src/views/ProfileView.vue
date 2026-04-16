@@ -185,7 +185,7 @@ const handlePostMenuAction = async (actionId: string, post: any) => {
     }
   } else if (actionId === 'edit') {
     editingPosts.value[post.id] = {
-      titulo: post.titulo === 'Nueva Publicacion' ? '' : (post.titulo || ''),
+      titulo: post.titulo || '',
       descripcion: post.descripcion || '',
       saving: false,
       existingImages: post.imagesV2?.length ? [...post.imagesV2] : (post.images?.length ? post.images.map((url: string) => ({url, thumbUrl: url})) : []),
@@ -296,7 +296,7 @@ const saveEditPost = async (post: any) => {
 
     const combinedImages = [...editData.existingImages, ...validNewImages]
 
-    await feedStore.editPost(post.id, editData.titulo.trim() || 'Nueva Publicacion', editData.descripcion.trim(), combinedImages, combinedImages.map(img => img.url));
+    await feedStore.editPost(post.id, editData.titulo.trim(), editData.descripcion.trim(), combinedImages, combinedImages.map(img => img.url));
     await profileStore.loadUserPosts(post.userId, true);
     
     editData.newImages.forEach(img => URL.revokeObjectURL(img.previewUrl))
@@ -871,7 +871,7 @@ onBeforeUnmount(() => {
             </header>
 
             <div class="post-content">
-              <h3 v-if="post.titulo && post.titulo !== 'Nueva Publicacion'">
+              <h3 v-if="post.titulo?.trim()">
                 <button
                   v-if="getDetailPath(post)"
                   type="button"
