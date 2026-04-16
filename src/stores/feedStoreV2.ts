@@ -168,7 +168,7 @@ export const useFeedStore = defineStore('feed', () => {
       (snapshot) => {
         const items = snapshot.docs.map((contentDoc) => ({
           id: contentDoc.id,
-          ...contentDoc.data()
+          ...contentDoc.data({ serverTimestamps: 'estimate' })
         }));
         
         const state = getTabState(targetTab);
@@ -218,7 +218,7 @@ export const useFeedStore = defineStore('feed', () => {
       const snapshot = await getDocs(q);
       const newItems = snapshot.docs.map((contentDoc) => ({
         id: contentDoc.id,
-        ...contentDoc.data()
+        ...contentDoc.data({ serverTimestamps: 'estimate' })
       }));
 
       // If tab changed while loading, update the target tab state

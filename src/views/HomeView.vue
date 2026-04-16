@@ -1004,8 +1004,18 @@ const formatDate = (date: any) => {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return ''
 
   const now = Date.now()
-  const diffMs = Math.max(0, now - d.getTime())
+  const rawDiffMs = now - d.getTime()
   const minuteMs = 60 * 1000
+  if (rawDiffMs < -5 * minuteMs) {
+    return new Intl.DateTimeFormat('es-AR', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(d)
+  }
+
+  const diffMs = Math.max(0, rawDiffMs)
   const hourMs = 60 * minuteMs
   const dayMs = 24 * hourMs
   const weekMs = 7 * dayMs
