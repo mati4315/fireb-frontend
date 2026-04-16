@@ -35,6 +35,7 @@ import {
 } from '@/utils/imageProcessing'
 import { runWithConcurrency } from '@/utils/concurrency'
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue'
+import { isAdminUser } from '@/utils/roles'
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(window.scrollY)
@@ -286,6 +287,12 @@ const removeSelectedImage = (id: string) => {
 }
 
 const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }> => {
+  const legacyMiniThumb =
+    (typeof item?.imgMiniatura === 'string' && item.imgMiniatura.trim()) ||
+    (typeof item?.img_miniatura === 'string' && item.img_miniatura.trim()) ||
+    (typeof item?.thumbnailUrl === 'string' && item.thumbnailUrl.trim()) ||
+    ''
+
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
     return item.imagesV2
       .filter((image: any) => image && typeof image.url === 'string')
@@ -294,6 +301,8 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
         thumbUrl:
           typeof image.thumbUrl === 'string' && image.thumbUrl.trim()
             ? image.thumbUrl
+            : legacyMiniThumb
+              ? legacyMiniThumb
             : image.url
       }))
   }
@@ -301,7 +310,14 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
   if (Array.isArray(item?.images) && item.images.length > 0) {
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
-      .map((image: string) => ({ url: image, thumbUrl: image }))
+      .map((image: string, index: number) => ({
+        url: image,
+        thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : image
+      }))
+  }
+
+  if (legacyMiniThumb) {
+    return [{ url: legacyMiniThumb, thumbUrl: legacyMiniThumb }]
   }
 
   return []
@@ -419,7 +435,12 @@ const handleCreatePost = async () => {
   }
 }
 
-const isAdmin = computed(() => authStore.userProfile?.rol === 'admin')
+const isAdmin = computed(() => {
+  const rol = authStore.userProfile?.rol
+  const email = authStore.user?.email || authStore.userProfile?.email
+  const uid = authStore.user?.uid
+  return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims)
+})
 
 const getPostMenuOptions = (item: any): MenuOption[] => {
   const isOwner = authStore.user?.uid === item.userId
@@ -1335,7 +1356,7 @@ watch(
                   type="button"
                   @click="openLightbox(normalizeImageList(item).map((entry) => entry.url), Number(imageIndex))"
                 >
-                  <img :src="image.thumbUrl" class="main-image" loading="lazy" />
+                  <img :src="image.thumbUrl" class="main-image" loading="lazy" decoding="async" />
                 </button>
               </div>
 
@@ -2098,7 +2119,4 @@ watch(
   }
 }
 </style>
-
-
-
 

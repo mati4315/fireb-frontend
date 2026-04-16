@@ -10,6 +10,7 @@ import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vu
 import ImageLightbox from '@/components/common/ImageLightbox.vue';
 import { runWithConcurrency } from '@/utils/concurrency'; // Assuming this exists based on HomeView logic or I'll check it. Actually HomeView has it inline.
 import { buildContentDetailPath } from '@/utils/contentLinks';
+import { isAdminUser } from '@/utils/roles';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 
@@ -152,7 +153,12 @@ const formatDate = (date: any) => {
   }).format(parsed);
 };
 
-const isAdmin = computed(() => authStore.userProfile?.rol === 'admin');
+const isAdmin = computed(() => {
+  const rol = authStore.userProfile?.rol;
+  const email = authStore.user?.email || authStore.userProfile?.email;
+  const uid = authStore.user?.uid;
+  return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims);
+});
 
 const getPostMenuOptions = (post: any): MenuOption[] => {
   const isOwner = authStore.user?.uid === post.userId;
