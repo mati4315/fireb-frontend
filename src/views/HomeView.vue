@@ -331,6 +331,10 @@ const normalizeImageList = (
   return []
 }
 
+const shouldPrioritizeImage = (itemIndex: number, imageIndex: number): boolean => {
+  return imageIndex === 0 && itemIndex <= 1
+}
+
 
 
 const handleCreatePost = async () => {
@@ -1257,7 +1261,7 @@ watch(
         No encontramos esa publicacion. Mostramos el feed disponible.
       </div>
 
-      <div v-for="item in displayFeedItems" :key="item.id">
+      <div v-for="(item, itemIndex) in displayFeedItems" :key="item.id">
         <FeedAdItem
           v-if="item.isAd"
           :item="item"
@@ -1376,7 +1380,8 @@ watch(
                     :width="image.width || 1280"
                     :height="image.height || 720"
                     class="main-image"
-                    loading="lazy"
+                    :loading="shouldPrioritizeImage(itemIndex, imageIndex) ? 'eager' : 'lazy'"
+                    :fetchpriority="shouldPrioritizeImage(itemIndex, imageIndex) ? 'high' : 'auto'"
                     decoding="async"
                   />
                 </button>

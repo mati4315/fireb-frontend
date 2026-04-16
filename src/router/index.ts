@@ -113,9 +113,18 @@ const setMetaTag = (name: string, content: string, property = false) => {
 
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
-  
-  // Esperar a que Firebase inicialice antes de evaluar rutas protegidas
-  await authStore.initAuthListener()
+  const needsAuthCheck = Boolean(
+    to.meta.requiresAuth || to.meta.requiresStaff || to.meta.requiresAdmin
+  )
+
+  if (needsAuthCheck) {
+    // Solo bloqueamos navegación cuando realmente es una ruta protegida.
+    await authStore.initAuthListener()
+  } else if (!authStore.isInitialized) {
+    // En rutas públicas no frenamos el render inicial.
+    void authStore.initAuthListener()
+  }
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return { name: 'login' }
   }

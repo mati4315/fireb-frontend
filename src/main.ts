@@ -12,15 +12,10 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 
-// Initialize Auth Listener before launching app so user is logged in
+app.mount('#app')
+
+// Inicializa auth en segundo plano para no bloquear el primer render.
 const authStore = useAuthStore()
-authStore.initAuthListener()
-  .then(() => {
-    console.log("Auth listener initialized, mounting app...");
-    app.mount('#app')
-  })
-  .catch((err) => {
-    console.error("Failed to initialize auth listener:", err);
-    // Mount anyway so UI shows (maybe in guest mode)
-    app.mount('#app')
-  })
+authStore.initAuthListener().catch((err) => {
+  console.error('Failed to initialize auth listener:', err)
+})
