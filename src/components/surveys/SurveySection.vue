@@ -264,17 +264,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section v-if="showSection" class="survey-section" :class="{ featured: isFeaturedMode }">
-    <div v-if="isLoading" class="survey-loading">
-      <div class="spinner"></div>
-      <p>Cargando encuestas...</p>
-    </div>
 
-    <div v-else-if="!isFeaturedMode && surveysToRender.length === 0" class="survey-empty">
+
+    <div v-if="!isLoading && !isFeaturedMode && surveysToRender.length === 0" class="survey-empty">
       <h3>No hay encuestas disponibles</h3>
       <p>Cuando el staff publique una encuesta aparecera aqui en tiempo real.</p>
     </div>
 
-    <div v-else class="survey-list">
+    <div v-else-if="!isLoading" class="survey-list">
       <article
         v-for="survey in surveysToRender"
         :key="survey.id"

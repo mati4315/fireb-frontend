@@ -405,10 +405,9 @@ onBeforeUnmount(() => {
 
       <article class="card list-card">
         <h2>Encuestas cargadas</h2>
-        <p v-if="surveyStore.adminLoading">Cargando encuestas...</p>
-        <p v-else-if="surveyStore.adminSurveys.length === 0">Aun no hay encuestas creadas.</p>
+        <p v-if="!surveyStore.adminLoading && surveyStore.adminSurveys.length === 0">Aun no hay encuestas creadas.</p>
 
-        <div v-else class="survey-list">
+        <div v-else-if="!surveyStore.adminLoading" class="survey-list">
           <div v-for="survey in surveyStore.adminSurveys" :key="survey.id" class="survey-item">
             <div class="survey-main">
               <h3>{{ survey.question || 'Sin pregunta' }}</h3>

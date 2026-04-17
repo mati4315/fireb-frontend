@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '@/views/HomeView.vue'
+const HomeView = () => import('@/views/HomeView.vue')
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
