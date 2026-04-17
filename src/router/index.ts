@@ -48,6 +48,16 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/secretos',
+      name: 'secrets-home',
+      component: () => import('@/views/SecretsView.vue'),
+    },
+    {
+      path: '/s/:ref/:slug?',
+      name: 'secrets-detail',
+      component: () => import('@/views/SecretsView.vue'),
+    },
+    {
       path: '/noticia/:ref/:slug?',
       name: 'news-detail',
       component: HomeView,
@@ -193,6 +203,8 @@ router.afterEach((to) => {
     home: defaultTitle,
     'news-detail': 'Noticia - Cdelu.ar',
     'community-detail': 'Publicacion - Cdelu.ar',
+    'secrets-home': 'Secretos - Cdelu.ar',
+    'secrets-detail': 'Secreto - Cdelu.ar',
     login: 'Iniciar Sesion - Cdelu.ar',
     'profile-self': 'Mi Perfil - Cdelu.ar',
     'profile-public': 'Perfil - Cdelu.ar',
