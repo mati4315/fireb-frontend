@@ -65,21 +65,28 @@ const ageHours = (secret: SecretRecord): number => {
 };
 
 const popularityScore = (secret: SecretRecord): number => {
-  const score = secret.stats.upVotesCount - secret.stats.downVotesCount;
+  if (Number.isFinite(Number(secret.rank.hotScore))) {
+    return Number(secret.rank.hotScore);
+  }
   const totalVotes = secret.stats.totalVotesCount || (secret.stats.upVotesCount + secret.stats.downVotesCount);
-  const comments = secret.stats.commentsCount;
-  return score * 1.25 + comments * 0.75 + Math.log10(Math.max(1, totalVotes + 1)) * 2.1 - ageHours(secret) * 0.06;
+  return secret.stats.upVotesCount - secret.stats.downVotesCount + Math.log10(Math.max(1, totalVotes + 1));
 };
 
 const polemicScore = (secret: SecretRecord): number => {
-  const up = secret.stats.upVotesCount;
-  const down = secret.stats.downVotesCount;
-  const total = up + down;
-  if (total <= 0) return 0;
-  return Math.min(up, down) * 2 + total * 0.2;
+  if (Number.isFinite(Number(secret.rank.controversyScore))) {
+    return Number(secret.rank.controversyScore);
+  }
+  return Math.min(secret.stats.upVotesCount, secret.stats.downVotesCount);
 };
 
 const visibleSecrets = computed(() => [...secretStore.secrets]);
+const polemicOrderById = computed(() => {
+  const order = new Map<string, number>();
+  for (const [index, item] of secretStore.rankings.mostPolemic.entries()) {
+    order.set(item.secretId, index);
+  }
+  return order;
+});
 
 const zoneOptions = computed(() => {
   const zones = new Set<string>();
@@ -97,9 +104,21 @@ const filteredSecrets = computed(() => {
   }
 
   if (selectedFilter.value === 'populares') {
-    items.sort((a, b) => popularityScore(b) - popularityScore(a));
+    items.sort((a, b) => popularityScore(b) - popularityScore(a) || toMillis(b.createdAt) - toMillis(a.createdAt));
   } else if (selectedFilter.value === 'polemicos') {
-    items.sort((a, b) => polemicScore(b) - polemicScore(a));
+    const order = polemicOrderById.value;
+    if (order.size > 0) {
+      items.sort((a, b) => {
+        const aOrder = order.get(a.id);
+        const bOrder = order.get(b.id);
+        if (aOrder != null && bOrder != null) return aOrder - bOrder;
+        if (aOrder != null) return -1;
+        if (bOrder != null) return 1;
+        return polemicScore(b) - polemicScore(a) || toMillis(b.createdAt) - toMillis(a.createdAt);
+      });
+    } else {
+      items.sort((a, b) => polemicScore(b) - polemicScore(a) || toMillis(b.createdAt) - toMillis(a.createdAt));
+    }
   } else {
     items.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
   }
@@ -134,6 +153,10 @@ const mostVotedHighlights = computed(() =>
     .slice(0, 3)
 );
 
+const rankingTopDay = computed(() => secretStore.rankings.topDay.slice(0, 3));
+const rankingMostCommented = computed(() => secretStore.rankings.mostCommented.slice(0, 3));
+const rankingMostVoted = computed(() => secretStore.rankings.mostVoted.slice(0, 3));
+
 const canCreateSecret = computed(() => {
   const text = newSecretText.value.trim();
   return text.length >= 12 && text.length <= 280;
@@ -160,6 +183,11 @@ const formatRelativeTime = (value: any): string => {
   });
 };
 
+const rankingsGeneratedLabel = computed(() => {
+  if (!secretStore.rankings.generatedAtMs) return 'pendiente';
+  return formatRelativeTime(secretStore.rankings.generatedAtMs);
+});
+
 const slugify = (value: string): string => {
   const normalized = value
     .normalize('NFD')
@@ -170,10 +198,15 @@ const slugify = (value: string): string => {
   return normalized || 'secreto';
 };
 
-const openSecretDetail = async (secret: SecretRecord) => {
-  const slug = slugify(secret.descripcion.slice(0, 64));
-  await router.push(`/s/${encodeURIComponent(secret.id)}/${encodeURIComponent(slug)}`);
+const openSecretDetailById = async (secretId: string, textPreview = '') => {
+  const loaded = await secretStore.loadSecretById(secretId);
+  const sourceText = loaded?.descripcion || textPreview || 'secreto';
+  const slug = slugify(sourceText.slice(0, 64));
+  await router.push(`/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}`);
 };
+
+const openSecretDetail = async (secret: SecretRecord) =>
+  openSecretDetailById(secret.id, secret.descripcion);
 
 const backToSecrets = async () => {
   await router.push('/secretos');
@@ -319,9 +352,19 @@ watch(
   (enabled) => {
     if (enabled) {
       secretStore.initSecretsListener();
+      secretStore.initRankingsListener();
       return;
     }
     secretStore.cleanup();
+  },
+  { immediate: true }
+);
+
+watch(
+  detailSecretId,
+  async (secretId) => {
+    if (!secretId) return;
+    await secretStore.loadSecretById(secretId);
   },
   { immediate: true }
 );
@@ -429,37 +472,61 @@ onUnmounted(() => {
     <section v-if="moduleStore.modules.secrets.enabled" class="highlights">
       <div class="highlight-card">
         <h3>Top secretos del dia</h3>
+        <p class="highlight-meta">
+          Ranking {{ rankingsGeneratedLabel }}<span v-if="secretStore.rankingsLoading"> (actualizando)</span>
+        </p>
         <ul>
-          <li v-for="item in topDayHighlights" :key="`top-${item.id}`">
-            <button type="button" @click="openSecretDetail(item)">
-              {{ item.descripcion.slice(0, 88) }}{{ item.descripcion.length > 88 ? '...' : '' }}
+          <li v-for="item in rankingTopDay" :key="`top-ranked-${item.secretId}`">
+            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+              {{ item.textPreview || 'Secreto anonimo' }}
             </button>
           </li>
-          <li v-if="topDayHighlights.length === 0" class="empty">Sin secretos en las ultimas 24h.</li>
+          <template v-if="rankingTopDay.length === 0">
+            <li v-for="item in topDayHighlights" :key="`top-fallback-${item.id}`">
+              <button type="button" @click="openSecretDetail(item)">
+                {{ item.descripcion.slice(0, 88) }}{{ item.descripcion.length > 88 ? '...' : '' }}
+              </button>
+            </li>
+            <li v-if="topDayHighlights.length === 0" class="empty">Sin secretos en las ultimas 24h.</li>
+          </template>
         </ul>
       </div>
 
       <div class="highlight-card">
         <h3>Mas comentados</h3>
         <ul>
-          <li v-for="item in mostCommentedHighlights" :key="`comments-${item.id}`">
-            <button type="button" @click="openSecretDetail(item)">
-              {{ item.stats.commentsCount }} comentarios
+          <li v-for="item in rankingMostCommented" :key="`comments-ranked-${item.secretId}`">
+            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+              {{ item.commentsCount }} comentarios
             </button>
           </li>
-          <li v-if="mostCommentedHighlights.length === 0" class="empty">Sin datos todavia.</li>
+          <template v-if="rankingMostCommented.length === 0">
+            <li v-for="item in mostCommentedHighlights" :key="`comments-fallback-${item.id}`">
+              <button type="button" @click="openSecretDetail(item)">
+                {{ item.stats.commentsCount }} comentarios
+              </button>
+            </li>
+            <li v-if="mostCommentedHighlights.length === 0" class="empty">Sin datos todavia.</li>
+          </template>
         </ul>
       </div>
 
       <div class="highlight-card">
         <h3>Mas votados</h3>
         <ul>
-          <li v-for="item in mostVotedHighlights" :key="`votes-${item.id}`">
-            <button type="button" @click="openSecretDetail(item)">
-              {{ item.stats.totalVotesCount || (item.stats.upVotesCount + item.stats.downVotesCount) }} votos
+          <li v-for="item in rankingMostVoted" :key="`votes-ranked-${item.secretId}`">
+            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+              {{ item.totalVotesCount }} votos
             </button>
           </li>
-          <li v-if="mostVotedHighlights.length === 0" class="empty">Sin votos todavia.</li>
+          <template v-if="rankingMostVoted.length === 0">
+            <li v-for="item in mostVotedHighlights" :key="`votes-fallback-${item.id}`">
+              <button type="button" @click="openSecretDetail(item)">
+                {{ item.stats.totalVotesCount || (item.stats.upVotesCount + item.stats.downVotesCount) }} votos
+              </button>
+            </li>
+            <li v-if="mostVotedHighlights.length === 0" class="empty">Sin votos todavia.</li>
+          </template>
         </ul>
       </div>
     </section>
@@ -488,7 +555,7 @@ onUnmounted(() => {
           :class="{ active: selectedFilter === 'polemicos' }"
           @click="selectedFilter = 'polemicos'"
         >
-          Polemicos
+          Sin resolver / polemicos
         </button>
       </div>
 
@@ -515,7 +582,7 @@ onUnmounted(() => {
         <header class="secret-card-header">
           <div class="meta-left">
             <span class="alias">{{ secret.anonAlias || 'Anonimo' }}</span>
-            <span class="dot">•</span>
+            <span class="dot">|</span>
             <span class="time">{{ formatRelativeTime(secret.createdAt) }}</span>
           </div>
           <div class="meta-right">
@@ -581,7 +648,7 @@ onUnmounted(() => {
             >
               <p class="comment-meta">
                 <strong>{{ comment.anonAlias || 'Anonimo' }}</strong>
-                <span>• {{ formatRelativeTime(comment.createdAt) }}</span>
+                <span>| {{ formatRelativeTime(comment.createdAt) }}</span>
               </p>
               <p class="comment-text">{{ comment.text }}</p>
             </li>
@@ -764,6 +831,12 @@ onUnmounted(() => {
   margin: 0 0 0.5rem;
   font-size: 0.92rem;
   color: var(--text-h);
+}
+
+.highlight-meta {
+  margin: -0.2rem 0 0.55rem;
+  color: var(--text);
+  font-size: 0.75rem;
 }
 
 .highlight-card ul {
@@ -1088,3 +1161,4 @@ onUnmounted(() => {
   }
 }
 </style>
+

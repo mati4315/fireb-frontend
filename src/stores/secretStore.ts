@@ -2,6 +2,8 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -69,9 +71,39 @@ export interface SecretCommentRecord {
   deletedAt: any;
 }
 
+export interface SecretRankingItem {
+  secretId: string;
+  textPreview: string;
+  category: string;
+  zone: string;
+  createdAtMs: number;
+  commentsCount: number;
+  totalVotesCount: number;
+  hotScore: number;
+  controversyScore: number;
+  trend: SecretTrend;
+}
+
+export interface SecretRankingsSnapshot {
+  generatedAtMs: number;
+  topDay: SecretRankingItem[];
+  mostCommented: SecretRankingItem[];
+  mostVoted: SecretRankingItem[];
+  mostPolemic: SecretRankingItem[];
+}
+
 const SECRET_FEED_LIMIT = 120;
 const SECRET_COMMENT_LIMIT = 80;
 const SECRET_ANON_CLIENT_KEY = 'cdelu_secret_anon_id_v1';
+const SECRET_RANKING_LIST_LIMIT = 24;
+
+const EMPTY_SECRET_RANKINGS: SecretRankingsSnapshot = {
+  generatedAtMs: 0,
+  topDay: [],
+  mostCommented: [],
+  mostVoted: [],
+  mostPolemic: []
+};
 
 const clampInt = (value: unknown, fallback = 0): number => {
   const parsed = Number(value);
@@ -101,10 +133,9 @@ const ensureClientAnonId = (): string => {
   }
 };
 
-const mapSecretDoc = (secretDoc: QueryDocumentSnapshot<DocumentData>): SecretRecord => {
-  const data = secretDoc.data() || {};
+const mapSecretData = (secretId: string, data: DocumentData): SecretRecord => {
   return {
-    id: secretDoc.id,
+    id: secretId,
     descripcion: sanitizeString(data.descripcion, 4000),
     category: (sanitizeString(data.category, 40) as SecretCategory) || '',
     zone: sanitizeString(data.zone, 80),
@@ -138,6 +169,9 @@ const mapSecretDoc = (secretDoc: QueryDocumentSnapshot<DocumentData>): SecretRec
   };
 };
 
+const mapSecretDoc = (secretDoc: QueryDocumentSnapshot<DocumentData>): SecretRecord =>
+  mapSecretData(secretDoc.id, secretDoc.data() || {});
+
 const mapSecretCommentDoc = (
   commentDoc: QueryDocumentSnapshot<DocumentData>
 ): SecretCommentRecord => {
@@ -151,6 +185,59 @@ const mapSecretCommentDoc = (
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
     deletedAt: data.deletedAt || null
+  };
+};
+
+const normalizeTrend = (value: unknown): SecretTrend => {
+  const normalized = sanitizeString(value, 20).toLowerCase();
+  if (normalized === 'up' || normalized === 'down' || normalized === 'stable') {
+    return normalized;
+  }
+  return 'stable';
+};
+
+const mapSecretRankingItem = (item: any): SecretRankingItem | null => {
+  const secretId = sanitizeString(item?.secretId, 128);
+  if (!secretId) return null;
+
+  return {
+    secretId,
+    textPreview: sanitizeString(item?.textPreview, 280),
+    category: sanitizeString(item?.category, 40),
+    zone: sanitizeString(item?.zone, 60),
+    createdAtMs: Math.max(0, Math.floor(Number(item?.createdAtMs || 0))),
+    commentsCount: clampInt(item?.commentsCount, 0),
+    totalVotesCount: clampInt(item?.totalVotesCount, 0),
+    hotScore: Number.isFinite(Number(item?.hotScore)) ? Number(item?.hotScore) : 0,
+    controversyScore: Number.isFinite(Number(item?.controversyScore))
+      ? Number(item?.controversyScore)
+      : 0,
+    trend: normalizeTrend(item?.trend)
+  };
+};
+
+const mapSecretRankingList = (value: unknown): SecretRankingItem[] => {
+  if (!Array.isArray(value)) return [];
+
+  const items: SecretRankingItem[] = [];
+  for (const rawItem of value) {
+    const item = mapSecretRankingItem(rawItem);
+    if (!item) continue;
+    items.push(item);
+    if (items.length >= SECRET_RANKING_LIST_LIMIT) break;
+  }
+  return items;
+};
+
+const mapSecretRankingsSnapshot = (raw: any): SecretRankingsSnapshot => {
+  const lists = raw?.lists || {};
+
+  return {
+    generatedAtMs: Math.max(0, Math.floor(Number(raw?.generatedAtMs || 0))),
+    topDay: mapSecretRankingList(lists?.topDay),
+    mostCommented: mapSecretRankingList(lists?.mostCommented),
+    mostVoted: mapSecretRankingList(lists?.mostVoted),
+    mostPolemic: mapSecretRankingList(lists?.mostPolemic)
   };
 };
 
@@ -220,9 +307,12 @@ export const useSecretStore = defineStore('secret', () => {
   const moduleStore = useModuleStore();
 
   const secrets = ref<SecretRecord[]>([]);
+  const rankings = ref<SecretRankingsSnapshot>(EMPTY_SECRET_RANKINGS);
   const loading = ref(false);
+  const rankingsLoading = ref(false);
   const error = ref<string | null>(null);
   const unsubscribeSecrets = ref<Unsubscribe | null>(null);
+  const unsubscribeRankings = ref<Unsubscribe | null>(null);
   const votePendingBySecret = ref<Record<string, boolean>>({});
   const reportPendingBySecret = ref<Record<string, boolean>>({});
   const commentsBySecret = ref<Record<string, SecretCommentRecord[]>>({});
@@ -313,10 +403,43 @@ export const useSecretStore = defineStore('secret', () => {
     );
   };
 
+  const initRankingsListener = () => {
+    if (unsubscribeRankings.value) return;
+    if (!moduleStore.modules.secrets.enabled) {
+      rankings.value = EMPTY_SECRET_RANKINGS;
+      rankingsLoading.value = false;
+      return;
+    }
+
+    rankingsLoading.value = true;
+    const rankingsRef = doc(db, '_config', 'secret_rankings');
+    unsubscribeRankings.value = onSnapshot(
+      rankingsRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          rankings.value = EMPTY_SECRET_RANKINGS;
+          rankingsLoading.value = false;
+          return;
+        }
+        rankings.value = mapSecretRankingsSnapshot(snapshot.data() || {});
+        rankingsLoading.value = false;
+      },
+      (err) => {
+        console.error('Error loading secret rankings:', err);
+        rankings.value = EMPTY_SECRET_RANKINGS;
+        rankingsLoading.value = false;
+      }
+    );
+  };
+
   const cleanup = () => {
     if (unsubscribeSecrets.value) {
       unsubscribeSecrets.value();
       unsubscribeSecrets.value = null;
+    }
+    if (unsubscribeRankings.value) {
+      unsubscribeRankings.value();
+      unsubscribeRankings.value = null;
     }
   };
 
@@ -340,6 +463,30 @@ export const useSecretStore = defineStore('secret', () => {
       clientAnonId: ensureClientAnonId()
     };
     await callable(payload);
+  };
+
+  const loadSecretById = async (secretId: string): Promise<SecretRecord | null> => {
+    const normalizedSecretId = sanitizeString(secretId, 128);
+    if (!normalizedSecretId) return null;
+
+    const existing = secrets.value.find((secret) => secret.id === normalizedSecretId);
+    if (existing) return existing;
+
+    try {
+      const secretSnap = await getDoc(doc(db, 'content', normalizedSecretId));
+      if (!secretSnap.exists()) return null;
+      const secretData = secretSnap.data() || {};
+      if (secretData.module !== 'secrets') return null;
+
+      const mapped = mapSecretData(secretSnap.id, secretData);
+      if (!isSecretVisible(mapped)) return null;
+
+      secrets.value = [mapped, ...secrets.value];
+      return mapped;
+    } catch (err) {
+      console.error('Error loading secret by id:', err);
+      return null;
+    }
   };
 
   const voteSecret = async (secretId: string, vote: 1 | -1) => {
@@ -521,11 +668,15 @@ export const useSecretStore = defineStore('secret', () => {
 
   return {
     secrets,
+    rankings,
     loading,
+    rankingsLoading,
     error,
     initSecretsListener,
+    initRankingsListener,
     cleanup,
     createSecret,
+    loadSecretById,
     voteSecret,
     reportSecret,
     loadComments,
