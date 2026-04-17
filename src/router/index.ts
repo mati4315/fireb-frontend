@@ -23,6 +23,31 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/todo',
+      name: 'home-todo',
+      component: HomeView,
+    },
+    {
+      path: '/noticia',
+      name: 'home-news',
+      component: HomeView,
+    },
+    {
+      path: '/c',
+      name: 'home-community',
+      component: HomeView,
+    },
+    {
+      path: '/encuestas',
+      name: 'home-surveys',
+      component: HomeView,
+    },
+    {
+      path: '/loteria',
+      name: 'home-lottery',
+      component: HomeView,
+    },
+    {
       path: '/noticia/:ref/:slug?',
       name: 'news-detail',
       component: HomeView,
@@ -53,6 +78,12 @@ const router = createRouter({
       name: 'notifications',
       meta: { requiresAuth: true },
       component: () => import('@/views/NotificationsView.vue'),
+    },
+    {
+      path: '/config',
+      name: 'config',
+      meta: { requiresAuth: true },
+      component: () => import('@/views/ConfigView.vue'),
     },
     {
       path: '/privacidad',
@@ -166,6 +197,7 @@ router.afterEach((to) => {
     'profile-self': 'Mi Perfil - Cdelu.ar',
     'profile-public': 'Perfil - Cdelu.ar',
     notifications: 'Notificaciones - Cdelu.ar',
+    config: 'Configuracion - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',
     terms: 'Terminos y Condiciones - Cdelu.ar'
   };

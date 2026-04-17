@@ -15,6 +15,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '@/config/firebase';
 
+type DefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery';
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null);
   const userProfile = ref<any>(null);
@@ -24,6 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null);
   let initPromise: Promise<void> | null = null;
   const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
+  const updateHomeFeedPreferenceCallable = httpsCallable(functions, 'updateHomeFeedPreference');
 
   const isAuthenticated = computed(() => !!user.value);
   const socialProviders = computed(() => {
@@ -312,6 +315,22 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
+  const updateDefaultFeedTabPreference = async (defaultFeedTab: DefaultFeedTab) => {
+    if (!user.value?.uid) {
+      throw new Error('Debes iniciar sesion para configurar el feed.');
+    }
+
+    const response = await updateHomeFeedPreferenceCallable({ defaultFeedTab });
+    const result = (response.data || {}) as Record<string, unknown>;
+    if (result.settings) {
+      setUserProfile({
+        settings: result.settings
+      });
+    }
+
+    return result;
+  };
+
   return {
     user,
     userProfile,
@@ -328,6 +347,7 @@ export const useAuthStore = defineStore('auth', () => {
     signup,
     loginWithProvider,
     loginWithGoogle,
-    logout
+    logout,
+    updateDefaultFeedTabPreference
   };
 });

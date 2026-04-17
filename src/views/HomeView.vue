@@ -107,6 +107,53 @@ const visibleTabs = computed(() =>
   )
 )
 
+const tabPathByKey: Record<string, string> = {
+  todo: '/todo',
+  news: '/noticia',
+  post: '/c',
+  surveys: '/encuestas',
+  lottery: '/loteria'
+}
+
+type HomeDefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery'
+
+const tabKeyByRouteName: Record<string, string> = {
+  home: 'todo',
+  'home-todo': 'todo',
+  'home-news': 'news',
+  'home-community': 'post',
+  'home-surveys': 'surveys',
+  'home-lottery': 'lottery'
+}
+
+const getDefaultTabKey = (): string => visibleTabs.value[0]?.key || 'todo'
+
+const getRouteTabKey = (): string => {
+  const routeName = typeof route.name === 'string' ? route.name : ''
+  return tabKeyByRouteName[routeName] || ''
+}
+
+const isTabVisible = (tabKey: string): boolean =>
+  visibleTabs.value.some((tab) => tab.key === tabKey)
+
+const getTabPath = (tabKey: string): string => tabPathByKey[tabKey] || '/'
+
+const normalizeHomeDefaultFeedTab = (value: unknown): HomeDefaultFeedTab => {
+  if (value === 'news' || value === 'post' || value === 'surveys' || value === 'lottery') {
+    return value
+  }
+  return 'todo'
+}
+
+const getUserPreferredTabKey = (): HomeDefaultFeedTab =>
+  normalizeHomeDefaultFeedTab(authStore.userProfile?.settings?.defaultFeedTab)
+
+const resolveHomeFallbackTabKey = (): string => {
+  const preferredTab = getUserPreferredTabKey()
+  if (isTabVisible(preferredTab)) return preferredTab
+  return getDefaultTabKey()
+}
+
 const detailModuleFromRoute = computed<ContentModuleKey | null>(() => {
   if (route.name === 'news-detail') return 'news'
   if (route.name === 'community-detail') return 'community'
@@ -166,12 +213,13 @@ const setupInfiniteObserver = async () => {
 const setActiveTab = async (tabKey: string) => {
   if (feedStore.currentTab === tabKey) return
 
-  if (isDetailRoute.value) {
-    await router.push('/')
-  }
-
   // Save current scroll position
   scrollPositions.value[feedStore.currentTab] = window.scrollY
+
+  const targetPath = getTabPath(tabKey)
+  if (route.path !== targetPath) {
+    await router.push(targetPath)
+  }
 
   feedStore.initFeed(tabKey)
 
@@ -223,13 +271,28 @@ const handleTouchEnd = (e: TouchEvent) => {
 }
 
 onMounted(async () => {
+  const routeTab = getRouteTabKey()
+  const fallbackTab = resolveHomeFallbackTabKey()
+  const routeName = typeof route.name === 'string' ? route.name : ''
+  const isRootHomeRoute = routeName === 'home' && route.path === '/'
   const initialTab = detailModuleFromRoute.value
     ? getTargetTabForModule(detailModuleFromRoute.value)
-    : 'todo'
+    : (
+      isRootHomeRoute
+        ? fallbackTab
+        : (routeTab && isTabVisible(routeTab) ? routeTab : fallbackTab)
+    )
+
+  if (!isDetailRoute.value && isRootHomeRoute && initialTab !== 'todo') {
+    await router.replace(getTabPath(initialTab))
+  }
+
   feedStore.initFeed(initialTab)
   surveyStore.initFeaturedSurveyListener()
   if (isDetailRoute.value) {
     await resolveDetailRoute()
+  } else if (!isTabVisible(initialTab)) {
+    await router.replace(getTabPath(fallbackTab))
   }
   await setupInfiniteObserver()
 })
@@ -1100,7 +1163,11 @@ watch(
   () => [shouldShowSurveysTab.value, feedStore.currentTab],
   ([showSurveysTab, currentTab]) => {
     if (!showSurveysTab && currentTab === 'surveys') {
-      feedStore.initFeed('todo')
+      const fallbackTab = resolveHomeFallbackTabKey()
+      feedStore.initFeed(fallbackTab)
+      if (!isDetailRoute.value) {
+        void router.replace(getTabPath(fallbackTab))
+      }
     }
   }
 )
@@ -1108,7 +1175,51 @@ watch(
 watch(
   () => route.fullPath,
   () => {
+    if (!isDetailRoute.value) {
+      const routeName = typeof route.name === 'string' ? route.name : ''
+      const routeTab = getRouteTabKey()
+      const fallbackTab = resolveHomeFallbackTabKey()
+      const isRootHomeRoute = routeName === 'home' && route.path === '/'
+      const targetTab = isRootHomeRoute
+        ? fallbackTab
+        : (routeTab && isTabVisible(routeTab) ? routeTab : fallbackTab)
+
+      if (isRootHomeRoute && targetTab !== 'todo') {
+        void router.replace(getTabPath(targetTab))
+        return
+      }
+
+      if (feedStore.currentTab !== targetTab) {
+        feedStore.initFeed(targetTab)
+      }
+
+      if (routeTab && !isTabVisible(routeTab)) {
+        void router.replace(getTabPath(fallbackTab))
+      }
+    }
     void resolveDetailRoute()
+  }
+)
+
+watch(
+  () => [
+    authStore.userProfile?.settings?.defaultFeedTab || '',
+    visibleTabs.value.map((tab) => tab.key).join('|')
+  ],
+  () => {
+    if (isDetailRoute.value) return
+    const routeName = typeof route.name === 'string' ? route.name : ''
+    if (routeName !== 'home' || route.path !== '/') return
+
+    const fallbackTab = resolveHomeFallbackTabKey()
+    if (fallbackTab !== 'todo') {
+      void router.replace(getTabPath(fallbackTab))
+      return
+    }
+
+    if (feedStore.currentTab !== 'todo') {
+      feedStore.initFeed('todo')
+    }
   }
 )
 </script>

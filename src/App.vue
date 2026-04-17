@@ -208,6 +208,13 @@ const openNotificationsConfig = async () => {
               >
                 Mi Perfil
               </RouterLink>
+              <RouterLink
+                to="/config"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Configuracion
+              </RouterLink>
 <RouterLink
                 v-if="canManageStaff"
                 to="/ads"
