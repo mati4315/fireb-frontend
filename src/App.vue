@@ -243,6 +243,15 @@ const openNotificationsConfig = async () => {
               </RouterLink>
 
               <RouterLink
+                v-if="canManageStaff"
+                to="/secretos/gestion"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Gestion Secretos
+              </RouterLink>
+
+              <RouterLink
                 v-if="canManageComments"
                 to="/comentarios/gestion"
                 class="dropdown-item"

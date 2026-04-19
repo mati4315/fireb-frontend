@@ -124,6 +124,12 @@ const router = createRouter({
       component: () => import('@/views/LotteryManagerView.vue'),
     },
     {
+      path: '/secretos/gestion',
+      name: 'secrets-manager',
+      meta: { requiresStaff: true },
+      component: () => import('@/views/SecretsManagerView.vue'),
+    },
+    {
       path: '/comentarios/gestion',
       name: 'comments-manager',
       meta: { requiresAdmin: true },
@@ -210,6 +216,7 @@ router.afterEach((to) => {
     'profile-public': 'Perfil - Cdelu.ar',
     notifications: 'Notificaciones - Cdelu.ar',
     config: 'Configuracion - Cdelu.ar',
+    'secrets-manager': 'Gestion Secretos - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',
     terms: 'Terminos y Condiciones - Cdelu.ar'
   };

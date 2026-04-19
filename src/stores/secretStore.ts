@@ -92,10 +92,28 @@ export interface SecretRankingsSnapshot {
   mostPolemic: SecretRankingItem[];
 }
 
+export interface SecretRuntimeSettings {
+  maxTextLength: number;
+  minTextLength: number;
+  createCooldownMinutes: number;
+  commentCooldownSeconds: number;
+  dailyLimit: number;
+  autoHideReportsThreshold: number;
+}
+
 const SECRET_FEED_LIMIT = 120;
 const SECRET_COMMENT_LIMIT = 80;
 const SECRET_ANON_CLIENT_KEY = 'cdelu_secret_anon_id_v1';
 const SECRET_RANKING_LIST_LIMIT = 24;
+
+const DEFAULT_SECRET_RUNTIME_SETTINGS: SecretRuntimeSettings = {
+  maxTextLength: 280,
+  minTextLength: 12,
+  createCooldownMinutes: 30,
+  commentCooldownSeconds: 20,
+  dailyLimit: 5,
+  autoHideReportsThreshold: 6
+};
 
 const EMPTY_SECRET_RANKINGS: SecretRankingsSnapshot = {
   generatedAtMs: 0,
@@ -241,6 +259,52 @@ const mapSecretRankingsSnapshot = (raw: any): SecretRankingsSnapshot => {
   };
 };
 
+const clampNumber = (value: unknown, min: number, max: number, fallback: number): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const floored = Math.floor(parsed);
+  if (floored < min) return min;
+  if (floored > max) return max;
+  return floored;
+};
+
+const mapSecretRuntimeSettings = (raw: any): SecretRuntimeSettings => {
+  const maxTextLength = clampNumber(
+    raw?.maxTextLength,
+    120,
+    500,
+    DEFAULT_SECRET_RUNTIME_SETTINGS.maxTextLength
+  );
+  const minTextLength = Math.min(
+    maxTextLength,
+    clampNumber(raw?.minTextLength, 1, 80, DEFAULT_SECRET_RUNTIME_SETTINGS.minTextLength)
+  );
+
+  return {
+    maxTextLength,
+    minTextLength,
+    createCooldownMinutes: clampNumber(
+      raw?.createCooldownMinutes,
+      1,
+      240,
+      DEFAULT_SECRET_RUNTIME_SETTINGS.createCooldownMinutes
+    ),
+    commentCooldownSeconds: clampNumber(
+      raw?.commentCooldownSeconds,
+      1,
+      300,
+      DEFAULT_SECRET_RUNTIME_SETTINGS.commentCooldownSeconds
+    ),
+    dailyLimit: clampNumber(raw?.dailyLimit, 1, 30, DEFAULT_SECRET_RUNTIME_SETTINGS.dailyLimit),
+    autoHideReportsThreshold: clampNumber(
+      raw?.autoHideReportsThreshold,
+      1,
+      100,
+      DEFAULT_SECRET_RUNTIME_SETTINGS.autoHideReportsThreshold
+    )
+  };
+};
+
 const isSecretVisible = (secret: SecretRecord): boolean => {
   if (secret.deletedAt != null) return false;
   if (secret.moderation.status && secret.moderation.status !== 'active') return false;
@@ -308,11 +372,14 @@ export const useSecretStore = defineStore('secret', () => {
 
   const secrets = ref<SecretRecord[]>([]);
   const rankings = ref<SecretRankingsSnapshot>(EMPTY_SECRET_RANKINGS);
+  const settings = ref<SecretRuntimeSettings>(DEFAULT_SECRET_RUNTIME_SETTINGS);
   const loading = ref(false);
   const rankingsLoading = ref(false);
+  const settingsLoading = ref(false);
   const error = ref<string | null>(null);
   const unsubscribeSecrets = ref<Unsubscribe | null>(null);
   const unsubscribeRankings = ref<Unsubscribe | null>(null);
+  const unsubscribeSettings = ref<Unsubscribe | null>(null);
   const votePendingBySecret = ref<Record<string, boolean>>({});
   const reportPendingBySecret = ref<Record<string, boolean>>({});
   const commentsBySecret = ref<Record<string, SecretCommentRecord[]>>({});
@@ -432,6 +499,35 @@ export const useSecretStore = defineStore('secret', () => {
     );
   };
 
+  const initSettingsListener = () => {
+    if (unsubscribeSettings.value) return;
+    if (!moduleStore.modules.secrets.enabled) {
+      settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
+      settingsLoading.value = false;
+      return;
+    }
+
+    settingsLoading.value = true;
+    const settingsRef = doc(db, '_config', 'secret_settings');
+    unsubscribeSettings.value = onSnapshot(
+      settingsRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
+          settingsLoading.value = false;
+          return;
+        }
+        settings.value = mapSecretRuntimeSettings(snapshot.data() || {});
+        settingsLoading.value = false;
+      },
+      (err) => {
+        console.error('Error loading secret settings:', err);
+        settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
+        settingsLoading.value = false;
+      }
+    );
+  };
+
   const cleanup = () => {
     if (unsubscribeSecrets.value) {
       unsubscribeSecrets.value();
@@ -440,6 +536,10 @@ export const useSecretStore = defineStore('secret', () => {
     if (unsubscribeRankings.value) {
       unsubscribeRankings.value();
       unsubscribeRankings.value = null;
+    }
+    if (unsubscribeSettings.value) {
+      unsubscribeSettings.value();
+      unsubscribeSettings.value = null;
     }
   };
 
@@ -669,11 +769,14 @@ export const useSecretStore = defineStore('secret', () => {
   return {
     secrets,
     rankings,
+    settings,
     loading,
     rankingsLoading,
+    settingsLoading,
     error,
     initSecretsListener,
     initRankingsListener,
+    initSettingsListener,
     cleanup,
     createSecret,
     loadSecretById,

@@ -92,6 +92,7 @@ const newSecretAge = ref<string>('');
 const newSecretZone = ref('');
 const createError = ref<string | null>(null);
 const creating = ref(false);
+const showExtraFields = ref(false);
 
 const openCommentsBySecret = ref<Record<string, boolean>>({});
 const commentInputBySecret = ref<Record<string, string>>({});
@@ -222,10 +223,13 @@ const mostVotedHighlights = computed(() =>
 const rankingTopDay = computed(() => secretStore.rankings.topDay.slice(0, 3));
 const rankingMostCommented = computed(() => secretStore.rankings.mostCommented.slice(0, 3));
 const rankingMostVoted = computed(() => secretStore.rankings.mostVoted.slice(0, 3));
+const secretMinTextLength = computed(() => secretStore.settings.minTextLength);
+const secretMaxTextLength = computed(() => secretStore.settings.maxTextLength);
+const warningThreshold = computed(() => Math.max(secretMaxTextLength.value - 20, secretMinTextLength.value));
 
 const canCreateSecret = computed(() => {
   const text = newSecretText.value.trim();
-  return text.length >= 12 && text.length <= 280;
+  return text.length >= secretMinTextLength.value && text.length <= secretMaxTextLength.value;
 });
 
 const textCount = computed(() => newSecretText.value.length);
@@ -275,10 +279,6 @@ const openSecretDetailById = async (secretId: string, textPreview = '') => {
 const openSecretDetail = async (secret: SecretRecord) =>
   openSecretDetailById(secret.id, secret.descripcion);
 
-const backToSecrets = async () => {
-  await router.push('/secretos');
-};
-
 const resolveCategoryLabel = (value: string): string => {
   const found = secretCategoryOptions.find((item) => item.value === value);
   return found?.label || value;
@@ -294,12 +294,12 @@ const handleCreateSecret = async () => {
   const text = newSecretText.value.trim();
   createError.value = null;
 
-  if (text.length < 12) {
-    createError.value = 'El secreto debe tener al menos 12 caracteres.';
+  if (text.length < secretMinTextLength.value) {
+    createError.value = `El secreto debe tener al menos ${secretMinTextLength.value} caracteres.`;
     return;
   }
-  if (text.length > 280) {
-    createError.value = 'El secreto no puede superar 280 caracteres.';
+  if (text.length > secretMaxTextLength.value) {
+    createError.value = `El secreto no puede superar ${secretMaxTextLength.value} caracteres.`;
     return;
   }
   if (!/[0-9A-Za-z\u00C0-\u024F]/.test(text)) {
@@ -425,6 +425,7 @@ watch(
     if (enabled) {
       secretStore.initSecretsListener();
       secretStore.initRankingsListener();
+      secretStore.initSettingsListener();
       return;
     }
     secretStore.cleanup();
@@ -472,37 +473,29 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <section class="hero">
-      <div class="hero-text">
-        <h1>Secretos</h1>
-        <p>Comparte algo anonimo y real. Sin perfiles, sin filtro, con respeto.</p>
-      </div>
-      <button
-        v-if="detailSecretId"
-        class="ghost-btn"
-        type="button"
-        @click="backToSecrets"
-      >
-        Volver al feed
-      </button>
-    </section>
+
+
+    
+
 
     <section v-if="moduleStore.modules.secrets.enabled" class="composer-card">
-      <header>
-        <h2>Crear secreto</h2>
-        <p class="microcopy">No publiques nombres ni insultos. Describe un hecho, no acuses directamente.</p>
-      </header>
 
-      <textarea
-        v-model="newSecretText"
-        class="secret-textarea"
-        placeholder="Comparte algo anonimo y real..."
-        maxlength="280"
-      />
 
-      <div class="composer-grid">
+
+        
+
+
+
+
+            <div 
+              class="composer-grid"
+              :class="{
+                'is-male': newSecretSex === 'hombre',
+                'is-female': newSecretSex === 'mujer'
+              }"
+            >
         <label>
-          Sexo
+          Soy
           <select v-model="newSecretSex">
             <option
               v-for="option in secretSexOptions"
@@ -515,43 +508,80 @@ onUnmounted(() => {
         </label>
 
         <label>
-          Categoria (opcional)
-          <select v-model="newSecretCategory">
-            <option
-              v-for="option in secretCategoryOptions"
-              :key="option.value || 'none'"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-
-        <label>
-          Edad (opcional)
+          y tengo
           <input
             v-model="newSecretAge"
             type="number"
-            min="13"
+            min="17"
             max="99"
             inputmode="numeric"
-            placeholder="Ej: 24"
-          />
+             placeholder="Ej: 24"
+          /> 
+        
         </label>
 
-        <label>
-          Zona (opcional)
-          <input
-            v-model="newSecretZone"
-            type="text"
-            maxlength="48"
-            placeholder="Ej: Centro"
-          />
-        </label>
+        <button
+          type="button"
+          class="toggle-extras-btn"
+          @click="showExtraFields = !showExtraFields"
+        >
+          {{ showExtraFields ? '− Menos' : '+ Opcional' }}
+        </button>
+
+        <Transition name="fade-slide">
+          <div v-if="showExtraFields" class="extras-group">
+            <label>
+              <select v-model="newSecretCategory">
+                <option
+                  v-for="option in secretCategoryOptions"
+                  :key="option.value || 'none'"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <input
+                v-model="newSecretZone"
+                type="text"
+                maxlength="48"
+                placeholder="Zona (ej: centro)"
+              />
+            </label>
+          </div>
+        </Transition>
       </div>
 
-      <div class="composer-footer">
-        <span class="counter" :class="{ warn: textCount > 260 }">{{ textCount }}/280</span>
+      
+      
+        
+      <header>
+        <p class="microcopy">No publiques nombres ni insultos. Describe un hecho, no acuses directamente.</p>
+      </header>
+
+      <textarea
+        v-model="newSecretText"
+        class="secret-textarea"
+        placeholder="Comparte algo anonimo y real..."
+        :maxlength="secretMaxTextLength"
+      />
+
+
+      
+ 
+    
+
+
+      <div 
+        class="composer-footer"
+        :class="{
+          'is-male': newSecretSex === 'hombre',
+          'is-female': newSecretSex === 'mujer'
+        }"
+      >
+        <span class="counter" :class="{ warn: textCount > warningThreshold }">{{ textCount }}/{{ secretMaxTextLength }}</span>
         <button
           class="publish-btn"
           type="button"
@@ -675,62 +705,101 @@ onUnmounted(() => {
         :key="secret.id"
         class="secret-card"
       >
-        <header class="secret-card-header">
-          <div class="meta-left">
-            <span class="alias">{{ secret.anonAlias || 'Anonimo' }}</span>
-            <span class="dot">|</span>
-            <span class="time">{{ formatRelativeTime(secret.createdAt) }}</span>
+        <header 
+          class="secret-card-header"
+          :class="{
+            'is-male': secret.sex === 'hombre',
+            'is-female': secret.sex === 'mujer'
+          }"
+        >
+          <div class="header-left">
+            <svg v-if="secret.sex === 'hombre'" class="gender-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
+            </svg>
+            <svg v-else-if="secret.sex === 'mujer'" class="gender-icon" viewBox="0 -960 960 960" fill="currentColor">
+              <path d="M400-80v-240H280l122-308q10-24 31-38t47-14q26 0 47 14t31 38l122 308H560v240H400Zm23.5-663.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5Z"/>
+            </svg>
+            <span v-if="secret.age" class="header-age">{{ secret.age }} años</span>
           </div>
-          <div class="meta-right">
-            <span class="trend" :class="secret.rank.trend">{{ resolveTrendLabel(secret.rank.trend) }}</span>
+
+          <div class="header-center">
+            <span class="header-id">@{{ secret.id.substring(0, 8) }}</span>
+          </div>
+
+          <div class="header-right">
+            <span class="header-stat">{{ secret.stats.upVotesCount + secret.stats.downVotesCount }}</span>
+            <div class="header-emojis">
+              <span class="header-emoji">☹️</span>
+              <span class="header-emoji">🙂</span>
+            </div>
           </div>
         </header>
 
-        <p class="secret-text">{{ secret.descripcion }}</p>
+        <div class="secret-card-body">
+          <div class="card-meta-top">
+            <span class="alias">{{ secret.anonAlias || 'Anonimo' }}</span>
+            <span class="dot">•</span>
+            <span class="time">{{ formatRelativeTime(secret.createdAt) }}</span>
+          </div>
 
-        <div class="chips">
-          <span v-if="secret.category" class="chip">{{ resolveCategoryLabel(secret.category) }}</span>
-          <span v-if="secret.zone" class="chip">{{ secret.zone }}</span>
+          <p class="secret-text">{{ secret.descripcion }}</p>
+
+          <div class="chips">
+            <span v-if="secret.category" class="chip">{{ resolveCategoryLabel(secret.category) }}</span>
+            <span v-if="secret.zone" class="chip">{{ secret.zone }}</span>
+          </div>
+
+          <footer 
+            class="actions"
+            :class="{
+              'is-male': secret.sex === 'hombre',
+              'is-female': secret.sex === 'mujer'
+            }"
+          >
+            <button
+              class="vote-btn"
+              :class="{ active: secret.myVote === 1 }"
+              type="button"
+              :disabled="secretStore.isVotingPending(secret.id)"
+              @click="handleVote(secret.id, 1)"
+            >
+              <svg class="btn-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M7 11c.889-.086 1.416-.543 2.156-1.057a22.323 22.323 0 0 0 3.958-5.084 1.6 1.6 0 0 1 .582-.628 1.549 1.549 0 0 1 1.466-.087c.205.095.388.233.537.406a1.64 1.64 0 0 1 .384 1.279l-1.388 4.114M7 11H4v6.5A1.5 1.5 0 0 0 5.5 19v0A1.5 1.5 0 0 0 7 17.5V11Zm6.5-1h4.915c.286 0 .372.014.626.15.254.135.472.332.637.572a1.874 1.874 0 0 1 .215 1.673l-2.098 6.4C17.538 19.52 17.368 20 16.12 20c-2.303 0-4.79-.943-6.67-1.475"/>
+              </svg>
+              <span>{{ secret.stats.upVotesCount }}</span>
+            </button>
+            <button
+              class="vote-btn"
+              :class="{ active: secret.myVote === -1 }"
+              type="button"
+              :disabled="secretStore.isVotingPending(secret.id)"
+              @click="handleVote(secret.id, -1)"
+            >
+              <svg class="btn-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M17 13c-.889.086-1.416.543-2.156 1.057a22.322 22.322 0 0 0-3.958 5.084 1.6 1.6 0 0 1-.582.628 1.549 1.549 0 0 1-1.466.087 1.587 1.587 0 0 1-.537-.406 1.666 1.666 0 0 1-.384-1.279l1.389-4.114M17 13h3V6.5A1.5 1.5 0 0 0 18.5 5v0A1.5 1.5 0 0 0 17 6.5V13Zm-6.5 1H5.585c-.286 0-.372-.014-.626-.15a1.797 1.797 0 0 1-.637-.572 1.873 1.873 0 0 1-.215-1.673l2.098-6.4C6.462 4.48 6.632 4 7.88 4c2.302 0 4.79.943 6.67 1.475"/>
+              </svg>
+              <span>{{ secret.stats.downVotesCount }}</span>
+            </button>
+            <button class="comment-btn" type="button" @click="toggleComments(secret.id)">
+              Comentarios {{ secret.stats.commentsCount }}
+            </button>
+            <button class="open-btn" type="button" @click="openSecretDetail(secret)">
+              Abrir
+            </button>
+            <button
+              class="report-btn"
+              type="button"
+              :disabled="secretStore.isReportPending(secret.id) || secret.reportedByMe"
+              @click="handleReport(secret.id)"
+            >
+              {{ secret.reportedByMe ? 'Reportado' : 'Reportar' }}
+            </button>
+          </footer>
+
+          <p v-if="reportStatusBySecret[secret.id]" class="report-state">
+            {{ reportStatusBySecret[secret.id] }}
+          </p>
         </div>
-
-        <footer class="actions">
-          <button
-            class="vote-btn"
-            :class="{ active: secret.myVote === 1 }"
-            type="button"
-            :disabled="secretStore.isVotingPending(secret.id)"
-            @click="handleVote(secret.id, 1)"
-          >
-            + {{ secret.stats.upVotesCount }}
-          </button>
-          <button
-            class="vote-btn"
-            :class="{ active: secret.myVote === -1 }"
-            type="button"
-            :disabled="secretStore.isVotingPending(secret.id)"
-            @click="handleVote(secret.id, -1)"
-          >
-            - {{ secret.stats.downVotesCount }}
-          </button>
-          <button class="comment-btn" type="button" @click="toggleComments(secret.id)">
-            Comentarios {{ secret.stats.commentsCount }}
-          </button>
-          <button class="open-btn" type="button" @click="openSecretDetail(secret)">
-            Abrir
-          </button>
-          <button
-            class="report-btn"
-            type="button"
-            :disabled="secretStore.isReportPending(secret.id) || secret.reportedByMe"
-            @click="handleReport(secret.id)"
-          >
-            {{ secret.reportedByMe ? 'Reportado' : 'Reportar' }}
-          </button>
-        </footer>
-
-        <p v-if="reportStatusBySecret[secret.id]" class="report-state">
-          {{ reportStatusBySecret[secret.id] }}
-        </p>
 
         <section v-if="openCommentsBySecret[secret.id]" class="comments-box">
           <div v-if="secretStore.isCommentsLoading(secret.id)" class="comment-state">
@@ -873,38 +942,8 @@ onUnmounted(() => {
   border-radius: 3px 3px 0 0;
 }
 
-.hero {
-  border: 1px solid var(--border);
-  background: linear-gradient(130deg, color-mix(in srgb, var(--accent) 14%, var(--card-bg)) 0%, var(--card-bg) 70%);
-  border-radius: 18px;
-  padding: 1rem 1.1rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-}
 
-.hero h1 {
-  margin: 0;
-  font-size: clamp(1.35rem, 2.4vw, 2rem);
-  color: var(--text-h);
-}
 
-.hero p {
-  margin: 0.35rem 0 0;
-  color: var(--text);
-  max-width: 620px;
-}
-
-.ghost-btn {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-h);
-  border-radius: 999px;
-  padding: 0.55rem 0.9rem;
-  font-weight: 700;
-  cursor: pointer;
-}
 
 .composer-card {
   border: 1px solid var(--border);
@@ -940,17 +979,42 @@ onUnmounted(() => {
 }
 
 .composer-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  transition: all 0.4s ease;
+  border-radius: 12px;
+  padding: 0.2rem;
+}
+
+.composer-grid.is-male,
+.composer-grid.is-female {
+  margin: -1rem -1rem 1.2rem;
+  border-radius: 17px 17px 0 0;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  padding: 1rem;
+}
+
+.composer-grid.is-male {
+  background: color-mix(in srgb, #4680dd 62%, var(--card-bg));
+  border-bottom-color: color-mix(in srgb, #4680dd 30%, var(--border));
+}
+
+.composer-grid.is-female {
+  background: color-mix(in srgb, #ca2a6e 62%, var(--card-bg));
+  border-bottom-color: color-mix(in srgb, #ca2a6e 30%, var(--border));
 }
 
 .composer-grid label {
-  display: grid;
-  gap: 0.35rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   color: var(--text-h);
   font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .composer-grid input,
@@ -959,19 +1023,85 @@ onUnmounted(() => {
   border-radius: 10px;
   background: var(--bg);
   color: var(--text-h);
-  padding: 0.48rem 0.58rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.9rem;
 }
 
+.toggle-extras-btn {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  height: fit-content;
+  align-self: center;
+}
+
+.toggle-extras-btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.extras-group {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+.composer-grid input::placeholder,
+.composer-grid select::placeholder,
+.field-hint {
+  color: var(--text);
+  opacity: 0.65;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
 .composer-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  transition: all 0.4s ease;
+  border-radius: 12px;
+}
+
+.composer-footer.is-male,
+.composer-footer.is-female {
+  margin: 1.2rem -1rem -1rem -1rem;
+  border-radius: 0 0 17px 17px;
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.1);
+  padding: 1rem;
+}
+
+.composer-footer.is-male {
+  background: color-mix(in srgb, #4680dd 62%, var(--card-bg));
+  border-top-color: color-mix(in srgb, #4680dd 30%, var(--border));
+}
+
+.composer-footer.is-female {
+  background: color-mix(in srgb, #ca2a6e 62%, var(--card-bg));
+  border-top-color: color-mix(in srgb, #ca2a6e 30%, var(--border));
 }
 
 .counter {
   color: var(--text);
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: 0.92rem;
+  font-weight: 800;
 }
 
 .counter.warn {
@@ -1112,50 +1242,97 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   background: var(--card-bg);
   border-radius: 16px;
-  padding: 0.9rem;
-  display: grid;
-  gap: 0.65rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .secret-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.65rem;
+  padding: 0.55rem 0.9rem;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  gap: 0.5rem;
 }
 
-.meta-left {
-  display: inline-flex;
+.secret-card-header.is-male {
+  background: #1e5fad; /* Azul masculino */
+}
+
+.secret-card-header.is-female {
+  background: #ca2a6e; /* Rosa femenino */
+}
+
+.secret-card-header:not(.is-male):not(.is-female) {
+  background: var(--bg-hover);
+  color: var(--text-h);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left, .header-right {
+  display: flex;
   align-items: center;
+  gap: 0.4rem;
+}
+
+.header-center {
+  flex: 1;
+  text-align: center;
+}
+
+.gender-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.header-age {
+  font-size: 0.95rem;
+}
+
+.header-id {
+  opacity: 0.85;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.header-stat {
+  font-size: 0.88rem;
+  margin-right: 0.2rem;
+}
+
+.header-emojis {
+  display: flex;
   gap: 0.35rem;
+  font-size: 1.1rem;
+}
+
+.secret-card-body {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.card-meta-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: -0.1rem;
 }
 
 .alias {
   color: var(--text-h);
-  font-weight: 800;
-  font-size: 0.88rem;
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
 .dot,
 .time {
   color: var(--text);
-  font-size: 0.8rem;
-}
-
-.trend {
-  border-radius: 999px;
-  padding: 0.24rem 0.55rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-h);
-}
-
-.trend.up {
-  color: #0f766e;
-  border-color: #99f6e4;
-  background: #f0fdfa;
+  font-size: 0.78rem;
 }
 
 .trend.down {
@@ -1191,12 +1368,66 @@ onUnmounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.45rem;
+  transition: all 0.4s ease;
+}
+
+.actions.is-male,
+.actions.is-female {
+  margin: 1rem -0.9rem -0.9rem -0.9rem;
+  padding: 0.8rem 0.9rem;
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.1);
+  border-radius: 0 0 16px 16px;
+}
+
+.actions.is-male {
+  background: #1e5fad;
+  color: #fff;
+}
+
+.actions.is-female {
+  background: #ca2a6e;
+  color: #fff;
+}
+
+/* Ajuste de botones cuando están dentro de una barra de color sólida */
+.actions.is-male .vote-btn,
+.actions.is-male .comment-btn,
+.actions.is-male .open-btn,
+.actions.is-male .report-btn,
+.actions.is-female .vote-btn,
+.actions.is-female .comment-btn,
+.actions.is-female .open-btn,
+.actions.is-female .report-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.actions.is-male .vote-btn:hover,
+.actions.is-male .comment-btn:hover,
+.actions.is-male .open-btn:hover,
+.actions.is-female .vote-btn:hover,
+.actions.is-female .comment-btn:hover,
+.actions.is-female .open-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.actions.is-male .vote-btn.active,
+.actions.is-female .vote-btn.active {
+  background: #fff;
+  color: var(--text-h);
+  border-color: #fff;
 }
 
 .vote-btn,
 .comment-btn,
 .open-btn,
 .report-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg);
@@ -1205,6 +1436,11 @@ onUnmounted(() => {
   font-size: 0.8rem;
   padding: 0.4rem 0.68rem;
   cursor: pointer;
+}
+
+.btn-icon {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 .vote-btn.active {
@@ -1312,7 +1548,7 @@ onUnmounted(() => {
   }
 
   .composer-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 
   .filters {
@@ -1326,10 +1562,6 @@ onUnmounted(() => {
     padding: 0.9rem 0.55rem 1.6rem;
   }
 
-  .hero {
-    flex-direction: column;
-    align-items: flex-start;
-  }
 
   .composer-grid {
     grid-template-columns: 1fr;
