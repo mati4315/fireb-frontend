@@ -111,17 +111,19 @@ const tabPathByKey: Record<string, string> = {
   todo: '/todo',
   news: '/noticia',
   post: '/c',
+  secrets: '/secretos',
   surveys: '/encuestas',
   lottery: '/loteria'
 }
 
-type HomeDefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery'
+type HomeDefaultFeedTab = 'todo' | 'news' | 'post' | 'secrets' | 'surveys' | 'lottery'
 
 const tabKeyByRouteName: Record<string, string> = {
   home: 'todo',
   'home-todo': 'todo',
   'home-news': 'news',
   'home-community': 'post',
+  'secrets-home': 'secrets',
   'home-surveys': 'surveys',
   'home-lottery': 'lottery'
 }
@@ -139,7 +141,13 @@ const isTabVisible = (tabKey: string): boolean =>
 const getTabPath = (tabKey: string): string => tabPathByKey[tabKey] || '/'
 
 const normalizeHomeDefaultFeedTab = (value: unknown): HomeDefaultFeedTab => {
-  if (value === 'news' || value === 'post' || value === 'surveys' || value === 'lottery') {
+  if (
+    value === 'news' ||
+    value === 'post' ||
+    value === 'secrets' ||
+    value === 'surveys' ||
+    value === 'lottery'
+  ) {
     return value
   }
   return 'todo'
@@ -219,6 +227,10 @@ const setActiveTab = async (tabKey: string) => {
   const targetPath = getTabPath(tabKey)
   if (route.path !== targetPath) {
     await router.push(targetPath)
+  }
+
+  if (tabKey === 'secrets') {
+    return
   }
 
   feedStore.initFeed(tabKey)
@@ -392,6 +404,12 @@ const normalizeImageList = (
   }
 
   return []
+}
+
+const shouldHideSecretUserMeta = (item: any): boolean => {
+  const moduleName = typeof item?.module === 'string' ? item.module : ''
+  const userName = typeof item?.userName === 'string' ? item.userName.trim() : ''
+  return moduleName === 'secrets' && !userName
 }
 
 const shouldPrioritizeImage = (itemIndex: number, imageIndex: number): boolean => {
@@ -1440,14 +1458,19 @@ watch(
             <header class="post-header">
               <button class="post-user post-user-btn" type="button" @click="openUserProfile(item)">
                 <img
-                  v-if="item.userProfilePicUrl"
+                  v-if="item.userProfilePicUrl && !shouldHideSecretUserMeta(item)"
                   :src="item.userProfilePicUrl"
                   :alt="`Avatar de ${item.userName || 'usuario'}`"
                   class="mini-avatar"
                 />
-                <div v-else class="mini-avatar-placeholder">{{ item.userName?.charAt(0) || 'U' }}</div>
+                <div
+                  v-else-if="!shouldHideSecretUserMeta(item)"
+                  class="mini-avatar-placeholder"
+                >
+                  {{ item.userName?.charAt(0) || 'U' }}
+                </div>
                 <div class="user-details">
-                  <span class="user-name">{{ item.userName || 'Usuario' }}</span>
+                  <span v-if="!shouldHideSecretUserMeta(item)" class="user-name">{{ item.userName || 'Usuario' }}</span>
                   <span class="post-date">{{ formatDate(item.createdAt) }}</span>
                 </div>
               </button>

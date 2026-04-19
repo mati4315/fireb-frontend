@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useHeaderScroll } from '@/composables/useHeaderScroll';
 import {
   useSecretStore,
   type SecretCategory,
   type SecretRecord,
   type SecretSex
 } from '@/stores/secretStore';
-import { useModuleStore } from '@/stores/moduleStore';
+import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
 
@@ -15,6 +16,71 @@ const route = useRoute();
 const router = useRouter();
 const secretStore = useSecretStore();
 const moduleStore = useModuleStore();
+const { isVisible: isHeaderVisible } = useHeaderScroll();
+const scrollY = ref(0);
+const SECRETOS_SCROLL_KEY = 'cdelu_secretos_scroll_y_v1';
+
+const handleScrollY = () => {
+  scrollY.value = window.scrollY;
+};
+
+const tabPathByKey: Record<HomeTabKey, string> = {
+  todo: '/todo',
+  news: '/noticia',
+  post: '/c',
+  secrets: '/secretos',
+  surveys: '/encuestas',
+  lottery: '/loteria'
+};
+
+const tabKeyByRouteName: Record<string, HomeTabKey> = {
+  home: 'todo',
+  'home-todo': 'todo',
+  'home-news': 'news',
+  'home-community': 'post',
+  'secrets-home': 'secrets',
+  'secrets-detail': 'secrets',
+  'home-surveys': 'surveys',
+  'home-lottery': 'lottery'
+};
+
+const visibleTabs = computed(() => moduleStore.availableTabs);
+const activeTabKey = computed<HomeTabKey>(() => {
+  const routeName = typeof route.name === 'string' ? route.name : '';
+  return tabKeyByRouteName[routeName] || 'secrets';
+});
+
+const setActiveTab = async (tabKey: HomeTabKey) => {
+  const targetPath = tabPathByKey[tabKey] || '/';
+  if (route.path !== targetPath) {
+    saveSecretosScrollPosition();
+    await router.push(targetPath);
+  }
+};
+
+const saveSecretosScrollPosition = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(SECRETOS_SCROLL_KEY, String(window.scrollY || 0));
+  } catch {
+    // no-op
+  }
+};
+
+const restoreSecretosScrollPosition = async () => {
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = window.sessionStorage.getItem(SECRETOS_SCROLL_KEY) || '';
+    const nextY = Number(raw);
+    if (!Number.isFinite(nextY) || nextY < 0) return;
+    await nextTick();
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: nextY, behavior: 'instant' as ScrollBehavior });
+    });
+  } catch {
+    // no-op
+  }
+};
 
 const selectedFilter = ref<SecretFilterKey>('recentes');
 const selectedZone = ref<string>('all');
@@ -199,6 +265,7 @@ const slugify = (value: string): string => {
 };
 
 const openSecretDetailById = async (secretId: string, textPreview = '') => {
+  saveSecretosScrollPosition();
   const loaded = await secretStore.loadSecretById(secretId);
   const sourceText = loaded?.descripcion || textPreview || 'secreto';
   const slug = slugify(sourceText.slice(0, 64));
@@ -344,7 +411,12 @@ const setCommentDraft = (secretId: string, text: string) => {
 };
 
 onMounted(() => {
+  scrollY.value = window.scrollY;
+  window.addEventListener('scroll', handleScrollY, { passive: true });
   moduleStore.initModulesListener();
+  if (!detailSecretId.value) {
+    void restoreSecretosScrollPosition();
+  }
 });
 
 watch(
@@ -362,7 +434,10 @@ watch(
 
 watch(
   detailSecretId,
-  async (secretId) => {
+  async (secretId, prevSecretId) => {
+    if (prevSecretId && !secretId) {
+      await restoreSecretosScrollPosition();
+    }
     if (!secretId) return;
     await secretStore.loadSecretById(secretId);
   },
@@ -370,12 +445,33 @@ watch(
 );
 
 onUnmounted(() => {
+  saveSecretosScrollPosition();
+  window.removeEventListener('scroll', handleScrollY);
   secretStore.cleanup();
 });
 </script>
 
 <template>
   <div class="secretos-view">
+    <div
+      class="feed-tabs"
+      :class="{
+        'tabs-at-top': scrollY <= 64,
+        'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
+        'tabs-hidden-up': isHeaderVisible && scrollY > 64
+      }"
+    >
+      <button
+        v-for="tab in visibleTabs"
+        :key="tab.key"
+        class="tab-btn"
+        :class="{ active: activeTabKey === tab.key }"
+        @click="setActiveTab(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+
     <section class="hero">
       <div class="hero-text">
         <h1>Secretos</h1>
@@ -692,6 +788,89 @@ onUnmounted(() => {
   padding: 1.2rem 0.95rem 2.5rem;
   display: grid;
   gap: 1rem;
+}
+
+.feed-tabs {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.5rem;
+  z-index: 999;
+  background: var(--glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  height: var(--header-height);
+  align-items: center;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-bottom: 1.5rem;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.feed-tabs::after {
+  content: '';
+  flex: 0 0 1.5rem;
+  height: 1px;
+}
+
+.tabs-at-top {
+  position: relative;
+  transform: none;
+  opacity: 1;
+}
+
+.tabs-fixed-top {
+  position: sticky;
+  top: 0;
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.tabs-hidden-up {
+  position: sticky;
+  top: 0;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.feed-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0.45rem 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.2s ease;
+}
+
+.tab-btn:hover {
+  color: var(--accent);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -0.6rem;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
 }
 
 .hero {

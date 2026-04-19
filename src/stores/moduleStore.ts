@@ -4,7 +4,7 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 export type FeedTabKey = 'todo' | 'news' | 'post';
-export type HomeTabKey = FeedTabKey | 'surveys' | 'lottery';
+export type HomeTabKey = FeedTabKey | 'secrets' | 'surveys' | 'lottery';
 
 export interface AdsModuleConfig {
   enabled: boolean;
@@ -222,6 +222,9 @@ export const useModuleStore = defineStore('module', () => {
     }
     if (modules.value.community.enabled) {
       tabs.push({ key: 'post', label: 'Comunidad' });
+    }
+    if (modules.value.secrets.enabled) {
+      tabs.push({ key: 'secrets', label: 'Secretos' });
     }
     if (modules.value.surveys.enabled) {
       tabs.push({ key: 'surveys', label: 'Encuestas' });

@@ -140,8 +140,6 @@ const openNotificationsConfig = async () => {
         </RouterLink>
         
         <nav class="main-nav">
-          <RouterLink to="/secretos" class="secrets-nav-link">Secretos</RouterLink>
-
           <div class="theme-wrapper" @click="themeStore.toggleTheme">
             <span class="theme-label">Modo:</span>
             <button class="theme-toggle" aria-label="Cambiar tema">
@@ -333,22 +331,6 @@ const openNotificationsConfig = async () => {
   display: flex;
   align-items: center;
   gap: 1.25rem;
-}
-
-.secrets-nav-link {
-  text-decoration: none;
-  color: var(--text-h);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.4rem 0.78rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  background: var(--bg);
-}
-
-.secrets-nav-link:hover {
-  border-color: var(--accent-border);
-  color: var(--accent);
 }
 
 .theme-wrapper {
@@ -646,11 +628,6 @@ const openNotificationsConfig = async () => {
 
   .main-nav {
     gap: 0.45rem;
-  }
-
-  .secrets-nav-link {
-    padding: 0.38rem 0.55rem;
-    font-size: 0.78rem;
   }
 
   .login-btn {

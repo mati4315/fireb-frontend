@@ -74,7 +74,7 @@ export const useFeedStore = defineStore('feed', () => {
   const getTabConstraints = (tab: FeedTab): QueryConstraint[] => {
     const constraints: QueryConstraint[] = [where('deletedAt', '==', null)];
 
-    if (tab !== 'todo' && tab !== 'surveys' && tab !== 'lottery') {
+    if (tab !== 'todo' && tab !== 'secrets' && tab !== 'surveys' && tab !== 'lottery') {
       const cfg = tabConfig[tab];
       constraints.push(where('module', '==', cfg.module));
     }
@@ -90,7 +90,11 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const rebuildMergedFeed = () => {
-    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') {
+    if (
+      currentTab.value === 'secrets' ||
+      currentTab.value === 'surveys' ||
+      currentTab.value === 'lottery'
+    ) {
       allItems.value = [];
       return;
     }
@@ -149,9 +153,9 @@ export const useFeedStore = defineStore('feed', () => {
     allItems.value = [];
     unsubscribe.value = null;
     loading.value = true;
-    hasMore.value = safeTab !== 'surveys' && safeTab !== 'lottery';
+    hasMore.value = safeTab !== 'secrets' && safeTab !== 'surveys' && safeTab !== 'lottery';
 
-    if (safeTab === 'surveys' || safeTab === 'lottery') {
+    if (safeTab === 'secrets' || safeTab === 'surveys' || safeTab === 'lottery') {
       loading.value = false;
       return;
     }
@@ -194,7 +198,13 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const loadMore = async () => {
-    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
+    if (
+      currentTab.value === 'secrets' ||
+      currentTab.value === 'surveys' ||
+      currentTab.value === 'lottery'
+    ) {
+      return;
+    }
     if (!hasMore.value || loading.value || contentItems.value.length === 0) return;
 
     const tabAtStart = currentTab.value;
@@ -352,7 +362,13 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdImpression = (item: AdFeedItem) => {
-    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
+    if (
+      currentTab.value === 'secrets' ||
+      currentTab.value === 'surveys' ||
+      currentTab.value === 'lottery'
+    ) {
+      return;
+    }
     adsStore.trackAdImpression(
       item,
       currentTab.value as FeedTabKey,
@@ -361,7 +377,13 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   const trackAdClick = (item: AdFeedItem) => {
-    if (currentTab.value === 'surveys' || currentTab.value === 'lottery') return;
+    if (
+      currentTab.value === 'secrets' ||
+      currentTab.value === 'surveys' ||
+      currentTab.value === 'lottery'
+    ) {
+      return;
+    }
     adsStore.trackAdClick(
       item,
       currentTab.value as FeedTabKey,
@@ -393,7 +415,7 @@ export const useFeedStore = defineStore('feed', () => {
   );
 
   const isModuleEnabled = (
-    moduleName: 'news' | 'community' | 'likes' | 'comments' | 'surveys' | 'lottery' | 'ads'
+    moduleName: 'news' | 'community' | 'secrets' | 'likes' | 'comments' | 'surveys' | 'lottery' | 'ads'
   ) =>
     moduleStore.isModuleEnabled(moduleName);
 
