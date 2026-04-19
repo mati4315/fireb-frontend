@@ -29,9 +29,9 @@ const unsubscribeSecretSettings = ref<(() => void) | null>(null)
 const settingsForm = reactive<SecretSettingsForm>({
   maxTextLength: 280,
   minTextLength: 12,
-  createCooldownMinutes: 30,
+  createCooldownMinutes: 30, // 30 minutes burst window
   commentCooldownSeconds: 20,
-  dailyLimit: 5,
+  dailyLimit: 10,
   autoHideReportsThreshold: 6
 })
 

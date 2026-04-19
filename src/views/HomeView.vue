@@ -13,6 +13,8 @@ import { useLikesStore } from '@/stores/likesStore'
 import { useProfileStore } from '@/stores/profileStore'
 
 import FeedAdItem from '@/components/feed/FeedAdItem.vue'
+import SecretCard from '@/components/feed/SecretCard.vue'
+import { mapSecretData } from '@/stores/secretStore'
 import { db } from '@/config/firebase'
 import {
   buildContentDetailPath,
@@ -1396,6 +1398,11 @@ watch(
           :item="item"
           @impression="handleAdImpression"
           @click-ad="handleAdClick"
+        />
+
+        <SecretCard
+          v-else-if="item.module === 'secrets'"
+          :secret="mapSecretData(item.id, item)"
         />
 
         <div v-else class="post-card" :id="isDetailTarget(item) ? 'titulo' : undefined">

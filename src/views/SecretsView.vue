@@ -9,6 +9,9 @@ import {
   type SecretSex
 } from '@/stores/secretStore';
 import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
+import { useAuthStore } from '@/stores/authStore';
+import { isStaffUser } from '@/utils/roles';
+import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
 
@@ -16,6 +19,8 @@ const route = useRoute();
 const router = useRouter();
 const secretStore = useSecretStore();
 const moduleStore = useModuleStore();
+const authStore = useAuthStore();
+
 const { isVisible: isHeaderVisible } = useHeaderScroll();
 const scrollY = ref(0);
 const SECRETOS_SCROLL_KEY = 'cdelu_secretos_scroll_y_v1';
@@ -84,6 +89,8 @@ const restoreSecretosScrollPosition = async () => {
 
 const selectedFilter = ref<SecretFilterKey>('recentes');
 const selectedZone = ref<string>('all');
+const selectedSex = ref<SecretSex | 'all'>('all');
+const showHighlights = ref(false);
 
 const newSecretText = ref('');
 const newSecretSex = ref<SecretSex>('no_responder');
@@ -93,11 +100,6 @@ const newSecretZone = ref('');
 const createError = ref<string | null>(null);
 const creating = ref(false);
 const showExtraFields = ref(false);
-
-const openCommentsBySecret = ref<Record<string, boolean>>({});
-const commentInputBySecret = ref<Record<string, string>>({});
-const commentErrorBySecret = ref<Record<string, string | null>>({});
-const reportStatusBySecret = ref<Record<string, string | null>>({});
 
 const secretCategoryOptions: Array<{ value: SecretCategory; label: string }> = [
   { value: '', label: 'Sin categoria' },
@@ -168,6 +170,10 @@ const filteredSecrets = computed(() => {
 
   if (selectedZone.value !== 'all') {
     items = items.filter((secret) => secret.zone === selectedZone.value);
+  }
+
+  if (selectedSex.value !== 'all') {
+    items = items.filter((secret) => secret.sex === selectedSex.value);
   }
 
   if (selectedFilter.value === 'populares') {
@@ -273,22 +279,11 @@ const openSecretDetailById = async (secretId: string, textPreview = '') => {
   const loaded = await secretStore.loadSecretById(secretId);
   const sourceText = loaded?.descripcion || textPreview || 'secreto';
   const slug = slugify(sourceText.slice(0, 64));
-  await router.push(`/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}`);
+  await router.push(`/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}#secret-${secretId}`);
 };
 
 const openSecretDetail = async (secret: SecretRecord) =>
   openSecretDetailById(secret.id, secret.descripcion);
-
-const resolveCategoryLabel = (value: string): string => {
-  const found = secretCategoryOptions.find((item) => item.value === value);
-  return found?.label || value;
-};
-
-const resolveTrendLabel = (trend: string): string => {
-  if (trend === 'up') return 'Subiendo';
-  if (trend === 'down') return 'Bajando';
-  return 'Estable';
-};
 
 const handleCreateSecret = async () => {
   const text = newSecretText.value.trim();
@@ -312,9 +307,9 @@ const handleCreateSecret = async () => {
     await secretStore.createSecret({
       text,
       sex: newSecretSex.value,
-      age: newSecretAge.value.trim() ? Number(newSecretAge.value.trim()) : null,
+      age: newSecretAge.value ? Number(newSecretAge.value) : null,
       category: newSecretCategory.value,
-      zone: newSecretZone.value.trim()
+      zone: String(newSecretZone.value || '').trim()
     });
     newSecretText.value = '';
     newSecretSex.value = 'no_responder';
@@ -327,87 +322,6 @@ const handleCreateSecret = async () => {
   } finally {
     creating.value = false;
   }
-};
-
-const handleVote = async (secretId: string, vote: 1 | -1) => {
-  try {
-    await secretStore.voteSecret(secretId, vote);
-  } catch (err) {
-    console.error('Error voting secret:', err);
-  }
-};
-
-const handleReport = async (secretId: string) => {
-  reportStatusBySecret.value = {
-    ...reportStatusBySecret.value,
-    [secretId]: null
-  };
-  try {
-    await secretStore.reportSecret(secretId, 'contenido_inapropiado');
-    reportStatusBySecret.value = {
-      ...reportStatusBySecret.value,
-      [secretId]: 'Reporte enviado'
-    };
-  } catch (err: any) {
-    reportStatusBySecret.value = {
-      ...reportStatusBySecret.value,
-      [secretId]: err?.message || 'No se pudo reportar'
-    };
-  }
-};
-
-const toggleComments = async (secretId: string) => {
-  const isOpen = Boolean(openCommentsBySecret.value[secretId]);
-  openCommentsBySecret.value = {
-    ...openCommentsBySecret.value,
-    [secretId]: !isOpen
-  };
-  if (!isOpen) {
-    await secretStore.loadComments(secretId);
-  }
-};
-
-const handleCreateComment = async (secretId: string) => {
-  const comment = (commentInputBySecret.value[secretId] || '').trim();
-  if (!comment) {
-    commentErrorBySecret.value = {
-      ...commentErrorBySecret.value,
-      [secretId]: 'Escribe un comentario.'
-    };
-    return;
-  }
-  if (!/[0-9A-Za-z\u00C0-\u024F]/.test(comment)) {
-    commentErrorBySecret.value = {
-      ...commentErrorBySecret.value,
-      [secretId]: 'Escribe un comentario valido.'
-    };
-    return;
-  }
-
-  commentErrorBySecret.value = {
-    ...commentErrorBySecret.value,
-    [secretId]: null
-  };
-
-  try {
-    await secretStore.createComment(secretId, comment);
-    commentInputBySecret.value = {
-      ...commentInputBySecret.value,
-      [secretId]: ''
-    };
-  } catch (err: any) {
-    commentErrorBySecret.value = {
-      ...commentErrorBySecret.value,
-      [secretId]: err?.message || 'No se pudo comentar.'
-    };
-  }
-};
-
-const setCommentDraft = (secretId: string, text: string) => {
-  commentInputBySecret.value = {
-    ...commentInputBySecret.value,
-    [secretId]: text
-  };
 };
 
 onMounted(() => {
@@ -592,106 +506,143 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <p v-if="createError" class="form-error">{{ createError }}</p>
     </section>
-
-    <section v-if="moduleStore.modules.secrets.enabled" class="highlights">
-      <div class="highlight-card">
-        <h3>Top secretos del dia</h3>
-        <p class="highlight-meta">
-          Ranking {{ rankingsGeneratedLabel }}<span v-if="secretStore.rankingsLoading"> (actualizando)</span>
-        </p>
-        <ul>
-          <li v-for="item in rankingTopDay" :key="`top-ranked-${item.secretId}`">
-            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
-              {{ item.textPreview || 'Secreto anonimo' }}
-            </button>
-          </li>
-          <template v-if="rankingTopDay.length === 0">
-            <li v-for="item in topDayHighlights" :key="`top-fallback-${item.id}`">
-              <button type="button" @click="openSecretDetail(item)">
-                {{ item.descripcion.slice(0, 88) }}{{ item.descripcion.length > 88 ? '...' : '' }}
-              </button>
-            </li>
-            <li v-if="topDayHighlights.length === 0" class="empty">Sin secretos en las ultimas 24h.</li>
-          </template>
-        </ul>
-      </div>
-
-      <div class="highlight-card">
-        <h3>Mas comentados</h3>
-        <ul>
-          <li v-for="item in rankingMostCommented" :key="`comments-ranked-${item.secretId}`">
-            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
-              {{ item.commentsCount }} comentarios
-            </button>
-          </li>
-          <template v-if="rankingMostCommented.length === 0">
-            <li v-for="item in mostCommentedHighlights" :key="`comments-fallback-${item.id}`">
-              <button type="button" @click="openSecretDetail(item)">
-                {{ item.stats.commentsCount }} comentarios
-              </button>
-            </li>
-            <li v-if="mostCommentedHighlights.length === 0" class="empty">Sin datos todavia.</li>
-          </template>
-        </ul>
-      </div>
-
-      <div class="highlight-card">
-        <h3>Mas votados</h3>
-        <ul>
-          <li v-for="item in rankingMostVoted" :key="`votes-ranked-${item.secretId}`">
-            <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
-              {{ item.totalVotesCount }} votos
-            </button>
-          </li>
-          <template v-if="rankingMostVoted.length === 0">
-            <li v-for="item in mostVotedHighlights" :key="`votes-fallback-${item.id}`">
-              <button type="button" @click="openSecretDetail(item)">
-                {{ item.stats.totalVotesCount || (item.stats.upVotesCount + item.stats.downVotesCount) }} votos
-              </button>
-            </li>
-            <li v-if="mostVotedHighlights.length === 0" class="empty">Sin votos todavia.</li>
-          </template>
-        </ul>
-      </div>
-    </section>
-
     <section v-if="moduleStore.modules.secrets.enabled" class="filters">
-      <div class="filter-tabs">
-        <button
-          type="button"
-          class="filter-btn"
-          :class="{ active: selectedFilter === 'recentes' }"
-          @click="selectedFilter = 'recentes'"
-        >
-          Recientes
-        </button>
-        <button
-          type="button"
-          class="filter-btn"
-          :class="{ active: selectedFilter === 'populares' }"
-          @click="selectedFilter = 'populares'"
-        >
-          Populares
-        </button>
-        <button
-          type="button"
-          class="filter-btn"
-          :class="{ active: selectedFilter === 'polemicos' }"
-          @click="selectedFilter = 'polemicos'"
-        >
-          Sin resolver / polemicos
-        </button>
+      <div class="filter-top">
+        <div class="filter-group">
+          <div class="filter-tabs scroll-x">
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedFilter === 'recentes' }"
+              @click="selectedFilter = 'recentes'"
+            >
+              Recientes
+            </button>
+
+              <button
+              type="button"
+              class="filter-btn male"
+              :class="{ active: selectedSex === 'hombre' }"
+              @click="selectedSex = 'hombre'"
+            >
+              Hombres
+            </button>
+            <button
+              type="button"
+              class="filter-btn female"
+              :class="{ active: selectedSex === 'mujer' }"
+              @click="selectedSex = 'mujer'"
+            >
+              Mujeres
+            </button>
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedFilter === 'populares' }"
+              @click="selectedFilter = 'populares'"
+            >
+              Populares
+            </button>
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedFilter === 'polemicos' }"
+              @click="selectedFilter = 'polemicos'"
+            >
+              Polemicos
+            </button>
+          </div>
+
+          <div class="filter-tabs scroll-x">
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedSex === 'all' }"
+              @click="selectedSex = 'all'"
+            >
+              Todos
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-actions">
+          <label class="zone-filter">
+            Zona:
+            <select v-model="selectedZone">
+              <option value="all">Todas</option>
+              <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
+            </select>
+          </label>
+          <button class="toggle-highlights-btn" @click="showHighlights = !showHighlights">
+            {{ showHighlights ? 'Ocultar destacados' : 'Ver destacados 🌟' }}
+          </button>
+        </div>
       </div>
 
-      <label class="zone-filter">
-        Zona:
-        <select v-model="selectedZone">
-          <option value="all">Todas</option>
-          <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
-        </select>
-      </label>
+      <div v-show="showHighlights" class="highlights-wrapper">
+        <div class="highlights">
+          <div class="highlight-card">
+            <h3>Top secretos del dia</h3>
+            <p class="highlight-meta">
+              Ranking {{ rankingsGeneratedLabel }}<span v-if="secretStore.rankingsLoading"> (actualizando)</span>
+            </p>
+            <ul>
+              <li v-for="item in rankingTopDay" :key="`top-ranked-${item.secretId}`">
+                <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+                  {{ item.textPreview || 'Secreto anonimo' }}
+                </button>
+              </li>
+              <template v-if="rankingTopDay.length === 0">
+                <li v-for="item in topDayHighlights" :key="`top-fallback-${item.id}`">
+                  <button type="button" @click="openSecretDetail(item)">
+                    {{ item.descripcion.slice(0, 88) }}{{ item.descripcion.length > 88 ? '...' : '' }}
+                  </button>
+                </li>
+                <li v-if="topDayHighlights.length === 0" class="empty">Sin secretos en las ultimas 24h.</li>
+              </template>
+            </ul>
+          </div>
+
+          <div class="highlight-card">
+            <h3>Mas comentados</h3>
+            <ul>
+              <li v-for="item in rankingMostCommented" :key="`comments-ranked-${item.secretId}`">
+                <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+                  {{ item.commentsCount }} comentarios
+                </button>
+              </li>
+              <template v-if="rankingMostCommented.length === 0">
+                <li v-for="item in mostCommentedHighlights" :key="`comments-fallback-${item.id}`">
+                  <button type="button" @click="openSecretDetail(item)">
+                    {{ item.stats.commentsCount }} comentarios
+                  </button>
+                </li>
+                <li v-if="mostCommentedHighlights.length === 0" class="empty">Sin datos todavia.</li>
+              </template>
+            </ul>
+          </div>
+
+          <div class="highlight-card">
+            <h3>Mas votados</h3>
+            <ul>
+              <li v-for="item in rankingMostVoted" :key="`votes-ranked-${item.secretId}`">
+                <button type="button" @click="openSecretDetailById(item.secretId, item.textPreview)">
+                  {{ item.totalVotesCount }} votos
+                </button>
+              </li>
+              <template v-if="rankingMostVoted.length === 0">
+                <li v-for="item in mostVotedHighlights" :key="`votes-fallback-${item.id}`">
+                  <button type="button" @click="openSecretDetail(item)">
+                    {{ item.stats.totalVotesCount || (item.stats.upVotesCount + item.stats.downVotesCount) }} votos
+                  </button>
+                </li>
+                <li v-if="mostVotedHighlights.length === 0" class="empty">Sin datos todavia.</li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section v-if="moduleStore.modules.secrets.enabled" class="feed">
@@ -700,148 +651,11 @@ onUnmounted(() => {
         Todavia no hay secretos en este filtro.
       </div>
 
-      <article
+      <SecretCard
         v-for="secret in filteredSecrets"
         :key="secret.id"
-        class="secret-card"
-      >
-        <header 
-          class="secret-card-header"
-          :class="{
-            'is-male': secret.sex === 'hombre',
-            'is-female': secret.sex === 'mujer'
-          }"
-        >
-          <div class="header-left">
-            <svg v-if="secret.sex === 'hombre'" class="gender-icon" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm9 7h-6v13h-2v-6h-2v6H9V9H3V7h18v2z"/>
-            </svg>
-            <svg v-else-if="secret.sex === 'mujer'" class="gender-icon" viewBox="0 -960 960 960" fill="currentColor">
-              <path d="M400-80v-240H280l122-308q10-24 31-38t47-14q26 0 47 14t31 38l122 308H560v240H400Zm23.5-663.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5Z"/>
-            </svg>
-            <span v-if="secret.age" class="header-age">{{ secret.age }} años</span>
-          </div>
-
-          <div class="header-center">
-            <span class="header-id">@{{ secret.id.substring(0, 8) }}</span>
-          </div>
-
-          <div class="header-right">
-            <span class="header-stat">{{ secret.stats.upVotesCount + secret.stats.downVotesCount }}</span>
-            <div class="header-emojis">
-              <span class="header-emoji">☹️</span>
-              <span class="header-emoji">🙂</span>
-            </div>
-          </div>
-        </header>
-
-        <div class="secret-card-body">
-          <div class="card-meta-top">
-            <span class="alias">{{ secret.anonAlias || 'Anonimo' }}</span>
-            <span class="dot">•</span>
-            <span class="time">{{ formatRelativeTime(secret.createdAt) }}</span>
-          </div>
-
-          <p class="secret-text">{{ secret.descripcion }}</p>
-
-          <div class="chips">
-            <span v-if="secret.category" class="chip">{{ resolveCategoryLabel(secret.category) }}</span>
-            <span v-if="secret.zone" class="chip">{{ secret.zone }}</span>
-          </div>
-
-          <footer 
-            class="actions"
-            :class="{
-              'is-male': secret.sex === 'hombre',
-              'is-female': secret.sex === 'mujer'
-            }"
-          >
-            <button
-              class="vote-btn"
-              :class="{ active: secret.myVote === 1 }"
-              type="button"
-              :disabled="secretStore.isVotingPending(secret.id)"
-              @click="handleVote(secret.id, 1)"
-            >
-              <svg class="btn-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M7 11c.889-.086 1.416-.543 2.156-1.057a22.323 22.323 0 0 0 3.958-5.084 1.6 1.6 0 0 1 .582-.628 1.549 1.549 0 0 1 1.466-.087c.205.095.388.233.537.406a1.64 1.64 0 0 1 .384 1.279l-1.388 4.114M7 11H4v6.5A1.5 1.5 0 0 0 5.5 19v0A1.5 1.5 0 0 0 7 17.5V11Zm6.5-1h4.915c.286 0 .372.014.626.15.254.135.472.332.637.572a1.874 1.874 0 0 1 .215 1.673l-2.098 6.4C17.538 19.52 17.368 20 16.12 20c-2.303 0-4.79-.943-6.67-1.475"/>
-              </svg>
-              <span>{{ secret.stats.upVotesCount }}</span>
-            </button>
-            <button
-              class="vote-btn"
-              :class="{ active: secret.myVote === -1 }"
-              type="button"
-              :disabled="secretStore.isVotingPending(secret.id)"
-              @click="handleVote(secret.id, -1)"
-            >
-              <svg class="btn-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" d="M17 13c-.889.086-1.416.543-2.156 1.057a22.322 22.322 0 0 0-3.958 5.084 1.6 1.6 0 0 1-.582.628 1.549 1.549 0 0 1-1.466.087 1.587 1.587 0 0 1-.537-.406 1.666 1.666 0 0 1-.384-1.279l1.389-4.114M17 13h3V6.5A1.5 1.5 0 0 0 18.5 5v0A1.5 1.5 0 0 0 17 6.5V13Zm-6.5 1H5.585c-.286 0-.372-.014-.626-.15a1.797 1.797 0 0 1-.637-.572 1.873 1.873 0 0 1-.215-1.673l2.098-6.4C6.462 4.48 6.632 4 7.88 4c2.302 0 4.79.943 6.67 1.475"/>
-              </svg>
-              <span>{{ secret.stats.downVotesCount }}</span>
-            </button>
-            <button class="comment-btn" type="button" @click="toggleComments(secret.id)">
-              Comentarios {{ secret.stats.commentsCount }}
-            </button>
-            <button class="open-btn" type="button" @click="openSecretDetail(secret)">
-              Abrir
-            </button>
-            <button
-              class="report-btn"
-              type="button"
-              :disabled="secretStore.isReportPending(secret.id) || secret.reportedByMe"
-              @click="handleReport(secret.id)"
-            >
-              {{ secret.reportedByMe ? 'Reportado' : 'Reportar' }}
-            </button>
-          </footer>
-
-          <p v-if="reportStatusBySecret[secret.id]" class="report-state">
-            {{ reportStatusBySecret[secret.id] }}
-          </p>
-        </div>
-
-        <section v-if="openCommentsBySecret[secret.id]" class="comments-box">
-          <div v-if="secretStore.isCommentsLoading(secret.id)" class="comment-state">
-            Cargando comentarios...
-          </div>
-          <ul v-else class="comment-list">
-            <li
-              v-for="comment in secretStore.getComments(secret.id)"
-              :key="comment.id"
-              class="comment-item"
-            >
-              <p class="comment-meta">
-                <strong>{{ comment.anonAlias || 'Anonimo' }}</strong>
-                <span>| {{ formatRelativeTime(comment.createdAt) }}</span>
-              </p>
-              <p class="comment-text">{{ comment.text }}</p>
-            </li>
-            <li v-if="secretStore.getComments(secret.id).length === 0" class="comment-state">
-              Sin comentarios todavia.
-            </li>
-          </ul>
-
-          <div class="comment-form">
-            <textarea
-              :value="commentInputBySecret[secret.id] || ''"
-              placeholder="Escribe un comentario anonimo..."
-              maxlength="300"
-              @input="setCommentDraft(secret.id, ($event.target as HTMLTextAreaElement).value)"
-            />
-            <button
-              type="button"
-              :disabled="secretStore.isCommentCreating(secret.id)"
-              @click="handleCreateComment(secret.id)"
-            >
-              {{ secretStore.isCommentCreating(secret.id) ? 'Enviando...' : 'Comentar' }}
-            </button>
-          </div>
-          <p v-if="commentErrorBySecret[secret.id]" class="form-error">
-            {{ commentErrorBySecret[secret.id] }}
-          </p>
-        </section>
-      </article>
+        :secret="secret"
+      />
     </section>
 
     <section v-else class="state-card">
@@ -1129,6 +943,12 @@ onUnmounted(() => {
   gap: 0.7rem;
 }
 
+@media (max-width: 767px) {
+  .highlights {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .highlight-card {
   border: 1px solid var(--border);
   background: var(--card-bg);
@@ -1179,14 +999,83 @@ onUnmounted(() => {
   border-radius: 14px;
   padding: 0.75rem;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 0.65rem;
+}
+
+.filter-top {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+@media (min-width: 768px) {
+  .filter-top {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.toggle-highlights-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.toggle-highlights-btn:hover {
+  background: var(--bg-hover);
+}
+
+.highlights-wrapper {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .filter-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+  }
 }
 
 .filter-tabs {
   display: flex;
   gap: 0.45rem;
+}
+
+.scroll-x {
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-x::-webkit-scrollbar {
+  display: none;
 }
 
 .filter-btn {
@@ -1198,12 +1087,25 @@ onUnmounted(() => {
   font-size: 0.84rem;
   padding: 0.45rem 0.72rem;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .filter-btn.active {
   border-color: var(--accent-border);
   background: color-mix(in srgb, var(--accent) 14%, var(--bg));
   color: var(--accent);
+}
+
+.filter-btn.male.active {
+  border-color: #1e5fad;
+  background: color-mix(in srgb, #1e5fad 14%, var(--bg));
+  color: #1e5fad;
+}
+
+.filter-btn.female.active {
+  border-color: #ca2a6e;
+  background: color-mix(in srgb, #ca2a6e 14%, var(--bg));
+  color: #ca2a6e;
 }
 
 .zone-filter {
@@ -1213,6 +1115,7 @@ onUnmounted(() => {
   color: var(--text-h);
   font-size: 0.85rem;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .zone-filter select {
@@ -1415,7 +1318,7 @@ onUnmounted(() => {
 
 .actions.is-male .vote-btn.active,
 .actions.is-female .vote-btn.active {
-  background: #fff;
+  background: #91c010;
   color: var(--text-h);
   border-color: #fff;
 }
@@ -1537,8 +1440,8 @@ onUnmounted(() => {
 
 .form-error {
   margin: 0;
-  color: #b91c1c;
-  font-size: 0.82rem;
+  color: #b93535;
+  font-size: 1rem;
   font-weight: 700;
 }
 

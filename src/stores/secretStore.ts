@@ -10,6 +10,7 @@ import {
   orderBy,
   query,
   where,
+  deleteDoc,
   type DocumentData,
   type QueryDocumentSnapshot,
   type Unsubscribe
@@ -151,7 +152,7 @@ const ensureClientAnonId = (): string => {
   }
 };
 
-const mapSecretData = (secretId: string, data: DocumentData): SecretRecord => {
+export const mapSecretData = (secretId: string, data: DocumentData): SecretRecord => {
   return {
     id: secretId,
     descripcion: sanitizeString(data.descripcion, 4000),
@@ -707,6 +708,17 @@ export const useSecretStore = defineStore('secret', () => {
     }
   };
 
+  const deleteSecret = async (secretId: string) => {
+    if (!secretId) return;
+    try {
+      await deleteDoc(doc(db, 'content', secretId));
+      secrets.value = secrets.value.filter((s) => s.id !== secretId);
+    } catch (e) {
+      console.error('Failed to delete secret', e);
+      throw e;
+    }
+  };
+
   const loadComments = async (secretId: string) => {
     if (!secretId) return;
     if (commentsLoadingBySecret.value[secretId]) return;
@@ -779,6 +791,7 @@ export const useSecretStore = defineStore('secret', () => {
     initSettingsListener,
     cleanup,
     createSecret,
+    deleteSecret,
     loadSecretById,
     voteSecret,
     reportSecret,
