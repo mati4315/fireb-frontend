@@ -9,8 +9,6 @@ import {
   type SecretSex
 } from '@/stores/secretStore';
 import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
-import { useAuthStore } from '@/stores/authStore';
-import { isStaffUser } from '@/utils/roles';
 import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
@@ -19,7 +17,6 @@ const route = useRoute();
 const router = useRouter();
 const secretStore = useSecretStore();
 const moduleStore = useModuleStore();
-const authStore = useAuthStore();
 
 const { isVisible: isHeaderVisible } = useHeaderScroll();
 const scrollY = ref(0);
