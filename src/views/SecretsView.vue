@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useHeaderScroll } from '@/composables/useHeaderScroll';
 import {
   useSecretStore,
   type SecretCategory,
   type SecretRecord,
   type SecretSex
 } from '@/stores/secretStore';
-import { useModuleStore } from '@/stores/moduleStore';
+import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
 import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
@@ -16,7 +17,49 @@ const route = useRoute();
 const router = useRouter();
 const secretStore = useSecretStore();
 const moduleStore = useModuleStore();
+
+const { isVisible: isHeaderVisible } = useHeaderScroll();
+const scrollY = ref(0);
 const SECRETOS_SCROLL_KEY = 'cdelu_secretos_scroll_y_v1';
+
+const handleScrollY = () => {
+  scrollY.value = window.scrollY;
+};
+
+const tabPathByKey: Record<HomeTabKey, string> = {
+  todo: '/todo',
+  news: '/noticia',
+  post: '/c',
+  secrets: '/secretos',
+  surveys: '/encuestas',
+  lottery: '/loteria'
+};
+
+const tabKeyByRouteName: Record<string, HomeTabKey> = {
+  home: 'todo',
+  'home-todo': 'todo',
+  'home-news': 'news',
+  'home-community': 'post',
+  'secrets-home': 'secrets',
+  'secrets-detail': 'secrets',
+  'home-surveys': 'surveys',
+  'home-lottery': 'lottery'
+};
+
+const visibleTabs = computed(() => moduleStore.availableTabs);
+const activeTabKey = computed<HomeTabKey>(() => {
+  const routeName = typeof route.name === 'string' ? route.name : '';
+  return tabKeyByRouteName[routeName] || 'secrets';
+});
+
+const setActiveTab = async (tabKey: HomeTabKey) => {
+  const targetPath = tabPathByKey[tabKey] || '/';
+  if (route.path !== targetPath) {
+    saveSecretosScrollPosition();
+    await router.push(targetPath);
+  }
+};
+
 const saveSecretosScrollPosition = () => {
   if (typeof window === 'undefined') return;
   try {
@@ -279,7 +322,8 @@ const handleCreateSecret = async () => {
 };
 
 onMounted(() => {
-
+  scrollY.value = window.scrollY;
+  window.addEventListener('scroll', handleScrollY, { passive: true });
   moduleStore.initModulesListener();
   if (!detailSecretId.value) {
     void restoreSecretosScrollPosition();
@@ -312,21 +356,55 @@ watch(
   { immediate: true }
 );
 
-onBeforeUnmount(() => {
+onUnmounted(() => {
+  saveSecretosScrollPosition();
+  window.removeEventListener('scroll', handleScrollY);
   secretStore.cleanup();
 });
 </script>
 
 <template>
   <div class="secretos-view">
-    <section v-if="moduleStore.modules.secrets.enabled" class="composer-card">
-      <div 
-        class="composer-grid"
-        :class="{
-          'is-male': newSecretSex === 'hombre',
-          'is-female': newSecretSex === 'mujer'
-        }"
+    <div
+      class="feed-tabs"
+      :class="{
+        'tabs-at-top': scrollY <= 64,
+        'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
+        'tabs-hidden-up': isHeaderVisible && scrollY > 64
+      }"
+    >
+      <button
+        v-for="tab in visibleTabs"
+        :key="tab.key"
+        class="tab-btn"
+        :class="{ active: activeTabKey === tab.key }"
+        @click="setActiveTab(tab.key)"
       >
+        {{ tab.label }}
+      </button>
+    </div>
+
+
+
+    
+
+
+    <section v-if="moduleStore.modules.secrets.enabled" class="composer-card">
+
+
+
+        
+
+
+
+
+            <div 
+              class="composer-grid"
+              :class="{
+                'is-male': newSecretSex === 'hombre',
+                'is-female': newSecretSex === 'mujer'
+              }"
+            >
         <label>
           Soy
           <select v-model="newSecretSex">
@@ -433,20 +511,13 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="filter-btn"
-              :class="{ active: selectedSex === 'all' }"
-              @click="selectedSex = 'all'"
-            >
-              Todos
-            </button>
-            <button
-              type="button"
-              class="filter-btn"
               :class="{ active: selectedFilter === 'recentes' }"
               @click="selectedFilter = 'recentes'"
             >
               Recientes
             </button>
-            <button
+
+              <button
               type="button"
               class="filter-btn male"
               :class="{ active: selectedSex === 'hombre' }"
@@ -480,18 +551,29 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div class="filter-actions">
-            <label class="zone-filter">
-              Zona:
-              <select v-model="selectedZone">
-                <option value="all">Todas</option>
-                <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
-              </select>
-            </label>
-            <button class="toggle-highlights-btn" @click="showHighlights = !showHighlights">
-              {{ showHighlights ? 'Ocultar destacados' : 'Ver destacados 🌟' }}
+          <div class="filter-tabs scroll-x">
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedSex === 'all' }"
+              @click="selectedSex = 'all'"
+            >
+              Todos
             </button>
           </div>
+        </div>
+
+        <div class="filter-actions">
+          <label class="zone-filter">
+            Zona:
+            <select v-model="selectedZone">
+              <option value="all">Todas</option>
+              <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
+            </select>
+          </label>
+          <button class="toggle-highlights-btn" @click="showHighlights = !showHighlights">
+            {{ showHighlights ? 'Ocultar destacados' : 'Ver destacados 🌟' }}
+          </button>
         </div>
       </div>
 
@@ -920,11 +1002,8 @@ onBeforeUnmount(() => {
 
 .filter-top {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   gap: 0.65rem;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
 }
 
 @media (min-width: 768px) {
@@ -940,7 +1019,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
-  flex-shrink: 0;
 }
 
 .toggle-highlights-btn {
@@ -965,37 +1043,33 @@ onBeforeUnmount(() => {
   padding-top: 0.75rem;
   border-top: 1px dashed var(--border);
 }
+
 .filter-group {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   flex: 1;
   min-width: 0;
-  max-width: 100%;
-  align-items: flex-start;
 }
 
 @media (min-width: 768px) {
   .filter-group {
     flex-direction: row;
     align-items: center;
+    gap: 0.75rem;
   }
 }
 
 .filter-tabs {
   display: flex;
   gap: 0.45rem;
-  width: 100%;
-  max-width: 100%;
-  flex-wrap: nowrap;
 }
 
 .scroll-x {
   overflow-x: auto;
   white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  padding-bottom: 0.2rem; /* Avoid clipping active box-shadow/border */
+  -webkit-overflow-scrolling: touch;
 }
 .scroll-x::-webkit-scrollbar {
   display: none;
@@ -1011,8 +1085,6 @@ onBeforeUnmount(() => {
   padding: 0.45rem 0.72rem;
   cursor: pointer;
   flex-shrink: 0;
-  white-space: nowrap;
-  transition: all 0.2s;
 }
 
 .filter-btn.active {
@@ -1055,4 +1127,349 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 0.85rem;
 }
+
+.state-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card-bg);
+  color: var(--text);
+  padding: 1rem;
+  text-align: center;
+  font-weight: 600;
+}
+
+.secret-card {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.secret-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.9rem;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  gap: 0.5rem;
+}
+
+.secret-card-header.is-male {
+  background: #1e5fad; /* Azul masculino */
+}
+
+.secret-card-header.is-female {
+  background: #ca2a6e; /* Rosa femenino */
+}
+
+.secret-card-header:not(.is-male):not(.is-female) {
+  background: var(--bg-hover);
+  color: var(--text-h);
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left, .header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.header-center {
+  flex: 1;
+  text-align: center;
+}
+
+.gender-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.header-age {
+  font-size: 0.95rem;
+}
+
+.header-id {
+  opacity: 0.85;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.header-stat {
+  font-size: 0.88rem;
+  margin-right: 0.2rem;
+}
+
+.header-emojis {
+  display: flex;
+  gap: 0.35rem;
+  font-size: 1.1rem;
+}
+
+.secret-card-body {
+  padding: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.card-meta-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: -0.1rem;
+}
+
+.alias {
+  color: var(--text-h);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.dot,
+.time {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.trend.down {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+
+.secret-text {
+  margin: 0;
+  color: var(--text-h);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.22rem 0.5rem;
+  font-size: 0.74rem;
+  color: var(--text);
+  background: var(--bg);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  transition: all 0.4s ease;
+}
+
+.actions.is-male,
+.actions.is-female {
+  margin: 1rem -0.9rem -0.9rem -0.9rem;
+  padding: 0.8rem 0.9rem;
+  border: none;
+  border-top: 1px solid rgba(0,0,0,0.1);
+  border-radius: 0 0 16px 16px;
+}
+
+.actions.is-male {
+  background: #1e5fad;
+  color: #fff;
+}
+
+.actions.is-female {
+  background: #ca2a6e;
+  color: #fff;
+}
+
+/* Ajuste de botones cuando están dentro de una barra de color sólida */
+.actions.is-male .vote-btn,
+.actions.is-male .comment-btn,
+.actions.is-male .open-btn,
+.actions.is-male .report-btn,
+.actions.is-female .vote-btn,
+.actions.is-female .comment-btn,
+.actions.is-female .open-btn,
+.actions.is-female .report-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.actions.is-male .vote-btn:hover,
+.actions.is-male .comment-btn:hover,
+.actions.is-male .open-btn:hover,
+.actions.is-female .vote-btn:hover,
+.actions.is-female .comment-btn:hover,
+.actions.is-female .open-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.actions.is-male .vote-btn.active,
+.actions.is-female .vote-btn.active {
+  background: #91c010;
+  color: var(--text-h);
+  border-color: #fff;
+}
+
+.vote-btn,
+.comment-btn,
+.open-btn,
+.report-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.68rem;
+  cursor: pointer;
+}
+
+.btn-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.vote-btn.active {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.report-btn {
+  margin-left: auto;
+}
+
+.report-state {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.comments-box {
+  border-top: 1px solid var(--border);
+  padding-top: 0.65rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.comment-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.comment-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  padding: 0.5rem 0.58rem;
+}
+
+.comment-meta {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.76rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.comment-text {
+  margin: 0.35rem 0 0;
+  color: var(--text-h);
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+}
+
+.comment-form {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.comment-form textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 0.55rem;
+  min-height: 68px;
+  resize: vertical;
+  font: inherit;
+}
+
+.comment-form button {
+  justify-self: end;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  padding: 0.48rem 0.85rem;
+  cursor: pointer;
+}
+
+.comment-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.comment-state {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.form-error {
+  margin: 0;
+  color: #b93535;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .highlights {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-grid {
+    gap: 0.5rem;
+  }
+
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 560px) {
+  .secretos-view {
+    padding: 0.9rem 0.55rem 1.6rem;
+  }
+
+
+  .composer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-btn {
+    margin-left: 0;
+  }
+}
 </style>
+
