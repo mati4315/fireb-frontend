@@ -2,6 +2,11 @@
   <article
     :id="'secret-' + secret.id"
     class="secret-card"
+    :class="{
+      'is-male': secret.sex === 'hombre',
+      'is-female': secret.sex === 'mujer',
+      'is-neutral': secret.sex === 'no_responder'
+    }"
   >
     <header 
       class="secret-card-header"
@@ -306,6 +311,22 @@ const handleCreateComment = async () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  margin-bottom: 1.5rem;
+}
+
+.secret-card.is-male {
+  border-left: 2px solid #1e5fad;
+  border-right: 2px solid #1e5fad;
+}
+
+.secret-card.is-female {
+  border-left: 2px solid #ca2a6e;
+  border-right: 2px solid #ca2a6e;
+}
+
+.secret-card.is-neutral {
+  border-left: 2px solid #6b7280;
+  border-right: 2px solid #6b7280;
 }
 
 .secret-card-header {
@@ -612,6 +633,15 @@ const handleCreateComment = async () => {
   color: #b93535;
   font-size: 1rem;
   font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .secret-card {
+    margin-bottom: 0.8rem;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
 }
 
 @media (max-width: 560px) {

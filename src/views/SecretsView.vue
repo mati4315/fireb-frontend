@@ -706,7 +706,7 @@ onUnmounted(() => {
   margin: 0 auto;
   padding: 1.2rem 0.95rem 2.5rem;
   display: grid;
-  gap: 1rem;
+  gap: 0;
 }
 
 .feed-tabs {
