@@ -9,6 +9,7 @@ import {
   type SecretSex
 } from '@/stores/secretStore';
 import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
+import { useSurveyStore } from '@/stores/surveyStore';
 import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
@@ -17,6 +18,7 @@ const route = useRoute();
 const router = useRouter();
 const secretStore = useSecretStore();
 const moduleStore = useModuleStore();
+const surveyStore = useSurveyStore();
 
 const { isVisible: isHeaderVisible } = useHeaderScroll();
 const scrollY = ref(0);
@@ -46,7 +48,15 @@ const tabKeyByRouteName: Record<string, HomeTabKey> = {
   'home-lottery': 'lottery'
 };
 
-const visibleTabs = computed(() => moduleStore.availableTabs);
+const visibleTabs = computed(() => {
+  const shouldShowSurveysTab = 
+    moduleStore.isModuleEnabled('surveys') && 
+    (surveyStore.featuredLoading || Boolean(surveyStore.featuredSurvey));
+
+  return moduleStore.availableTabs.filter(
+    (tab) => tab.key !== 'surveys' || shouldShowSurveysTab
+  );
+});
 const activeTabKey = computed<HomeTabKey>(() => {
   const routeName = typeof route.name === 'string' ? route.name : '';
   return tabKeyByRouteName[routeName] || 'secrets';
