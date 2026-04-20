@@ -433,13 +433,20 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="filter-btn"
+              :class="{ active: selectedSex === 'all' }"
+              @click="selectedSex = 'all'"
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              class="filter-btn"
               :class="{ active: selectedFilter === 'recentes' }"
               @click="selectedFilter = 'recentes'"
             >
               Recientes
             </button>
-
-              <button
+            <button
               type="button"
               class="filter-btn male"
               :class="{ active: selectedSex === 'hombre' }"
@@ -470,17 +477,6 @@ onBeforeUnmount(() => {
               @click="selectedFilter = 'polemicos'"
             >
               Polemicos
-            </button>
-          </div>
-
-          <div class="filter-tabs scroll-x">
-            <button
-              type="button"
-              class="filter-btn"
-              :class="{ active: selectedSex === 'all' }"
-              @click="selectedSex = 'all'"
-            >
-              Todos
             </button>
           </div>
 
