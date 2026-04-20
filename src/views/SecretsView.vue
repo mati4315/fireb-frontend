@@ -967,27 +967,35 @@ onBeforeUnmount(() => {
 }
 .filter-group {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   gap: 0.5rem;
   flex: 1;
   min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
+  max-width: 100%;
+  align-items: flex-start;
+}
+
+@media (min-width: 768px) {
+  .filter-group {
+    flex-direction: row;
+    align-items: center;
+  }
 }
 
 .filter-tabs {
   display: flex;
   gap: 0.45rem;
   width: 100%;
-  min-width: 0;
+  max-width: 100%;
   flex-wrap: nowrap;
 }
 
 .scroll-x {
   overflow-x: auto;
   white-space: nowrap;
-  scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 0.2rem; /* Avoid clipping active box-shadow/border */
 }
 .scroll-x::-webkit-scrollbar {
   display: none;
@@ -1004,6 +1012,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
+  transition: all 0.2s;
 }
 
 .filter-btn.active {
