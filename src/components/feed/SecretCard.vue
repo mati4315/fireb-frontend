@@ -7,7 +7,8 @@
       class="secret-card-header"
       :class="{
         'is-male': secret.sex === 'hombre',
-        'is-female': secret.sex === 'mujer'
+        'is-female': secret.sex === 'mujer',
+        'is-neutral': secret.sex === 'no_responder'
       }"
     >
       <div class="header-left">
@@ -16,6 +17,9 @@
         </svg>
         <svg v-else-if="secret.sex === 'mujer'" class="gender-icon" viewBox="0 -960 960 960" fill="currentColor">
           <path d="M400-80v-240H280l122-308q10-24 31-38t47-14q26 0 47 14t31 38l122 308H560v240H400Zm23.5-663.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5Z"/>
+        </svg>
+        <svg v-else class="gender-icon" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
         </svg>
         <span v-if="secret.age" class="header-age">{{ secret.age }} años</span>
       </div>
@@ -56,7 +60,8 @@
         class="actions"
         :class="{
           'is-male': secret.sex === 'hombre',
-          'is-female': secret.sex === 'mujer'
+          'is-female': secret.sex === 'mujer',
+          'is-neutral': secret.sex === 'no_responder'
         }"
       >
         <button
@@ -322,7 +327,11 @@ const handleCreateComment = async () => {
   background: #ca2a6e;
 }
 
-.secret-card-header:not(.is-male):not(.is-female) {
+.secret-card-header.is-neutral {
+  background: #6b728065;
+}
+
+.secret-card-header:not(.is-male):not(.is-female):not(.is-neutral) {
   background: var(--bg-hover);
   color: var(--text-h);
   border-bottom: 1px solid var(--border);
@@ -422,7 +431,8 @@ const handleCreateComment = async () => {
 }
 
 .actions.is-male,
-.actions.is-female {
+.actions.is-female,
+.actions.is-neutral {
   margin: 1rem -0.9rem -0.9rem -0.9rem;
   padding: 0.8rem 0.9rem;
   border: none;
@@ -440,6 +450,11 @@ const handleCreateComment = async () => {
   color: #fff;
 }
 
+.actions.is-neutral {
+  background: #6b728065;
+  color: #fff;
+}
+
 .actions.is-male .vote-btn,
 .actions.is-male .comment-btn,
 .actions.is-male .open-btn,
@@ -447,7 +462,11 @@ const handleCreateComment = async () => {
 .actions.is-female .vote-btn,
 .actions.is-female .comment-btn,
 .actions.is-female .open-btn,
-.actions.is-female .report-btn {
+.actions.is-female .report-btn,
+.actions.is-neutral .vote-btn,
+.actions.is-neutral .comment-btn,
+.actions.is-neutral .open-btn,
+.actions.is-neutral .report-btn {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
   color: #fff;
@@ -458,12 +477,16 @@ const handleCreateComment = async () => {
 .actions.is-male .open-btn:hover,
 .actions.is-female .vote-btn:hover,
 .actions.is-female .comment-btn:hover,
-.actions.is-female .open-btn:hover {
+.actions.is-female .open-btn:hover,
+.actions.is-neutral .vote-btn:hover,
+.actions.is-neutral .comment-btn:hover,
+.actions.is-neutral .open-btn:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
 .actions.is-male .vote-btn.active,
-.actions.is-female .vote-btn.active {
+.actions.is-female .vote-btn.active,
+.actions.is-neutral .vote-btn.active {
   background: #91c010;
   color: var(--text-h);
   border-color: #fff;

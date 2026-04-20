@@ -84,6 +84,42 @@ const restoreSecretosScrollPosition = async () => {
   }
 };
 
+const touchStartX = ref(0);
+const touchStartY = ref(0);
+const touchStartTime = ref(0);
+
+const handleTouchStart = (e: TouchEvent) => {
+  touchStartX.value = e.touches[0].clientX;
+  touchStartY.value = e.touches[0].clientY;
+  touchStartTime.value = Date.now();
+};
+
+const handleTouchEnd = (e: TouchEvent) => {
+  const deltaX = e.changedTouches[0].clientX - touchStartX.value;
+  const deltaY = e.changedTouches[0].clientY - touchStartY.value;
+  const deltaTime = Date.now() - touchStartTime.value;
+
+  const minSwipeDistance = 50;
+  const maxVerticalDistance = 100;
+  const maxTime = 300;
+
+  if (Math.abs(deltaX) > minSwipeDistance && 
+      Math.abs(deltaY) < maxVerticalDistance && 
+      deltaTime < maxTime) {
+    
+    const tabs = visibleTabs.value;
+    const currentIndex = tabs.findIndex(t => t.key === activeTabKey.value);
+    
+    if (deltaX < 0 && currentIndex < tabs.length - 1) {
+      // Swipe left -> Next tab
+      void setActiveTab(tabs[currentIndex + 1].key);
+    } else if (deltaX > 0 && currentIndex > 0) {
+      // Swipe right -> Previous tab
+      void setActiveTab(tabs[currentIndex - 1].key);
+    }
+  }
+};
+
 const selectedFilter = ref<SecretFilterKey>('recentes');
 const selectedZone = ref<string>('all');
 const selectedSex = ref<SecretSex | 'all'>('all');
@@ -364,7 +400,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="secretos-view">
+  <div 
+    class="secretos-view"
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
+  >
     <div
       class="feed-tabs"
       :class="{
@@ -402,7 +442,8 @@ onUnmounted(() => {
               class="composer-grid"
               :class="{
                 'is-male': newSecretSex === 'hombre',
-                'is-female': newSecretSex === 'mujer'
+                'is-female': newSecretSex === 'mujer',
+                'is-neutral': newSecretSex === 'no_responder'
               }"
             >
         <label>
@@ -489,7 +530,8 @@ onUnmounted(() => {
         class="composer-footer"
         :class="{
           'is-male': newSecretSex === 'hombre',
-          'is-female': newSecretSex === 'mujer'
+          'is-female': newSecretSex === 'mujer',
+          'is-neutral': newSecretSex === 'no_responder'
         }"
       >
         <span class="counter" :class="{ warn: textCount > warningThreshold }">{{ textCount }}/{{ secretMaxTextLength }}</span>
@@ -502,12 +544,20 @@ onUnmounted(() => {
           {{ creating ? 'Publicando...' : 'Publicar secreto' }}
         </button>
       </div>
-
     </section>
+
     <section v-if="moduleStore.modules.secrets.enabled" class="filters">
       <div class="filter-top">
         <div class="filter-group">
           <div class="filter-tabs scroll-x">
+            <button
+              type="button"
+              class="filter-btn"
+              :class="{ active: selectedSex === 'all' }"
+              @click="selectedSex = 'all'"
+            >
+              Todos
+            </button>
             <button
               type="button"
               class="filter-btn"
@@ -548,17 +598,6 @@ onUnmounted(() => {
               @click="selectedFilter = 'polemicos'"
             >
               Polemicos
-            </button>
-          </div>
-
-          <div class="filter-tabs scroll-x">
-            <button
-              type="button"
-              class="filter-btn"
-              :class="{ active: selectedSex === 'all' }"
-              @click="selectedSex = 'all'"
-            >
-              Todos
             </button>
           </div>
         </div>
@@ -761,8 +800,11 @@ onUnmounted(() => {
   background: var(--card-bg);
   border-radius: 18px;
   padding: 1rem;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.8rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .composer-card h2 {
@@ -800,29 +842,33 @@ onUnmounted(() => {
 }
 
 .composer-grid.is-male,
-.composer-grid.is-female {
+.composer-grid.is-female,
+.composer-grid.is-neutral {
   margin: -1rem -1rem 1.2rem;
   border-radius: 17px 17px 0 0;
   border: none;
   border-bottom: 1px solid rgba(0,0,0,0.1);
   padding: 1rem;
+  color: #fff;
 }
 
 .composer-grid.is-male {
-  background: color-mix(in srgb, #4680dd 62%, var(--card-bg));
-  border-bottom-color: color-mix(in srgb, #4680dd 30%, var(--border));
+  background: #1e5fad;
 }
 
 .composer-grid.is-female {
-  background: color-mix(in srgb, #ca2a6e 62%, var(--card-bg));
-  border-bottom-color: color-mix(in srgb, #ca2a6e 30%, var(--border));
+  background: #ca2a6e;
+}
+
+.composer-grid.is-neutral {
+  background: #6b728065;
 }
 
 .composer-grid label {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  color: var(--text-h);
+  color: inherit;
   font-size: 0.85rem;
   font-weight: 600;
   white-space: nowrap;
@@ -876,6 +922,9 @@ onUnmounted(() => {
 }
 .composer-grid input::placeholder,
 .composer-grid select::placeholder,
+.composer-grid.is-male select,
+.composer-grid.is-female select,
+.composer-grid.is-neutral select,
 .field-hint {
   color: var(--text);
   opacity: 0.65;
@@ -891,26 +940,30 @@ onUnmounted(() => {
 }
 
 .composer-footer.is-male,
-.composer-footer.is-female {
+.composer-footer.is-female,
+.composer-footer.is-neutral {
   margin: 1.2rem -1rem -1rem -1rem;
   border-radius: 0 0 17px 17px;
   border: none;
   border-top: 1px solid rgba(0,0,0,0.1);
   padding: 1rem;
+  color: #fff;
 }
 
 .composer-footer.is-male {
-  background: color-mix(in srgb, #4680dd 62%, var(--card-bg));
-  border-top-color: color-mix(in srgb, #4680dd 30%, var(--border));
+  background: #1e5fad;
 }
 
 .composer-footer.is-female {
-  background: color-mix(in srgb, #ca2a6e 62%, var(--card-bg));
-  border-top-color: color-mix(in srgb, #ca2a6e 30%, var(--border));
+  background: #ca2a6e;
+}
+
+.composer-footer.is-neutral {
+  background: #6b728065;
 }
 
 .counter {
-  color: var(--text);
+  color: inherit;
   font-size: 0.92rem;
   font-weight: 800;
 }
@@ -920,13 +973,27 @@ onUnmounted(() => {
 }
 
 .publish-btn {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
   font-weight: 800;
   padding: 0.6rem 1rem;
   cursor: pointer;
+}
+
+.composer-footer.is-male .publish-btn,
+.composer-footer.is-female .publish-btn,
+.composer-footer.is-neutral .publish-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.composer-footer.is-male .publish-btn:hover,
+.composer-footer.is-female .publish-btn:hover,
+.composer-footer.is-neutral .publish-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .publish-btn:disabled {
@@ -1050,19 +1117,23 @@ onUnmounted(() => {
   gap: 0.5rem;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  align-items: flex-start;
 }
 
 @media (min-width: 768px) {
   .filter-group {
     flex-direction: row;
     align-items: center;
-    gap: 0.75rem;
   }
 }
 
 .filter-tabs {
   display: flex;
   gap: 0.45rem;
+  width: 100%;
+  max-width: 100%;
+  flex-wrap: nowrap;
 }
 
 .scroll-x {
@@ -1070,6 +1141,7 @@ onUnmounted(() => {
   white-space: nowrap;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.2rem;
 }
 .scroll-x::-webkit-scrollbar {
   display: none;
@@ -1085,6 +1157,8 @@ onUnmounted(() => {
   padding: 0.45rem 0.72rem;
   cursor: pointer;
   flex-shrink: 0;
+  white-space: nowrap;
+  transition: all 0.2s;
 }
 
 .filter-btn.active {
