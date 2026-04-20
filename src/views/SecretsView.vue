@@ -705,8 +705,9 @@ onUnmounted(() => {
   max-width: 880px;
   margin: 0 auto;
   padding: 1.2rem 0.95rem 2.5rem;
-  display: grid;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .feed-tabs {
@@ -1521,26 +1522,61 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .composer-grid {
-    gap: 0.5rem;
-  }
-
   .filters {
     flex-direction: column;
     align-items: stretch;
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .secretos-view {
-    padding: 0.9rem 0.55rem 1.6rem;
+    padding: 1rem 0;
   }
 
+  .feed-tabs {
+    padding: 0 1rem;
+    gap: 1.25rem;
+  }
+
+  .composer-card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    margin-bottom: 0.5rem;
+  }
 
   .composer-grid {
-    grid-template-columns: 1fr;
+    gap: 0.5rem;
   }
 
+  .composer-grid.is-male,
+  .composer-grid.is-female,
+  .composer-grid.is-neutral {
+    border-radius: 0;
+  }
+
+  .composer-footer.is-male,
+  .composer-footer.is-female,
+  .composer-footer.is-neutral {
+    border-radius: 0;
+  }
+
+  .filters {
+    padding: 0 1rem;
+  }
+
+  .highlights {
+    padding: 0 1rem;
+  }
+
+  .state-card {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+}
+
+@media (max-width: 560px) {
   .report-btn {
     margin-left: 0;
   }
