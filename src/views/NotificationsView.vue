@@ -50,6 +50,10 @@ const hasChanges = computed(() => {
 });
 
 const canEditTypeSettings = computed(() => form.value.notificationsEnabled);
+const canSendBroadcast = computed(() => {
+  const claims = (authStore.tokenClaims || {}) as Record<string, unknown>;
+  return claims.admin === true || claims.superAdmin === true || claims.super_admin === true;
+});
 const pushPermissionLabel = computed(() => {
   if (notificationStore.browserPermission === 'unsupported') return 'No soportado';
   if (notificationStore.browserPermission === 'granted') return 'Permitido';
@@ -97,6 +101,24 @@ const disablePush = async () => {
     savingFeedback.value = 'Push web desactivado para este navegador.';
   } catch (error: any) {
     actionError.value = error?.message || 'No se pudo desactivar push web.';
+  }
+};
+
+const sendBroadcastTest = async (platform: 'all' | 'android' | 'web' = 'all') => {
+  actionError.value = null;
+  savingFeedback.value = null;
+  try {
+    await notificationStore.sendTestPushBroadcast({
+      title: 'Test push Cdelu.ar',
+      body: 'Prueba de notificaciones para validar entrega en dispositivos.',
+      targetPath: '/notificaciones',
+      platform
+    });
+    savingFeedback.value = platform === 'all'
+      ? 'Push de prueba enviado a todos los dispositivos suscriptos.'
+      : `Push de prueba enviado a ${platform}.`;
+  } catch (error: any) {
+    actionError.value = error?.message || 'No se pudo enviar la notificacion de prueba.';
   }
 };
 
@@ -225,6 +247,35 @@ onMounted(async () => {
         </button>
       </div>
       <p v-if="notificationStore.pushError" class="error-msg">{{ notificationStore.pushError }}</p>
+    </section>
+
+    <section v-if="canSendBroadcast" class="settings-panel">
+      <h2>Broadcast de prueba</h2>
+      <p class="subtitle">Envia una notificacion de prueba a usuarios suscriptos por topic.</p>
+      <div class="settings-actions">
+        <button
+          class="primary-btn"
+          :disabled="notificationStore.broadcastLoading"
+          @click="sendBroadcastTest('all')"
+        >
+          {{ notificationStore.broadcastLoading ? 'Enviando...' : 'Enviar a todos' }}
+        </button>
+        <button
+          class="ghost-btn"
+          :disabled="notificationStore.broadcastLoading"
+          @click="sendBroadcastTest('android')"
+        >
+          Solo Android
+        </button>
+        <button
+          class="ghost-btn"
+          :disabled="notificationStore.broadcastLoading"
+          @click="sendBroadcastTest('web')"
+        >
+          Solo Web
+        </button>
+      </div>
+      <p v-if="notificationStore.broadcastError" class="error-msg">{{ notificationStore.broadcastError }}</p>
     </section>
 
     <p v-if="savingFeedback" class="ok-msg">{{ savingFeedback }}</p>

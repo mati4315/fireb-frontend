@@ -172,6 +172,8 @@ export const useNotificationStore = defineStore('notifications', () => {
   });
   const pushLoading = ref(false);
   const pushError = ref<string | null>(null);
+  const broadcastLoading = ref(false);
+  const broadcastError = ref<string | null>(null);
   const preferenceSaving = ref(false);
   const preferenceError = ref<string | null>(null);
   const pushPermissionState = ref<'granted' | 'denied' | 'prompt' | 'unsupported'>('prompt');
@@ -577,6 +579,31 @@ export const useNotificationStore = defineStore('notifications', () => {
     return `${item.actorName} ${getMessageSuffix(item)}`;
   };
 
+  const sendTestPushBroadcast = async (input?: {
+    title?: string;
+    body?: string;
+    targetPath?: string;
+    platform?: 'all' | 'android' | 'web';
+  }) => {
+    broadcastLoading.value = true;
+    broadcastError.value = null;
+    try {
+      const callable = httpsCallable(functions, 'sendTestPushToAllUsers');
+      const response = await callable({
+        title: input?.title || '',
+        body: input?.body || '',
+        targetPath: input?.targetPath || '/notificaciones',
+        platform: input?.platform || 'all'
+      });
+      return response.data as Record<string, unknown>;
+    } catch (error: any) {
+      broadcastError.value = error?.message || 'No se pudo enviar la notificacion de prueba.';
+      throw error;
+    } finally {
+      broadcastLoading.value = false;
+    }
+  };
+
   return {
     items,
     unreadCount,
@@ -584,6 +611,8 @@ export const useNotificationStore = defineStore('notifications', () => {
     loadingMore,
     pushLoading,
     pushError,
+    broadcastLoading,
+    broadcastError,
     preferenceSaving,
     preferenceError,
     isAuthenticated,
@@ -601,6 +630,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     disableWebPush,
     disableNativePush,
     dismissPushNudge,
+    sendTestPushBroadcast,
     getMessageSuffix,
     getMessage,
     formatRelativeDate
