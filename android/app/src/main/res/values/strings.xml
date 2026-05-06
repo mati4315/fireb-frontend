@@ -4,4 +4,6 @@
     <string name="title_activity_main">Cdelu.ar</string>
     <string name="package_name">cdelu.ar.app</string>
     <string name="custom_url_scheme">cdelu.ar.app</string>
+    <string name="facebook_app_id">537321338969028</string>
+    <string name="fb_login_protocol_scheme">fb537321338969028</string>
 </resources>
