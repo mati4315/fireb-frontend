@@ -289,6 +289,17 @@ export const useNotificationStore = defineStore('notifications', () => {
 
     const { PushNotifications } = await import('@capacitor/push-notifications')
 
+    await PushNotifications.createChannel({
+      id: 'general_notifications',
+      name: 'Notificaciones generales',
+      description: 'Avisos y actividad de tu cuenta',
+      importance: 5,
+      visibility: 1,
+      sound: 'default',
+      vibration: true,
+      lights: true
+    }).catch(() => undefined)
+
     if (!nativePushInitialized) {
       PushNotifications.addListener('registration', async (token) => {
         const registerCallable = httpsCallable(functions, 'registerNotificationDevice')

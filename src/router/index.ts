@@ -1,3 +1,4 @@
+import PublicationView from '@/views/PublicationView.vue'
 import { createRouter, createWebHistory } from 'vue-router'
 const HomeView = () => import('@/views/HomeView.vue')
 import { useAuthStore } from '@/stores/authStore'
@@ -21,6 +22,11 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
+    },
+    {
+      path: '/c/:category/:slug',
+      name: 'publication-view',
+      component: PublicationView
     },
     {
       path: '/todo',
