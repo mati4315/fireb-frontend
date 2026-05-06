@@ -9,11 +9,13 @@ import {
   FacebookAuthProvider,
   OAuthProvider,
   signInWithPopup,
-  getRedirectResult
+  getRedirectResult,
+  signInWithCredential
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { auth, db, functions } from '@/config/firebase';
+import { isNativePlatform } from '@/platform/capacitor';
 
 type DefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery';
 
@@ -30,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!user.value);
   const socialProviders = computed(() => {
-    const raw = (import.meta.env.VITE_AUTH_SOCIAL_PROVIDERS || 'google.com') as string;
+    const raw = (import.meta.env.VITE_AUTH_SOCIAL_PROVIDERS || 'google.com,facebook.com') as string;
     const unique = new Set(
       raw
         .split(',')
@@ -270,6 +272,42 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
 
     try {
+      if (isNativePlatform() && (providerId === 'google.com' || providerId === 'facebook.com')) {
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication')
+        const nativeResult = providerId === 'google.com'
+          ? await FirebaseAuthentication.signInWithGoogle()
+          : await FirebaseAuthentication.signInWithFacebook()
+
+        const nativeCredential = nativeResult.credential
+        if (!nativeCredential) {
+          throw new Error('No se pudo obtener credencial nativa de autenticacion.')
+        }
+
+        let firebaseCredential
+        if (providerId === 'google.com') {
+          firebaseCredential = GoogleAuthProvider.credential(
+            nativeCredential.idToken || null,
+            nativeCredential.accessToken || null
+          )
+        } else {
+          const facebookToken = nativeCredential.accessToken || ''
+          if (!facebookToken) {
+            throw new Error('No se pudo obtener token de Facebook.')
+          }
+          firebaseCredential = FacebookAuthProvider.credential(facebookToken)
+        }
+
+        const { user: firebaseUser } = await signInWithCredential(auth, firebaseCredential)
+        user.value = firebaseUser
+        await refreshTokenClaims(firebaseUser, true)
+        const profile = await refreshUserProfile(firebaseUser.uid)
+        if (!profile) {
+          await ensureProfileDocument(firebaseUser)
+        }
+        loading.value = false
+        return { success: true }
+      }
+
       let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
       if (providerId === 'google.com') {
         provider = new GoogleAuthProvider();

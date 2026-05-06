@@ -100,6 +100,7 @@ watch(
   () => authStore.user?.uid || '',
   async (nextUid) => {
     if (!nextUid) {
+      await notificationStore.disableNativePush().catch(() => undefined)
       notificationStore.cleanup()
       return
     }
@@ -128,6 +129,18 @@ const openNotificationItem = async (item: NotificationRecord) => {
 const openNotificationsConfig = async () => {
   closeNotifications()
   await router.push('/notificaciones')
+}
+
+const activatePushFromBanner = async () => {
+  try {
+    await notificationStore.enableWebPush()
+  } catch (error) {
+    console.error('Push activation failed:', error)
+  }
+}
+
+const dismissPushBanner = () => {
+  notificationStore.dismissPushNudge()
 }
 </script>
 
@@ -279,6 +292,22 @@ const openNotificationsConfig = async () => {
     </header>
 
     <main class="content-wrapper">
+      <section
+        v-if="authStore.isAuthenticated && notificationStore.shouldShowPushNudge"
+        class="push-banner"
+      >
+        <p class="push-banner-text">
+          Activa las notificaciones para enterarte al instante de likes, comentarios y respuestas.
+        </p>
+        <div class="push-banner-actions">
+          <button class="push-banner-btn" type="button" @click="activatePushFromBanner">
+            Activar ahora
+          </button>
+          <button class="push-banner-dismiss" type="button" @click="dismissPushBanner">
+            Ahora no
+          </button>
+        </div>
+      </section>
       <RouterView />
     </main>
   </div>
@@ -626,6 +655,44 @@ const openNotificationsConfig = async () => {
   margin: 0 auto;
 }
 
+.push-banner {
+  margin: 0.8rem 0.8rem 0;
+  padding: 0.8rem;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--card-bg));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.push-banner-text {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.9rem;
+}
+
+.push-banner-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.push-banner-btn,
+.push-banner-dismiss {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.push-banner-btn {
+  border-color: var(--accent-border);
+}
+
 @media (max-width: 768px) {
   .nav-content {
     padding: 0.65rem 0.75rem;
@@ -687,6 +754,21 @@ const openNotificationsConfig = async () => {
 
   .theme-wrapper {
     padding: 0;
+  }
+
+  .push-banner {
+    margin: 0.6rem;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .push-banner-actions {
+    width: 100%;
+  }
+
+  .push-banner-btn,
+  .push-banner-dismiss {
+    flex: 1;
   }
 }
 </style>

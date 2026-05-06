@@ -31,6 +31,7 @@ import {
 import { runWithConcurrency } from '@/utils/concurrency'
 import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
+import { isNativePlatform } from '@/platform/capacitor'
 
 const ImageLightbox = defineAsyncComponent(() => import('@/components/common/ImageLightbox.vue'))
 const AuthPromptModal = defineAsyncComponent(() => import('@/components/common/AuthPromptModal.vue'))
@@ -96,6 +97,7 @@ const detailLoading = ref(false)
 const detailNotFound = ref(false)
 const detailTargetItem = ref<any | null>(null)
 let infiniteObserver: IntersectionObserver | null = null
+const isNativeApp = isNativePlatform()
 
 const shouldShowSurveysTab = computed(() => {
   if (!feedStore.isModuleEnabled('surveys')) return false
@@ -337,17 +339,7 @@ const handleFileSelect = (event: Event) => {
 
   const nextFiles = files.slice(0, remaining)
   for (const file of nextFiles) {
-    const validationError = validateImageFile(file)
-    if (validationError) {
-      composerError.value = validationError
-      continue
-    }
-
-    selectedImages.value.push({
-      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      file,
-      previewUrl: URL.createObjectURL(file)
-    })
+    appendImageFile(file)
   }
 
   if (files.length > remaining) {
@@ -355,6 +347,51 @@ const handleFileSelect = (event: Event) => {
   }
 
   target.value = ''
+}
+
+const appendImageFile = (file: File) => {
+  composerError.value = null
+  const remaining = MAX_POST_IMAGES - selectedImages.value.length
+  if (remaining <= 0) {
+    composerError.value = `Maximo ${MAX_POST_IMAGES} imagenes por publicacion.`
+    return
+  }
+
+  const validationError = validateImageFile(file)
+  if (validationError) {
+    composerError.value = validationError
+    return
+  }
+
+  selectedImages.value.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    file,
+    previewUrl: URL.createObjectURL(file)
+  })
+}
+
+const handleNativeImagePick = async () => {
+  if (!isNativeApp) return
+
+  try {
+    const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+    const photo = await Camera.getPhoto({
+      quality: 85,
+      allowEditing: false,
+      resultType: CameraResultType.Uri,
+      source: CameraSource.Photos
+    })
+    if (!photo.webPath) return
+
+    const response = await fetch(photo.webPath)
+    const blob = await response.blob()
+    const mimeType = blob.type || 'image/jpeg'
+    const extension = mimeType.includes('png') ? 'png' : 'jpg'
+    const file = new File([blob], `mobile_${Date.now()}.${extension}`, { type: mimeType })
+    appendImageFile(file)
+  } catch (err) {
+    console.error('Error selecting native image:', err)
+  }
 }
 
 const removeSelectedImage = (id: string) => {
@@ -1330,11 +1367,20 @@ watch(
 
           <p v-if="composerError" class="composer-error">{{ composerError }}</p>
 
-          <div v-if="isExpanded" class="form-footer">
-            <div class="actions">
-              <label class="icon-btn" :class="{ disabled: selectedImages.length >= MAX_POST_IMAGES }">
-                <input
-                  ref="fileInputRef"
+            <div v-if="isExpanded" class="form-footer">
+              <div class="actions">
+                <button
+                  v-if="isNativeApp"
+                  type="button"
+                  class="icon-btn"
+                  :disabled="selectedImages.length >= MAX_POST_IMAGES"
+                  @click="handleNativeImagePick"
+                >
+                  <span>Galeria</span>
+                </button>
+                <label class="icon-btn" :class="{ disabled: selectedImages.length >= MAX_POST_IMAGES }">
+                  <input
+                    ref="fileInputRef"
                   type="file"
                   multiple
                   @change="handleFileSelect"

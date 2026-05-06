@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cdelu.ar</string>
+    <string name="title_activity_main">Cdelu.ar</string>
+    <string name="package_name">cdelu.ar.app</string>
+    <string name="custom_url_scheme">cdelu.ar.app</string>
+</resources>

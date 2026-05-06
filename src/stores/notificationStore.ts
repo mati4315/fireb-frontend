@@ -16,6 +16,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { app, db, functions } from '@/config/firebase';
 import { useAuthStore } from './authStore';
+import { buildStableDeviceId, isNativePlatform } from '@/platform/capacitor';
 
 type NotificationType = 'like' | 'comment' | 'reply' | 'follow';
 
@@ -57,6 +58,13 @@ type NotificationPageState = {
 
 const PAGE_SIZE = 20;
 const WEB_DEVICE_ID_KEY = 'cdelu_notifications_web_device_id_v1';
+const NATIVE_PUSH_DEVICE_ID_KEY = 'cdelu_notifications_native_device_id_v1';
+const NATIVE_PUSH_TOKEN_KEY = 'cdelu_notifications_native_token_v1';
+const PUSH_NUDGE_DISMISSED_KEY = 'cdelu_push_nudge_dismissed_v1';
+const PUSH_NUDGE_NEXT_AT_KEY = 'cdelu_push_nudge_next_at_v1';
+const PUSH_NUDGE_DISMISS_COUNT_KEY = 'cdelu_push_nudge_dismiss_count_v1';
+const PUSH_NUDGE_BASE_COOLDOWN_DAYS = 3;
+const PUSH_NUDGE_MAX_COOLDOWN_DAYS = 21;
 
 const toSafeString = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -166,10 +174,12 @@ export const useNotificationStore = defineStore('notifications', () => {
   const pushError = ref<string | null>(null);
   const preferenceSaving = ref(false);
   const preferenceError = ref<string | null>(null);
+  const pushPermissionState = ref<'granted' | 'denied' | 'prompt' | 'unsupported'>('prompt');
 
   let listUnsubscribe: Unsubscribe | null = null;
   let unreadUnsubscribe: Unsubscribe | null = null;
   let foregroundListenerAttached = false;
+  let nativePushInitialized = false;
 
   const isAuthenticated = computed(() => Boolean(authStore.user?.uid));
   const settings = computed<NotificationSettings>(() =>
@@ -177,8 +187,19 @@ export const useNotificationStore = defineStore('notifications', () => {
   );
   const canLoadMore = computed(() => pageState.value.hasMore && !loadingMore.value);
   const browserPermission = computed(() => {
+    if (isNativePlatform()) return pushPermissionState.value;
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
-    return Notification.permission;
+    return Notification.permission as 'granted' | 'denied' | 'prompt';
+  });
+
+  const shouldShowPushNudge = computed(() => {
+    if (!authStore.user?.uid) return false;
+    if (localStorage.getItem(PUSH_NUDGE_DISMISSED_KEY) === '1') return false;
+    const nowMs = Date.now();
+    const nextAtMs = Number(localStorage.getItem(PUSH_NUDGE_NEXT_AT_KEY) || '0');
+    if (Number.isFinite(nextAtMs) && nextAtMs > nowMs) return false;
+    if (settings.value.notificationsEnabled === false) return true;
+    return browserPermission.value !== 'granted';
   });
 
   const clearState = () => {
@@ -246,6 +267,7 @@ export const useNotificationStore = defineStore('notifications', () => {
   };
 
   const ensureForegroundPushListener = async () => {
+    if (isNativePlatform()) return;
     if (foregroundListenerAttached) return;
     if (typeof window === 'undefined') return;
     const { isSupported, getMessaging, onMessage } = await import('firebase/messaging');
@@ -258,6 +280,69 @@ export const useNotificationStore = defineStore('notifications', () => {
     });
     foregroundListenerAttached = true;
   };
+
+  const ensureNativePushRegistration = async () => {
+    if (!isNativePlatform()) return;
+    if (!authStore.user?.uid) return;
+
+    const { PushNotifications } = await import('@capacitor/push-notifications')
+
+    if (!nativePushInitialized) {
+      PushNotifications.addListener('registration', async (token) => {
+        const registerCallable = httpsCallable(functions, 'registerNotificationDevice')
+        const existingDeviceId = localStorage.getItem(NATIVE_PUSH_DEVICE_ID_KEY) || ''
+        const deviceId = existingDeviceId || await buildStableDeviceId()
+        localStorage.setItem(NATIVE_PUSH_DEVICE_ID_KEY, deviceId)
+        localStorage.setItem(NATIVE_PUSH_TOKEN_KEY, token.value || '')
+
+        await registerCallable({
+          token: token.value,
+          platform: 'android',
+          deviceId,
+          locale: navigator.language || '',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+          userAgent: navigator.userAgent || ''
+        })
+      })
+
+      PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
+        const targetPath = String(event.notification?.data?.targetPath || '/notificaciones')
+        window.dispatchEvent(new CustomEvent('native:push-open', { detail: { targetPath } }))
+      })
+
+      nativePushInitialized = true;
+    }
+
+    const permissions = await PushNotifications.checkPermissions()
+    if (permissions.receive === 'granted') {
+      pushPermissionState.value = 'granted'
+    } else if (permissions.receive === 'denied') {
+      pushPermissionState.value = 'denied'
+    } else {
+      pushPermissionState.value = 'prompt'
+    }
+
+    if (permissions.receive !== 'granted') {
+      const request = await PushNotifications.requestPermissions()
+      if (request.receive !== 'granted') {
+        pushPermissionState.value = request.receive === 'denied' ? 'denied' : 'prompt'
+        throw new Error('Permiso de notificaciones denegado.')
+      }
+      pushPermissionState.value = 'granted'
+    }
+
+    await PushNotifications.register()
+  }
+
+  const unregisterNativePush = async () => {
+    if (!isNativePlatform()) return;
+    const deviceId = localStorage.getItem(NATIVE_PUSH_DEVICE_ID_KEY) || ''
+    const token = localStorage.getItem(NATIVE_PUSH_TOKEN_KEY) || ''
+    if (!deviceId && !token) return;
+
+    const unregisterCallable = httpsCallable(functions, 'unregisterNotificationDevice')
+    await unregisterCallable({ deviceId, token })
+  }
 
   const init = async () => {
     const uid = authStore.user?.uid || '';
@@ -275,6 +360,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     initializedForUid.value = uid;
     initListeners(uid);
     await ensureForegroundPushListener();
+    await ensureNativePushRegistration();
   };
 
   const cleanup = () => {
@@ -366,6 +452,13 @@ export const useNotificationStore = defineStore('notifications', () => {
   };
 
   const enableWebPush = async () => {
+    if (isNativePlatform()) {
+      await ensureNativePushRegistration()
+      localStorage.removeItem(PUSH_NUDGE_DISMISSED_KEY)
+      localStorage.removeItem(PUSH_NUDGE_NEXT_AT_KEY)
+      localStorage.removeItem(PUSH_NUDGE_DISMISS_COUNT_KEY)
+      return
+    }
     if (!authStore.user?.uid) {
       throw new Error('Debes iniciar sesion para activar push.');
     }
@@ -417,6 +510,9 @@ export const useNotificationStore = defineStore('notifications', () => {
       });
 
       await ensureForegroundPushListener();
+      localStorage.removeItem(PUSH_NUDGE_DISMISSED_KEY)
+      localStorage.removeItem(PUSH_NUDGE_NEXT_AT_KEY)
+      localStorage.removeItem(PUSH_NUDGE_DISMISS_COUNT_KEY)
     } catch (error: any) {
       pushError.value = error?.message || 'No se pudo activar push web.';
       throw error;
@@ -424,6 +520,30 @@ export const useNotificationStore = defineStore('notifications', () => {
       pushLoading.value = false;
     }
   };
+
+  const disableNativePush = async () => {
+    if (!authStore.user?.uid) {
+      await unregisterNativePush().catch(() => undefined)
+      return
+    }
+    await unregisterNativePush()
+  }
+
+  const dismissPushNudge = () => {
+    const currentDismissCountRaw = Number(localStorage.getItem(PUSH_NUDGE_DISMISS_COUNT_KEY) || '0')
+    const currentDismissCount = Number.isFinite(currentDismissCountRaw)
+      ? Math.max(0, Math.floor(currentDismissCountRaw))
+      : 0
+    const nextDismissCount = currentDismissCount + 1
+    const cooldownDays = Math.min(
+      PUSH_NUDGE_BASE_COOLDOWN_DAYS * nextDismissCount,
+      PUSH_NUDGE_MAX_COOLDOWN_DAYS
+    )
+    const nextAtMs = Date.now() + cooldownDays * 24 * 60 * 60 * 1000
+
+    localStorage.setItem(PUSH_NUDGE_DISMISS_COUNT_KEY, String(nextDismissCount))
+    localStorage.setItem(PUSH_NUDGE_NEXT_AT_KEY, String(nextAtMs))
+  }
 
   const disableWebPush = async () => {
     if (!authStore.user?.uid) return;
@@ -470,6 +590,7 @@ export const useNotificationStore = defineStore('notifications', () => {
     settings,
     canLoadMore,
     browserPermission,
+    shouldShowPushNudge,
     init,
     cleanup,
     loadMore,
@@ -478,6 +599,8 @@ export const useNotificationStore = defineStore('notifications', () => {
     updatePreferences,
     enableWebPush,
     disableWebPush,
+    disableNativePush,
+    dismissPushNudge,
     getMessageSuffix,
     getMessage,
     formatRelativeDate
