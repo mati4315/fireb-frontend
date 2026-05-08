@@ -12,12 +12,22 @@ const emit = defineEmits<{
 }>()
 
 const currentIndex = ref(0)
+const isZoomed = ref(false)
+const zoomOrigin = ref({ x: '50%', y: '50%' })
+let lastClickTime = 0
 
 const safeImages = computed(() => props.images.filter(Boolean))
 const hasMultiple = computed(() => safeImages.value.length > 1)
 const currentImage = computed(() => safeImages.value[currentIndex.value] || '')
 
-const close = () => emit('close')
+const resetZoom = () => {
+  isZoomed.value = false
+}
+
+const close = () => {
+  resetZoom()
+  emit('close')
+}
 
 const normalizeIndex = (nextIndex: number) => {
   const total = safeImages.value.length
@@ -28,11 +38,44 @@ const normalizeIndex = (nextIndex: number) => {
 }
 
 const goPrev = () => {
+  resetZoom()
   currentIndex.value = normalizeIndex(currentIndex.value - 1)
 }
 
 const goNext = () => {
+  resetZoom()
   currentIndex.value = normalizeIndex(currentIndex.value + 1)
+}
+
+const handleImageInteraction = (e: MouseEvent | TouchEvent) => {
+  const currentTime = Date.now()
+  const tapLength = currentTime - lastClickTime
+  
+  if (tapLength < 350 && tapLength > 0) {
+    if (isZoomed.value) {
+      resetZoom()
+    } else {
+      const target = e.target as HTMLElement
+      const rect = target.getBoundingClientRect()
+      
+      let clientX, clientY;
+      if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) {
+        clientX = e.changedTouches[0].clientX
+        clientY = e.changedTouches[0].clientY
+      } else {
+        clientX = (e as MouseEvent).clientX
+        clientY = (e as MouseEvent).clientY
+      }
+    
+      const x = ((clientX - rect.left) / rect.width) * 100
+      const y = ((clientY - rect.top) / rect.height) * 100
+      zoomOrigin.value = { x: `${x}%`, y: `${y}%` }
+      isZoomed.value = true
+    }
+    if (e.cancelable) e.preventDefault()
+  }
+  
+  lastClickTime = currentTime
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
@@ -81,7 +124,15 @@ onBeforeUnmount(() => {
         ‹
       </button>
 
-      <img :src="currentImage" class="lightbox-image" alt="Imagen ampliada" />
+      <img 
+        :src="currentImage" 
+        class="lightbox-image" 
+        :class="{ 'zoomed': isZoomed }"
+        :style="isZoomed ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: 'scale(2.5)' } : {}"
+        alt="Imagen ampliada" 
+        @click.stop="handleImageInteraction"
+        @touchstart.stop="handleImageInteraction"
+      />
 
       <button
         v-if="hasMultiple"
@@ -117,6 +168,15 @@ onBeforeUnmount(() => {
   object-fit: contain;
   border-radius: 14px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  transition: transform 0.25s ease-out;
+  cursor: zoom-in;
+  touch-action: none;
+  will-change: transform;
+}
+
+.lightbox-image.zoomed {
+  cursor: zoom-out;
+  z-index: 2010;
 }
 
 .close-btn,
