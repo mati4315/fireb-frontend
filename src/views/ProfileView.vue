@@ -136,7 +136,24 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
   if (Array.isArray(item?.images) && item.images.length > 0) {
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
-      .map((image: string) => ({ url: image, thumbUrl: image }));
+      .map((image: string) => {
+        let derivedThumb = image;
+        try {
+          const urlObj = new URL(image);
+          const path = urlObj.pathname;
+          const lastDotIndex = path.lastIndexOf('.');
+          if (lastDotIndex > 0) {
+            urlObj.pathname = path.slice(0, lastDotIndex) + '_' + path.slice(lastDotIndex);
+            derivedThumb = urlObj.toString();
+          }
+        } catch (e) {
+          const match = image.match(/(.*)(\.[a-zA-Z0-9]+)(\?.*)?$/);
+          if (match) {
+            derivedThumb = `${match[1]}_${match[2]}${match[3] || ''}`;
+          }
+        }
+        return { url: image, thumbUrl: derivedThumb };
+      });
   }
 
   return [];
@@ -899,7 +916,7 @@ onBeforeUnmount(() => {
                   type="button"
                   @click="openLightbox(normalizeImageList(post).map((entry) => entry.url), Number(imageIndex))"
                 >
-                  <img :src="image.thumbUrl" class="main-image" loading="lazy" />
+                  <img :src="image.thumbUrl" class="main-image" loading="lazy" @error="(e) => { const tgt = e.target as HTMLImageElement; if (tgt.src !== image.url) tgt.src = image.url; }" />
                 </button>
               </div>
 

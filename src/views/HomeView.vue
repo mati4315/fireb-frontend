@@ -436,12 +436,29 @@ const normalizeImageList = (
   if (Array.isArray(item?.images) && item.images.length > 0) {
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
-      .map((image: string, index: number) => ({
-        url: image,
-        thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : image,
-        width: 16,
-        height: 9
-      }))
+      .map((image: string, index: number) => {
+        let derivedThumb = image;
+        try {
+          const urlObj = new URL(image);
+          const path = urlObj.pathname;
+          const lastDotIndex = path.lastIndexOf('.');
+          if (lastDotIndex > 0) {
+            urlObj.pathname = path.slice(0, lastDotIndex) + '_' + path.slice(lastDotIndex);
+            derivedThumb = urlObj.toString();
+          }
+        } catch (e) {
+          const match = image.match(/(.*)(\.[a-zA-Z0-9]+)(\?.*)?$/);
+          if (match) {
+            derivedThumb = `${match[1]}_${match[2]}${match[3] || ''}`;
+          }
+        }
+        return {
+          url: image,
+          thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : derivedThumb,
+          width: 16,
+          height: 9
+        };
+      })
   }
 
   if (legacyMiniThumb) {
@@ -1591,6 +1608,7 @@ watch(
                     :loading="shouldPrioritizeImage(itemIndex, imageIndex) ? 'eager' : 'lazy'"
                     :fetchpriority="shouldPrioritizeImage(itemIndex, imageIndex) ? 'high' : 'auto'"
                     decoding="async"
+                    @error="(e) => { const tgt = e.target as HTMLImageElement; if (tgt.src !== image.url) tgt.src = image.url; }"
                   />
                 </button>
               </div>
