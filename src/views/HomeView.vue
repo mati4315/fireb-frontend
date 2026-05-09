@@ -402,11 +402,31 @@ const handleNativeImagePick = async () => {
 
 const removeSelectedImage = (id: string) => {
   const index = selectedImages.value.findIndex((image) => image.id === id)
-  if (index < 0) return
+      if (index < 0) return
 
   URL.revokeObjectURL(selectedImages.value[index].previewUrl)
   selectedImages.value.splice(index, 1)
 }
+
+const deriveThumbnailURL = (image: string): string => {
+  let derivedThumb = image;
+  if (!image) return derivedThumb;
+  try {
+    const urlObj = new URL(image);
+    const path = urlObj.pathname;
+    const lastDotIndex = path.lastIndexOf('.');
+    if (lastDotIndex > 0 && !path.slice(0, lastDotIndex).endsWith('_')) {
+      urlObj.pathname = path.slice(0, lastDotIndex) + '_' + path.slice(lastDotIndex);
+      derivedThumb = urlObj.toString();
+    }
+  } catch (e) {
+    const match = image.match(/(.*)(\.[a-zA-Z0-9]+)(\?.*)?$/);
+    if (match && !match[1].endsWith('_')) {
+      derivedThumb = `${match[1]}_${match[2]}${match[3] || ''}`;
+    }
+  }
+  return derivedThumb;
+};
 
 const normalizeImageList = (
   item: any
@@ -420,38 +440,32 @@ const normalizeImageList = (
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
     return item.imagesV2
       .filter((image: any) => image && typeof image.url === 'string')
-      .map((image: any) => ({
-        url: image.url,
-        thumbUrl:
-          typeof image.thumbUrl === 'string' && image.thumbUrl.trim()
-            ? image.thumbUrl
-            : legacyMiniThumb
-              ? legacyMiniThumb
-            : image.url,
-        width: Number.isFinite(Number(image.width)) ? Number(image.width) : undefined,
-        height: Number.isFinite(Number(image.height)) ? Number(image.height) : undefined
-      }))
+      .map((image: any) => {
+        let finalThumbUrl = image.url;
+        if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim()) {
+          finalThumbUrl = image.thumbUrl;
+        } else if (legacyMiniThumb) {
+          finalThumbUrl = legacyMiniThumb;
+        }
+        
+        if (finalThumbUrl === image.url) {
+          finalThumbUrl = deriveThumbnailURL(image.url);
+        }
+
+        return {
+          url: image.url,
+          thumbUrl: finalThumbUrl,
+          width: Number.isFinite(Number(image.width)) ? Number(image.width) : undefined,
+          height: Number.isFinite(Number(image.height)) ? Number(image.height) : undefined
+        };
+      })
   }
 
   if (Array.isArray(item?.images) && item.images.length > 0) {
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string, index: number) => {
-        let derivedThumb = image;
-        try {
-          const urlObj = new URL(image);
-          const path = urlObj.pathname;
-          const lastDotIndex = path.lastIndexOf('.');
-          if (lastDotIndex > 0) {
-            urlObj.pathname = path.slice(0, lastDotIndex) + '_' + path.slice(lastDotIndex);
-            derivedThumb = urlObj.toString();
-          }
-        } catch (e) {
-          const match = image.match(/(.*)(\.[a-zA-Z0-9]+)(\?.*)?$/);
-          if (match) {
-            derivedThumb = `${match[1]}_${match[2]}${match[3] || ''}`;
-          }
-        }
+        const derivedThumb = deriveThumbnailURL(image);
         return {
           url: image,
           thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : derivedThumb,
