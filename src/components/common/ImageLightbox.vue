@@ -277,8 +277,8 @@ onBeforeUnmount(() => {
   border: 0;
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
-  width: 42px;
-  height: 42px;
+  width: 35px;
+  height: 35px;
   border-radius: 999px;
   font-size: 1.2rem;
   cursor: pointer;

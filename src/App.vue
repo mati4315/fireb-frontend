@@ -161,7 +161,11 @@ const dismissPushBanner = () => {
             </button>
           </div>
 
-          <template v-if="!authStore.isAuthenticated">
+          <template v-if="!authStore.isInitialized">
+            <!-- Menú estático hasta que Firebase Auth resuelva el estado de sesión -->
+            <div style="width: 35px; height: 35px;"></div>
+          </template>
+          <template v-else-if="!authStore.isAuthenticated">
             <RouterLink to="/login" class="login-btn">Iniciar Sesión</RouterLink>
           </template>
           
