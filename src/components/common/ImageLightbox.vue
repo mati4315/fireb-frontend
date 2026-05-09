@@ -71,42 +71,66 @@ const getClientXY = (e: MouseEvent | TouchEvent) => {
   }
 }
 
-const handleImageInteraction = (e: MouseEvent | TouchEvent) => {
+let lastTouchTime = 0
+
+const toggleZoom = (clientX: number, clientY: number, target: HTMLElement) => {
+  if (isZoomed.value) {
+    resetZoom()
+  } else {
+    const rect = target.getBoundingClientRect()
+    const x = ((clientX - rect.left) / rect.width) * 100
+    const y = ((clientY - rect.top) / rect.height) * 100
+    zoomOrigin.value = { x: `${x}%`, y: `${y}%` }
+    isZoomed.value = true
+  }
+}
+
+const onPointerDown = (e: MouseEvent | TouchEvent) => {
+  const isTouch = typeof TouchEvent !== 'undefined' && e instanceof TouchEvent
   const currentTime = Date.now()
-  const tapLength = currentTime - lastClickTime
+  
+  if (isTouch) {
+    lastTouchTime = currentTime
+  } else if (currentTime - lastTouchTime < 500) {
+    // Ignore ghost mousedown events on mobile immediately following a touch
+    return
+  }
+
   const { clientX, clientY } = getClientXY(e)
   
-  if (tapLength < 350 && tapLength > 0) {
-    // Double tap
-    if (isZoomed.value) {
-      resetZoom()
-    } else {
-      const target = e.target as HTMLElement
-      const rect = target.getBoundingClientRect()
-    
-      const x = ((clientX - rect.left) / rect.width) * 100
-      const y = ((clientY - rect.top) / rect.height) * 100
-      zoomOrigin.value = { x: `${x}%`, y: `${y}%` }
-      isZoomed.value = true
-    }
-    if (e.cancelable) e.preventDefault()
-  } else {
-    // Handle single tap start drag
-    if (isZoomed.value) {
-      isDragging.value = true
-      dragStartX = clientX
-      dragStartY = clientY
-      lastPanX = panX.value
-      lastPanY = panY.value
-    } else {
-      // Setup for potential swipe (optional)
-      dragStartX = clientX
-      dragStartY = clientY
-      isDragging.value = true // We use it to track touch start
+  if (isTouch) {
+    const tapLength = currentTime - lastClickTime
+    if (tapLength > 0 && tapLength < 350) {
+      toggleZoom(clientX, clientY, e.target as HTMLElement)
+      if (e.cancelable) e.preventDefault()
+      isDragging.value = false
+      lastClickTime = 0 // Reset to avoid triple-tap zooming out
+      return
     }
   }
-  
-  lastClickTime = currentTime
+
+  // Record for touch double-tap
+  if (isTouch) {
+    lastClickTime = currentTime
+  }
+
+  // Handle drag / pan start
+  if (isZoomed.value) {
+    isDragging.value = true
+    dragStartX = clientX
+    dragStartY = clientY
+    lastPanX = panX.value
+    lastPanY = panY.value
+  } else {
+    dragStartX = clientX
+    dragStartY = clientY
+    isDragging.value = true
+  }
+}
+
+const onDblClick = (e: MouseEvent) => {
+  if (Date.now() - lastTouchTime < 500) return
+  toggleZoom(e.clientX, e.clientY, e.target as HTMLElement)
 }
 
 const onDrag = (e: MouseEvent | TouchEvent) => {
@@ -187,8 +211,9 @@ onBeforeUnmount(() => {
         :class="{ 'zoomed': isZoomed, 'dragging': isDragging }"
         :style="isZoomed ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: `translate(${panX}px, ${panY}px) scale(2.5)` } : {}"
         alt="Imagen ampliada" 
-        @mousedown.stop="handleImageInteraction"
-        @touchstart.stop="handleImageInteraction"
+        @mousedown.stop="onPointerDown"
+        @touchstart.stop="onPointerDown"
+        @dblclick.stop="onDblClick"
         @mousemove.stop="onDrag"
         @touchmove.stop="onDrag"
         @mouseup.stop="endDrag"
