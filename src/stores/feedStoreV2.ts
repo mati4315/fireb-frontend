@@ -5,14 +5,12 @@ import {
   collection,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   startAfter,
   where,
-  type QueryConstraint,
-  type Unsubscribe
+  type QueryConstraint
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
@@ -22,6 +20,8 @@ import { useModuleStore, type FeedTabKey, type HomeTabKey } from './moduleStore'
 type FeedTab = HomeTabKey;
 
 const PAGE_SIZE = 10;
+const FEED_CACHE_TTL_MS = 2 * 60 * 1000;
+const FEED_CACHE_PREFIX = 'cdeluar.feed.cache.v1';
 
 export const useFeedStore = defineStore('feed', () => {
   const authStore = useAuthStore();
@@ -33,14 +33,12 @@ export const useFeedStore = defineStore('feed', () => {
   const currentTab = ref<FeedTab>('todo');
   const loading = ref(false);
   const hasMore = ref(true);
-  const unsubscribe = ref<Unsubscribe | null>(null);
 
-  // Tab State Cache for persistence
   interface TabState {
     contentItems: any[];
     allItems: any[];
     hasMore: boolean;
-    unsubscribe: Unsubscribe | null;
+    lastFetchedAt: number;
   }
   const tabStates = ref<Record<string, TabState>>({});
 
@@ -50,10 +48,55 @@ export const useFeedStore = defineStore('feed', () => {
         contentItems: [],
         allItems: [],
         hasMore: true,
-        unsubscribe: null
+        lastFetchedAt: 0
       };
     }
     return tabStates.value[tab];
+  };
+
+  const buildCacheKey = (tab: FeedTab): string => `${FEED_CACHE_PREFIX}:${tab}`;
+
+  const writePersistedTabState = (tab: FeedTab, state: TabState) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        buildCacheKey(tab),
+        JSON.stringify({
+          contentItems: state.contentItems,
+          hasMore: state.hasMore,
+          lastFetchedAt: state.lastFetchedAt
+        })
+      );
+    } catch {
+      // Ignore cache quota errors.
+    }
+  };
+
+  const readPersistedTabState = (tab: FeedTab): TabState | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(buildCacheKey(tab));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+
+      const content = Array.isArray(parsed.contentItems) ? parsed.contentItems : [];
+      const hasMoreValue = parsed.hasMore !== false;
+      const lastFetchedAtValue = Number(parsed.lastFetchedAt || 0);
+
+      if (!Number.isFinite(lastFetchedAtValue) || Date.now() - lastFetchedAtValue > FEED_CACHE_TTL_MS) {
+        return null;
+      }
+
+      return {
+        contentItems: content,
+        allItems: [],
+        hasMore: hasMoreValue,
+        lastFetchedAt: lastFetchedAtValue
+      };
+    } catch {
+      return null;
+    }
   };
 
   const tabConfig: Record<'news' | 'post', { module: string }> = {
@@ -108,93 +151,106 @@ export const useFeedStore = defineStore('feed', () => {
       moduleStore.modules.ads
     );
 
-    // Also update current tab state in cache
     const state = getTabState(currentTab.value);
     state.allItems = [...allItems.value];
     state.contentItems = [...contentItems.value];
+    writePersistedTabState(currentTab.value, state);
   };
 
-  const initFeed = (tabName: string = 'todo') => {
-    moduleStore.initModulesListener();
-    adsStore.initAdsListener(moduleStore.modules.ads);
-
-    const safeTab = resolveTab(tabName);
-
-    // If same tab, do nothing
-    if (currentTab.value === safeTab && unsubscribe.value) {
-      rebuildMergedFeed();
-      return;
-    }
-
-    // Save current state before switching
-    if (unsubscribe.value) {
-      const state = getTabState(currentTab.value);
-      state.contentItems = [...contentItems.value];
-      state.allItems = [...allItems.value];
-      state.hasMore = hasMore.value;
-      state.unsubscribe = unsubscribe.value;
-    }
-
-    currentTab.value = safeTab;
-
-    // Check if we have a cached state for the new tab
-    const cached = getTabState(safeTab);
-    if (cached.unsubscribe) {
-      contentItems.value = [...cached.contentItems];
-      hasMore.value = cached.hasMore;
-      unsubscribe.value = cached.unsubscribe;
-      rebuildMergedFeed();
-      loading.value = false;
-      return;
-    }
-
-    // No cached state, initialize new listener
-    contentItems.value = [];
-    allItems.value = [];
-    unsubscribe.value = null;
-    loading.value = true;
-    hasMore.value = safeTab !== 'secrets' && safeTab !== 'surveys' && safeTab !== 'lottery';
-
-    if (safeTab === 'secrets' || safeTab === 'surveys' || safeTab === 'lottery') {
-      loading.value = false;
+  const fetchFirstPage = async (targetTab: FeedTab) => {
+    if (targetTab === 'secrets' || targetTab === 'surveys' || targetTab === 'lottery') {
+      const state = getTabState(targetTab);
+      state.contentItems = [];
+      state.allItems = [];
+      state.hasMore = false;
+      state.lastFetchedAt = Date.now();
+      if (currentTab.value === targetTab) {
+        contentItems.value = [];
+        allItems.value = [];
+        hasMore.value = false;
+        loading.value = false;
+      }
       return;
     }
 
     const q = query(
       collection(db, 'content'),
-      ...getTabConstraints(safeTab),
+      ...getTabConstraints(targetTab),
       limit(PAGE_SIZE)
     );
 
-    const targetTab = safeTab;
-    unsubscribe.value = onSnapshot(
-      q,
-      (snapshot) => {
-        const items = snapshot.docs.map((contentDoc) => ({
-          id: contentDoc.id,
-          ...contentDoc.data({ serverTimestamps: 'estimate' })
-        }));
-        
-        const state = getTabState(targetTab);
-        state.contentItems = items;
-        state.hasMore = snapshot.size >= PAGE_SIZE;
+    const snapshot = await getDocs(q);
+    const items = snapshot.docs.map((contentDoc) => ({
+      id: contentDoc.id,
+      ...contentDoc.data({ serverTimestamps: 'estimate' })
+    }));
 
-        if (currentTab.value === targetTab) {
-          contentItems.value = items;
-          hasMore.value = state.hasMore;
-          rebuildMergedFeed();
-          loading.value = false;
-        }
-      },
-      (error) => {
-        console.error('Error initializing feed:', error);
-        if (currentTab.value === targetTab) {
-          loading.value = false;
-        }
+    const state = getTabState(targetTab);
+    state.contentItems = items;
+    state.hasMore = snapshot.size >= PAGE_SIZE;
+    state.lastFetchedAt = Date.now();
+
+    if (currentTab.value === targetTab) {
+      contentItems.value = [...items];
+      hasMore.value = state.hasMore;
+      rebuildMergedFeed();
+      loading.value = false;
+    }
+  };
+
+  const initFeed = async (tabName: string = 'todo') => {
+    await moduleStore.initModules();
+    await adsStore.initAds(moduleStore.modules.ads);
+
+    const safeTab = resolveTab(tabName);
+
+    currentTab.value = safeTab;
+
+    const persisted = readPersistedTabState(safeTab);
+    if (persisted) {
+      const state = getTabState(safeTab);
+      state.contentItems = [...persisted.contentItems];
+      state.hasMore = persisted.hasMore;
+      state.lastFetchedAt = persisted.lastFetchedAt;
+      contentItems.value = [...state.contentItems];
+      hasMore.value = state.hasMore;
+      rebuildMergedFeed();
+      loading.value = false;
+
+      void fetchFirstPage(safeTab).catch((error) => {
+        console.error('Error refreshing cached feed:', error);
+      });
+      return;
+    }
+
+    const cached = getTabState(safeTab);
+    if (cached.contentItems.length > 0) {
+      contentItems.value = [...cached.contentItems];
+      hasMore.value = cached.hasMore;
+      rebuildMergedFeed();
+      loading.value = false;
+
+      if (Date.now() - cached.lastFetchedAt > FEED_CACHE_TTL_MS) {
+        void fetchFirstPage(safeTab).catch((error) => {
+          console.error('Error refreshing stale feed cache:', error);
+        });
       }
-    );
-    
-    getTabState(safeTab).unsubscribe = unsubscribe.value;
+      return;
+    }
+
+    contentItems.value = [];
+    allItems.value = [];
+    loading.value = true;
+    hasMore.value = safeTab !== 'secrets' && safeTab !== 'surveys' && safeTab !== 'lottery';
+
+    try {
+      await fetchFirstPage(safeTab);
+    } catch (error) {
+      console.error('Error initializing feed:', error);
+      if (currentTab.value === safeTab) {
+        loading.value = false;
+      }
+    }
   };
 
   const loadMore = async () => {
@@ -240,6 +296,7 @@ export const useFeedStore = defineStore('feed', () => {
 
       state.contentItems.push(...dedupedItems);
       state.hasMore = snapshot.size >= PAGE_SIZE;
+      state.lastFetchedAt = Date.now();
 
       if (currentTab.value === tabAtStart) {
         contentItems.value = [...state.contentItems];
@@ -426,10 +483,6 @@ export const useFeedStore = defineStore('feed', () => {
     moduleStore.isCommentsEnabledForModule(moduleName);
 
   const cleanup = () => {
-    if (unsubscribe.value) {
-      unsubscribe.value();
-      unsubscribe.value = null;
-    }
     adsStore.cleanup();
     moduleStore.cleanup();
   };

@@ -3,14 +3,13 @@ import { ref } from 'vue';
 import {
   collection,
   doc,
+  getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   where,
-  writeBatch,
-  type Unsubscribe
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
@@ -50,6 +49,8 @@ interface PendingAdEvent {
 }
 
 const AD_COOLDOWN_STORAGE_KEY = 'cdeluar.ads.event.cooldowns';
+const ADS_CACHE_KEY = 'cdeluar.ads.cache.v1';
+const ADS_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
@@ -121,7 +122,7 @@ export const useAdsStore = defineStore('ads', () => {
 
   const ads = ref<FeedAd[]>([]);
   const loading = ref(false);
-  const unsubscribe = ref<Unsubscribe | null>(null);
+  const initialized = ref(false);
 
   const pendingEvents = new Map<string, PendingAdEvent>();
   const cooldowns = loadCooldowns();
@@ -137,20 +138,46 @@ export const useAdsStore = defineStore('ads', () => {
     return alreadyStarted && notExpired;
   };
 
-  const cleanupListener = () => {
-    if (unsubscribe.value) {
-      unsubscribe.value();
-      unsubscribe.value = null;
+  const loadAdsFromCache = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem(ADS_CACHE_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return false;
+      const updatedAt = Number(parsed.updatedAt || 0);
+      if (!Number.isFinite(updatedAt)) return false;
+      if (Date.now() - updatedAt > ADS_CACHE_TTL_MS) return false;
+      const cachedItems = Array.isArray(parsed.items) ? parsed.items : [];
+      ads.value = cachedItems
+        .map((item: any) => normalizeAd(item.id, item))
+        .filter((ad: FeedAd) => ad.active)
+        .filter((ad: FeedAd) => isAdWithinSchedule(ad));
+      return true;
+    } catch {
+      return false;
     }
   };
 
-  const initAdsListener = (config: AdsModuleConfig) => {
-    cleanupListener();
-    ads.value = [];
+  const saveAdsToCache = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        ADS_CACHE_KEY,
+        JSON.stringify({
+          updatedAt: Date.now(),
+          items: ads.value
+        })
+      );
+    } catch {
+      // Ignore cache quota errors.
+    }
+  };
 
+  const fetchAds = async (config: AdsModuleConfig) => {
+    ads.value = [];
     if (!config.enabled) return;
 
-    loading.value = true;
     const q = query(
       collection(db, 'ads'),
       where('active', '==', true),
@@ -159,23 +186,39 @@ export const useAdsStore = defineStore('ads', () => {
       limit(config.fetchLimit)
     );
 
-    unsubscribe.value = onSnapshot(
-      q,
-      (snapshot) => {
-        const nextAds = snapshot.docs
-          .map((adDoc) => normalizeAd(adDoc.id, adDoc.data()))
-          .filter((ad) => ad.active)
-          .filter((ad) => isAdWithinSchedule(ad));
+    const snapshot = await getDocs(q);
+    const nextAds = snapshot.docs
+      .map((adDoc) => normalizeAd(adDoc.id, adDoc.data()))
+      .filter((ad) => ad.active)
+      .filter((ad) => isAdWithinSchedule(ad));
 
-        ads.value = nextAds;
-        loading.value = false;
-      },
-      (error) => {
-        console.error('Error loading ads:', error);
-        ads.value = [];
-        loading.value = false;
+    ads.value = nextAds;
+    saveAdsToCache();
+  };
+
+  const initAds = async (config: AdsModuleConfig, forceRefresh = false) => {
+    if (loading.value) return;
+    if (initialized.value && !forceRefresh) return;
+
+    loading.value = true;
+    try {
+      if (!forceRefresh) {
+        loadAdsFromCache();
       }
-    );
+      await fetchAds(config);
+      initialized.value = true;
+    } catch (error) {
+      console.error('Error loading ads:', error);
+      if (!loadAdsFromCache()) {
+        ads.value = [];
+      }
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const initAdsListener = (config: AdsModuleConfig) => {
+    void initAds(config, false);
   };
 
   const buildAdFeedItem = (ad: FeedAd, slotIndex: number, anchorId: string): AdFeedItem => {
@@ -359,7 +402,7 @@ export const useAdsStore = defineStore('ads', () => {
   };
 
   const cleanup = () => {
-    cleanupListener();
+    initialized.value = false;
 
     if (flushTimer) {
       clearInterval(flushTimer);
@@ -372,6 +415,7 @@ export const useAdsStore = defineStore('ads', () => {
   return {
     ads,
     loading,
+    initAds,
     initAdsListener,
     mergeAdsIntoFeed,
     trackAdImpression,

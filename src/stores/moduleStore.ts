@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
 export type FeedTabKey = 'todo' | 'news' | 'post';
@@ -69,6 +69,8 @@ const DEFAULT_MODULES_CONFIG: ModulesConfig = {
     clickCooldownMs: 0
   }
 };
+const MODULES_CACHE_KEY = 'cdeluar.modules.config.cache.v1';
+const MODULES_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
@@ -188,7 +190,39 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
 export const useModuleStore = defineStore('module', () => {
   const modules = ref<ModulesConfig>(DEFAULT_MODULES_CONFIG);
   const loading = ref(false);
-  const unsubscribe = ref<Unsubscribe | null>(null);
+  const initialized = ref(false);
+
+  const loadModulesFromCache = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const raw = localStorage.getItem(MODULES_CACHE_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return false;
+      const updatedAt = Number(parsed.updatedAt || 0);
+      if (!Number.isFinite(updatedAt)) return false;
+      if (Date.now() - updatedAt > MODULES_CACHE_TTL_MS) return false;
+      modules.value = sanitizeModulesConfig(parsed.data || {});
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const saveModulesToCache = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(
+        MODULES_CACHE_KEY,
+        JSON.stringify({
+          updatedAt: Date.now(),
+          data: modules.value
+        })
+      );
+    } catch {
+      // Ignore cache quota errors.
+    }
+  };
 
   const isModuleEnabled = (moduleName: keyof ModulesConfig): boolean => {
     if (moduleName === 'news') return modules.value.news.enabled;
@@ -236,35 +270,44 @@ export const useModuleStore = defineStore('module', () => {
     return tabs;
   });
 
-  const initModulesListener = () => {
-    if (unsubscribe.value) return;
+  const fetchModules = async () => {
+    const configRef = doc(db, '_config', 'modules');
+    const snapshot = await getDoc(configRef);
+    if (snapshot.exists()) {
+      modules.value = sanitizeModulesConfig(snapshot.data());
+    } else {
+      modules.value = DEFAULT_MODULES_CONFIG;
+    }
+    saveModulesToCache();
+  };
+
+  const initModules = async (forceRefresh = false) => {
+    if (loading.value) return;
+    if (initialized.value && !forceRefresh) return;
 
     loading.value = true;
-    const configRef = doc(db, '_config', 'modules');
-
-    unsubscribe.value = onSnapshot(
-      configRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          modules.value = sanitizeModulesConfig(snapshot.data());
-        } else {
-          modules.value = DEFAULT_MODULES_CONFIG;
-        }
-        loading.value = false;
-      },
-      (error) => {
-        console.error('Error loading module config:', error);
-        modules.value = DEFAULT_MODULES_CONFIG;
-        loading.value = false;
+    try {
+      if (!forceRefresh) {
+        loadModulesFromCache();
       }
-    );
+      await fetchModules();
+      initialized.value = true;
+    } catch (error) {
+      console.error('Error loading module config:', error);
+      if (!loadModulesFromCache()) {
+        modules.value = DEFAULT_MODULES_CONFIG;
+      }
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const initModulesListener = () => {
+    void initModules(false);
   };
 
   const cleanup = () => {
-    if (unsubscribe.value) {
-      unsubscribe.value();
-      unsubscribe.value = null;
-    }
+    initialized.value = false;
   };
 
   return {
@@ -274,6 +317,7 @@ export const useModuleStore = defineStore('module', () => {
     isModuleEnabled,
     isLikesEnabledForModule,
     isCommentsEnabledForModule,
+    initModules,
     initModulesListener,
     cleanup
   };
