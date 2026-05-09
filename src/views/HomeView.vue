@@ -1442,7 +1442,7 @@ watch(
     </div>
 
     <div
-      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && displayFeedItems.length === 0"
+      v-else-if="feedStore.currentTab !== 'surveys' && feedStore.currentTab !== 'lottery' && feedStore.initialized && !feedStore.loading && displayFeedItems.length === 0"
       class="empty-state"
     >
       <div class="empty-icon">📭</div>

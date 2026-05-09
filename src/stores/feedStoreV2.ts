@@ -32,6 +32,7 @@ export const useFeedStore = defineStore('feed', () => {
   const allItems = ref<any[]>([]);
   const currentTab = ref<FeedTab>('todo');
   const loading = ref(false);
+  const initialized = ref(false);
   const hasMore = ref(true);
 
   interface TabState {
@@ -216,6 +217,7 @@ export const useFeedStore = defineStore('feed', () => {
       hasMore.value = state.hasMore;
       rebuildMergedFeed();
       loading.value = false;
+      initialized.value = true;
 
       void fetchFirstPage(safeTab).catch((error) => {
         console.error('Error refreshing cached feed:', error);
@@ -229,6 +231,7 @@ export const useFeedStore = defineStore('feed', () => {
       hasMore.value = cached.hasMore;
       rebuildMergedFeed();
       loading.value = false;
+      initialized.value = true;
 
       if (Date.now() - cached.lastFetchedAt > FEED_CACHE_TTL_MS) {
         void fetchFirstPage(safeTab).catch((error) => {
@@ -250,6 +253,8 @@ export const useFeedStore = defineStore('feed', () => {
       if (currentTab.value === safeTab) {
         loading.value = false;
       }
+    } finally {
+      initialized.value = true;
     }
   };
 
@@ -491,6 +496,7 @@ export const useFeedStore = defineStore('feed', () => {
     allItems,
     currentTab,
     loading,
+    initialized,
     hasMore,
     availableTabs,
     isModuleEnabled,
