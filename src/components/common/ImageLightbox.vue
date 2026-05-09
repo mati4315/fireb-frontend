@@ -14,6 +14,13 @@ const emit = defineEmits<{
 const currentIndex = ref(0)
 const isZoomed = ref(false)
 const zoomOrigin = ref({ x: '50%', y: '50%' })
+const panX = ref(0)
+const panY = ref(0)
+const isDragging = ref(false)
+let dragStartX = 0
+let dragStartY = 0
+let lastPanX = 0
+let lastPanY = 0
 let lastClickTime = 0
 
 const safeImages = computed(() => props.images.filter(Boolean))
@@ -22,6 +29,9 @@ const currentImage = computed(() => safeImages.value[currentIndex.value] || '')
 
 const resetZoom = () => {
   isZoomed.value = false
+  panX.value = 0
+  panY.value = 0
+  isDragging.value = false
 }
 
 const close = () => {
@@ -47,25 +57,32 @@ const goNext = () => {
   currentIndex.value = normalizeIndex(currentIndex.value + 1)
 }
 
+const getClientXY = (e: MouseEvent | TouchEvent) => {
+  if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) {
+    return { 
+      clientX: e.changedTouches[0].clientX, 
+      clientY: e.changedTouches[0].clientY 
+    }
+  } else {
+    return { 
+      clientX: (e as MouseEvent).clientX, 
+      clientY: (e as MouseEvent).clientY 
+    }
+  }
+}
+
 const handleImageInteraction = (e: MouseEvent | TouchEvent) => {
   const currentTime = Date.now()
   const tapLength = currentTime - lastClickTime
+  const { clientX, clientY } = getClientXY(e)
   
   if (tapLength < 350 && tapLength > 0) {
+    // Double tap
     if (isZoomed.value) {
       resetZoom()
     } else {
       const target = e.target as HTMLElement
       const rect = target.getBoundingClientRect()
-      
-      let clientX, clientY;
-      if (typeof TouchEvent !== 'undefined' && e instanceof TouchEvent) {
-        clientX = e.changedTouches[0].clientX
-        clientY = e.changedTouches[0].clientY
-      } else {
-        clientX = (e as MouseEvent).clientX
-        clientY = (e as MouseEvent).clientY
-      }
     
       const x = ((clientX - rect.left) / rect.width) * 100
       const y = ((clientY - rect.top) / rect.height) * 100
@@ -73,9 +90,49 @@ const handleImageInteraction = (e: MouseEvent | TouchEvent) => {
       isZoomed.value = true
     }
     if (e.cancelable) e.preventDefault()
+  } else {
+    // Handle single tap start drag
+    if (isZoomed.value) {
+      isDragging.value = true
+      dragStartX = clientX
+      dragStartY = clientY
+      lastPanX = panX.value
+      lastPanY = panY.value
+    } else {
+      // Setup for potential swipe (optional)
+      dragStartX = clientX
+      dragStartY = clientY
+      isDragging.value = true // We use it to track touch start
+    }
   }
   
   lastClickTime = currentTime
+}
+
+const onDrag = (e: MouseEvent | TouchEvent) => {
+  if (!isDragging.value) return
+  const { clientX, clientY } = getClientXY(e)
+  const deltaX = clientX - dragStartX
+  const deltaY = clientY - dragStartY
+
+  if (isZoomed.value) {
+    panX.value = lastPanX + deltaX
+    panY.value = lastPanY + deltaY
+    if (e.cancelable) e.preventDefault()
+  }
+}
+
+const endDrag = (e: MouseEvent | TouchEvent) => {
+  if (!isDragging.value) return
+  isDragging.value = false
+
+  if (!isZoomed.value && hasMultiple.value) {
+    // Detect swipe string enough to advance
+    const { clientX } = getClientXY(e)
+    const deltaX = clientX - dragStartX
+    if (deltaX < -50) goNext()
+    else if (deltaX > 50) goPrev()
+  }
 }
 
 const handleKeydown = (event: KeyboardEvent) => {
@@ -127,11 +184,16 @@ onBeforeUnmount(() => {
       <img 
         :src="currentImage" 
         class="lightbox-image" 
-        :class="{ 'zoomed': isZoomed }"
-        :style="isZoomed ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: 'scale(2.5)' } : {}"
+        :class="{ 'zoomed': isZoomed, 'dragging': isDragging }"
+        :style="isZoomed ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: `translate(${panX}px, ${panY}px) scale(2.5)` } : {}"
         alt="Imagen ampliada" 
-        @click.stop="handleImageInteraction"
+        @mousedown.stop="handleImageInteraction"
         @touchstart.stop="handleImageInteraction"
+        @mousemove.stop="onDrag"
+        @touchmove.stop="onDrag"
+        @mouseup.stop="endDrag"
+        @touchend.stop="endDrag"
+        @mouseleave.stop="endDrag"
       />
 
       <button
@@ -179,9 +241,14 @@ onBeforeUnmount(() => {
   z-index: 2010;
 }
 
+.lightbox-image.dragging {
+  transition: none;
+}
+
 .close-btn,
 .nav-btn {
   position: absolute;
+  z-index: 2020;
   border: 0;
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
