@@ -9,7 +9,6 @@ import {
   getDoc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -218,19 +217,23 @@ export const useSurveyStore = defineStore('survey', () => {
   const publicHasMore = ref(true);
   const publicCursor = ref<QueryDocumentSnapshot | null>(null);
   const publicUnsubscribe = ref<Unsubscribe | null>(null);
+  const publicInitialized = ref(false);
   const featuredLiveSurveys = ref<Survey[]>([]);
   const featuredLoading = ref(false);
   const featuredUnsubscribe = ref<Unsubscribe | null>(null);
+  const featuredInitialized = ref(false);
   const featuredClockNow = ref(Date.now());
   const featuredClockTimer = ref<ReturnType<typeof setInterval> | null>(null);
 
   const adminSurveys = ref<Survey[]>([]);
   const adminLoading = ref(false);
   const adminUnsubscribe = ref<Unsubscribe | null>(null);
+  const adminInitialized = ref(false);
 
   const userVotesBySurvey = ref<Record<string, string[]>>({});
   const voteSubmittingBySurvey = ref<Record<string, boolean>>({});
   const votesUnsubscribe = ref<Unsubscribe | null>(null);
+  const votesInitialized = ref(false);
 
   const publicSurveys = computed(() => mergeSurveys(publicLiveSurveys.value, publicExtraSurveys.value));
   const featuredActiveSurveys = computed<Survey[]>(() => {
@@ -283,8 +286,8 @@ export const useSurveyStore = defineStore('survey', () => {
     return inAdmin || null;
   };
 
-  const initPublicSurveysListener = () => {
-    if (publicUnsubscribe.value) return;
+  const initPublicSurveysListener = async (forceRefresh = false) => {
+    if (publicInitialized.value && !forceRefresh) return;
 
     publicLoading.value = true;
     publicExtraSurveys.value = [];
@@ -296,34 +299,30 @@ export const useSurveyStore = defineStore('survey', () => {
       limit(PUBLIC_PAGE_SIZE)
     );
 
-    publicUnsubscribe.value = onSnapshot(
-      surveysQuery,
-      (snapshot) => {
-        publicLiveSurveys.value = snapshot.docs.map((surveyDoc) =>
-          normalizeSurvey(surveyDoc.id, surveyDoc.data())
-        );
-        publicCursor.value = snapshot.docs.length > 0
-          ? snapshot.docs[snapshot.docs.length - 1]
-          : null;
-        publicHasMore.value = snapshot.size >= PUBLIC_PAGE_SIZE;
-        publicLoading.value = false;
-      },
-      (error) => {
-        console.error('Error loading surveys:', error);
-        publicLoading.value = false;
-      }
-    );
-  };
-
-  const cleanupPublicSurveys = () => {
-    if (publicUnsubscribe.value) {
-      publicUnsubscribe.value();
-      publicUnsubscribe.value = null;
+    try {
+      const snapshot = await getDocs(surveysQuery);
+      publicLiveSurveys.value = snapshot.docs.map((surveyDoc) =>
+        normalizeSurvey(surveyDoc.id, surveyDoc.data())
+      );
+      publicCursor.value = snapshot.docs.length > 0
+        ? snapshot.docs[snapshot.docs.length - 1]
+        : null;
+      publicHasMore.value = snapshot.size >= PUBLIC_PAGE_SIZE;
+      publicInitialized.value = true;
+      publicLoading.value = false;
+    } catch (error) {
+      console.error('Error loading surveys:', error);
+      publicLoading.value = false;
     }
   };
 
-  const initFeaturedSurveyListener = () => {
-    if (featuredUnsubscribe.value) return;
+  const cleanupPublicSurveys = () => {
+    publicUnsubscribe.value = null;
+    publicInitialized.value = false;
+  };
+
+  const initFeaturedSurveyListener = async (forceRefresh = false) => {
+    if (featuredInitialized.value && !forceRefresh) return;
 
     featuredLoading.value = true;
     ensureFeaturedClock();
@@ -335,26 +334,22 @@ export const useSurveyStore = defineStore('survey', () => {
       limit(FEATURED_QUERY_SIZE)
     );
 
-    featuredUnsubscribe.value = onSnapshot(
-      surveysQuery,
-      (snapshot) => {
-        featuredLiveSurveys.value = snapshot.docs.map((surveyDoc) =>
-          normalizeSurvey(surveyDoc.id, surveyDoc.data())
-        );
-        featuredLoading.value = false;
-      },
-      (error) => {
-        console.error('Error loading featured survey:', error);
-        featuredLoading.value = false;
-      }
-    );
+    try {
+      const snapshot = await getDocs(surveysQuery);
+      featuredLiveSurveys.value = snapshot.docs.map((surveyDoc) =>
+        normalizeSurvey(surveyDoc.id, surveyDoc.data())
+      );
+      featuredInitialized.value = true;
+      featuredLoading.value = false;
+    } catch (error) {
+      console.error('Error loading featured survey:', error);
+      featuredLoading.value = false;
+    }
   };
 
   const cleanupFeaturedSurvey = () => {
-    if (featuredUnsubscribe.value) {
-      featuredUnsubscribe.value();
-      featuredUnsubscribe.value = null;
-    }
+    featuredUnsubscribe.value = null;
+    featuredInitialized.value = false;
     featuredLiveSurveys.value = [];
     featuredLoading.value = false;
     stopFeaturedClock();
@@ -394,8 +389,8 @@ export const useSurveyStore = defineStore('survey', () => {
     }
   };
 
-  const initAdminSurveysListener = () => {
-    if (adminUnsubscribe.value) return;
+  const initAdminSurveysListener = async (forceRefresh = false) => {
+    if (adminInitialized.value && !forceRefresh) return;
 
     adminLoading.value = true;
     const surveysQuery = query(
@@ -404,36 +399,31 @@ export const useSurveyStore = defineStore('survey', () => {
       limit(ADMIN_PAGE_SIZE)
     );
 
-    adminUnsubscribe.value = onSnapshot(
-      surveysQuery,
-      (snapshot) => {
-        adminSurveys.value = snapshot.docs.map((surveyDoc) =>
-          normalizeSurvey(surveyDoc.id, surveyDoc.data())
-        );
-        adminLoading.value = false;
-      },
-      (error) => {
-        console.error('Error loading admin surveys:', error);
-        adminLoading.value = false;
-      }
-    );
+    try {
+      const snapshot = await getDocs(surveysQuery);
+      adminSurveys.value = snapshot.docs.map((surveyDoc) =>
+        normalizeSurvey(surveyDoc.id, surveyDoc.data())
+      );
+      adminInitialized.value = true;
+      adminLoading.value = false;
+    } catch (error) {
+      console.error('Error loading admin surveys:', error);
+      adminLoading.value = false;
+    }
   };
 
   const cleanupAdminSurveys = () => {
-    if (adminUnsubscribe.value) {
-      adminUnsubscribe.value();
-      adminUnsubscribe.value = null;
-    }
+    adminUnsubscribe.value = null;
+    adminInitialized.value = false;
   };
 
   const cleanupVotesListener = () => {
-    if (votesUnsubscribe.value) {
-      votesUnsubscribe.value();
-      votesUnsubscribe.value = null;
-    }
+    votesUnsubscribe.value = null;
+    votesInitialized.value = false;
   };
 
-  const initUserVotesListener = () => {
+  const initUserVotesListener = async (forceRefresh = false) => {
+    if (votesInitialized.value && !forceRefresh) return;
     cleanupVotesListener();
 
     const currentUserId = authStore.user?.uid;
@@ -449,24 +439,22 @@ export const useSurveyStore = defineStore('survey', () => {
       limit(300)
     );
 
-    votesUnsubscribe.value = onSnapshot(
-      votesQuery,
-      (snapshot) => {
-        const nextVotes: Record<string, string[]> = {};
+    try {
+      const snapshot = await getDocs(votesQuery);
+      const nextVotes: Record<string, string[]> = {};
 
-        for (const voteDoc of snapshot.docs) {
-          const voteData = voteDoc.data() as Record<string, unknown>;
-          const surveyId = typeof voteData.surveyId === 'string' ? voteData.surveyId : '';
-          if (!surveyId) continue;
-          nextVotes[surveyId] = normalizeOptionIds(voteData.optionIds);
-        }
-
-        userVotesBySurvey.value = nextVotes;
-      },
-      (error) => {
-        console.error('Error loading user survey votes:', error);
+      for (const voteDoc of snapshot.docs) {
+        const voteData = voteDoc.data() as Record<string, unknown>;
+        const surveyId = typeof voteData.surveyId === 'string' ? voteData.surveyId : '';
+        if (!surveyId) continue;
+        nextVotes[surveyId] = normalizeOptionIds(voteData.optionIds);
       }
-    );
+
+      userVotesBySurvey.value = nextVotes;
+      votesInitialized.value = true;
+    } catch (error) {
+      console.error('Error loading user survey votes:', error);
+    }
   };
 
   watch(

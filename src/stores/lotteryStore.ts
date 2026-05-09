@@ -7,7 +7,6 @@ import {
   doc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -236,10 +235,12 @@ export const useLotteryStore = defineStore('lottery', () => {
   const publicLotteries = ref<Lottery[]>([]);
   const publicLoading = ref(false);
   const publicUnsubscribe = ref<Unsubscribe | null>(null);
+  const publicInitialized = ref(false);
 
   const adminLotteries = ref<Lottery[]>([]);
   const adminLoading = ref(false);
   const adminUnsubscribe = ref<Unsubscribe | null>(null);
+  const adminInitialized = ref(false);
 
   const numberPageEntriesByLottery = ref<Record<string, Record<number, LotteryEntry[]>>>({});
   const numberPageLoadingByKey = ref<Record<string, boolean>>({});
@@ -248,6 +249,7 @@ export const useLotteryStore = defineStore('lottery', () => {
   const userNumbersByLottery = ref<Record<string, number[]>>({});
   const userTicketsCountByLottery = ref<Record<string, number>>({});
   const userEntriesUnsubscribe = ref<Unsubscribe | null>(null);
+  const userEntriesInitialized = ref(false);
 
   const selectingByKey = ref<Record<string, boolean>>({});
   const drawLoadingByLottery = ref<Record<string, boolean>>({});
@@ -273,24 +275,18 @@ export const useLotteryStore = defineStore('lottery', () => {
   };
 
   const cleanupPublicLotteries = () => {
-    if (publicUnsubscribe.value) {
-      publicUnsubscribe.value();
-      publicUnsubscribe.value = null;
-    }
+    publicUnsubscribe.value = null;
+    publicInitialized.value = false;
   };
 
   const cleanupAdminLotteries = () => {
-    if (adminUnsubscribe.value) {
-      adminUnsubscribe.value();
-      adminUnsubscribe.value = null;
-    }
+    adminUnsubscribe.value = null;
+    adminInitialized.value = false;
   };
 
   const cleanupUserEntries = () => {
-    if (userEntriesUnsubscribe.value) {
-      userEntriesUnsubscribe.value();
-      userEntriesUnsubscribe.value = null;
-    }
+    userEntriesUnsubscribe.value = null;
+    userEntriesInitialized.value = false;
   };
 
   const cleanupAll = () => {
@@ -384,8 +380,8 @@ export const useLotteryStore = defineStore('lottery', () => {
     setUserNumbersForLottery(lotteryId, [...current, selectedNumber]);
   };
 
-  const initPublicLotteriesListener = () => {
-    if (publicUnsubscribe.value) return;
+  const initPublicLotteriesListener = async (forceRefresh = false) => {
+    if (publicInitialized.value && !forceRefresh) return;
 
     publicLoading.value = true;
     const lotteriesQuery = query(
@@ -395,23 +391,21 @@ export const useLotteryStore = defineStore('lottery', () => {
       limit(PUBLIC_PAGE_SIZE)
     );
 
-    publicUnsubscribe.value = onSnapshot(
-      lotteriesQuery,
-      (snapshot) => {
-        publicLotteries.value = snapshot.docs.map((lotteryDoc) =>
-          normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
-        );
-        publicLoading.value = false;
-      },
-      (error) => {
-        console.error('Error loading lotteries:', error);
-        publicLoading.value = false;
-      }
-    );
+    try {
+      const snapshot = await getDocs(lotteriesQuery);
+      publicLotteries.value = snapshot.docs.map((lotteryDoc) =>
+        normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
+      );
+      publicInitialized.value = true;
+      publicLoading.value = false;
+    } catch (error) {
+      console.error('Error loading lotteries:', error);
+      publicLoading.value = false;
+    }
   };
 
-  const initAdminLotteriesListener = () => {
-    if (adminUnsubscribe.value) return;
+  const initAdminLotteriesListener = async (forceRefresh = false) => {
+    if (adminInitialized.value && !forceRefresh) return;
 
     adminLoading.value = true;
     const lotteriesQuery = query(
@@ -421,27 +415,27 @@ export const useLotteryStore = defineStore('lottery', () => {
       limit(ADMIN_PAGE_SIZE)
     );
 
-    adminUnsubscribe.value = onSnapshot(
-      lotteriesQuery,
-      (snapshot) => {
-        adminLotteries.value = snapshot.docs.map((lotteryDoc) =>
-          normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
-        );
-        adminLoading.value = false;
-      },
-      (error) => {
-        console.error('Error loading admin lotteries:', error);
-        adminLoading.value = false;
-      }
-    );
+    try {
+      const snapshot = await getDocs(lotteriesQuery);
+      adminLotteries.value = snapshot.docs.map((lotteryDoc) =>
+        normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
+      );
+      adminInitialized.value = true;
+      adminLoading.value = false;
+    } catch (error) {
+      console.error('Error loading admin lotteries:', error);
+      adminLoading.value = false;
+    }
   };
 
-  const initUserEntriesListener = () => {
+  const initUserEntriesListener = async (forceRefresh = false) => {
+    if (userEntriesInitialized.value && !forceRefresh) return;
     cleanupUserEntries();
     const userId = authStore.user?.uid;
     if (!userId) {
       userNumbersByLottery.value = {};
       userTicketsCountByLottery.value = {};
+      userEntriesInitialized.value = true;
       return;
     }
 
@@ -497,7 +491,8 @@ export const useLotteryStore = defineStore('lottery', () => {
       userTicketsCountByLottery.value = nextCounts;
     };
 
-    void reloadFromKnownLotteries();
+    await reloadFromKnownLotteries();
+    userEntriesInitialized.value = true;
     userEntriesUnsubscribe.value = null;
   };
 

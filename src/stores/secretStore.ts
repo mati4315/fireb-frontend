@@ -6,14 +6,12 @@ import {
   getDoc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   where,
   deleteDoc,
   type DocumentData,
-  type QueryDocumentSnapshot,
-  type Unsubscribe
+  type QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions as firebaseFunctions } from '@/config/firebase';
@@ -378,9 +376,9 @@ export const useSecretStore = defineStore('secret', () => {
   const rankingsLoading = ref(false);
   const settingsLoading = ref(false);
   const error = ref<string | null>(null);
-  const unsubscribeSecrets = ref<Unsubscribe | null>(null);
-  const unsubscribeRankings = ref<Unsubscribe | null>(null);
-  const unsubscribeSettings = ref<Unsubscribe | null>(null);
+  const secretsInitialized = ref(false);
+  const rankingsInitialized = ref(false);
+  const settingsInitialized = ref(false);
   const votePendingBySecret = ref<Record<string, boolean>>({});
   const reportPendingBySecret = ref<Record<string, boolean>>({});
   const commentsBySecret = ref<Record<string, SecretCommentRecord[]>>({});
@@ -424,11 +422,12 @@ export const useSecretStore = defineStore('secret', () => {
     );
   };
 
-  const initSecretsListener = () => {
-    if (unsubscribeSecrets.value) return;
+  const initSecretsListener = async (forceRefresh = false) => {
+    if (secretsInitialized.value && !forceRefresh) return;
     if (!moduleStore.modules.secrets.enabled) {
       secrets.value = [];
       loading.value = false;
+      secretsInitialized.value = true;
       return;
     }
 
@@ -444,104 +443,93 @@ export const useSecretStore = defineStore('secret', () => {
       limit(SECRET_FEED_LIMIT)
     );
 
-    unsubscribeSecrets.value = onSnapshot(
-      secretsQuery,
-      (snapshot) => {
-        const nextSecrets = snapshot.docs
-          .map(mapSecretDoc)
-          .filter(isSecretVisible);
+    try {
+      const snapshot = await getDocs(secretsQuery);
+      const nextSecrets = snapshot.docs
+        .map(mapSecretDoc)
+        .filter(isSecretVisible);
 
-        const previousById = new Map(secrets.value.map((secret) => [secret.id, secret]));
-        secrets.value = nextSecrets.map((secret) => {
-          const previous = previousById.get(secret.id);
-          if (!previous) return secret;
-          return {
-            ...secret,
-            myVote: previous.myVote,
-            reportedByMe: previous.reportedByMe
-          };
-        });
-        loading.value = false;
-      },
-      (err) => {
-        console.error('Error loading secretos:', err);
-        error.value = err instanceof Error ? err.message : 'No se pudo cargar secretos.';
-        loading.value = false;
-      }
-    );
+      const previousById = new Map(secrets.value.map((secret) => [secret.id, secret]));
+      secrets.value = nextSecrets.map((secret) => {
+        const previous = previousById.get(secret.id);
+        if (!previous) return secret;
+        return {
+          ...secret,
+          myVote: previous.myVote,
+          reportedByMe: previous.reportedByMe
+        };
+      });
+      secretsInitialized.value = true;
+      loading.value = false;
+    } catch (err) {
+      console.error('Error loading secretos:', err);
+      error.value = err instanceof Error ? err.message : 'No se pudo cargar secretos.';
+      loading.value = false;
+    }
   };
 
-  const initRankingsListener = () => {
-    if (unsubscribeRankings.value) return;
+  const initRankingsListener = async (forceRefresh = false) => {
+    if (rankingsInitialized.value && !forceRefresh) return;
     if (!moduleStore.modules.secrets.enabled) {
       rankings.value = EMPTY_SECRET_RANKINGS;
       rankingsLoading.value = false;
+      rankingsInitialized.value = true;
       return;
     }
 
     rankingsLoading.value = true;
     const rankingsRef = doc(db, '_config', 'secret_rankings');
-    unsubscribeRankings.value = onSnapshot(
-      rankingsRef,
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          rankings.value = EMPTY_SECRET_RANKINGS;
-          rankingsLoading.value = false;
-          return;
-        }
-        rankings.value = mapSecretRankingsSnapshot(snapshot.data() || {});
-        rankingsLoading.value = false;
-      },
-      (err) => {
-        console.error('Error loading secret rankings:', err);
+    try {
+      const snapshot = await getDoc(rankingsRef);
+      if (!snapshot.exists()) {
         rankings.value = EMPTY_SECRET_RANKINGS;
         rankingsLoading.value = false;
+        rankingsInitialized.value = true;
+        return;
       }
-    );
+      rankings.value = mapSecretRankingsSnapshot(snapshot.data() || {});
+      rankingsInitialized.value = true;
+      rankingsLoading.value = false;
+    } catch (err) {
+      console.error('Error loading secret rankings:', err);
+      rankings.value = EMPTY_SECRET_RANKINGS;
+      rankingsLoading.value = false;
+    }
   };
 
-  const initSettingsListener = () => {
-    if (unsubscribeSettings.value) return;
+  const initSettingsListener = async (forceRefresh = false) => {
+    if (settingsInitialized.value && !forceRefresh) return;
     if (!moduleStore.modules.secrets.enabled) {
       settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
       settingsLoading.value = false;
+      settingsInitialized.value = true;
       return;
     }
 
     settingsLoading.value = true;
     const settingsRef = doc(db, '_config', 'secret_settings');
-    unsubscribeSettings.value = onSnapshot(
-      settingsRef,
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
-          settingsLoading.value = false;
-          return;
-        }
-        settings.value = mapSecretRuntimeSettings(snapshot.data() || {});
-        settingsLoading.value = false;
-      },
-      (err) => {
-        console.error('Error loading secret settings:', err);
+    try {
+      const snapshot = await getDoc(settingsRef);
+      if (!snapshot.exists()) {
         settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
         settingsLoading.value = false;
+        settingsInitialized.value = true;
+        return;
       }
-    );
+      settings.value = mapSecretRuntimeSettings(snapshot.data() || {});
+      settingsInitialized.value = true;
+      settingsLoading.value = false;
+    } catch (err) {
+      console.error('Error loading secret settings:', err);
+      settings.value = DEFAULT_SECRET_RUNTIME_SETTINGS;
+      settingsLoading.value = false;
+    }
   };
 
   const cleanup = () => {
-    if (unsubscribeSecrets.value) {
-      unsubscribeSecrets.value();
-      unsubscribeSecrets.value = null;
-    }
-    if (unsubscribeRankings.value) {
-      unsubscribeRankings.value();
-      unsubscribeRankings.value = null;
-    }
-    if (unsubscribeSettings.value) {
-      unsubscribeSettings.value();
-      unsubscribeSettings.value = null;
-    }
+    secretsInitialized.value = false;
+    rankingsInitialized.value = false;
+    settingsInitialized.value = false;
   };
 
   const createSecret = async (input: {
