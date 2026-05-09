@@ -255,7 +255,7 @@ const setActiveTab = async (tabKey: string) => {
 // Swipe detection logic
 const handleTouchStart = (e: TouchEvent) => {
   const target = e.target as HTMLElement
-  if (target && target.closest('.post-images, .has-carousel')) return
+  if (target && target.closest('.post-images:not(.single-img)')) return
 
   touchStartX.value = e.touches[0].clientX
   touchStartY.value = e.touches[0].clientY
@@ -264,7 +264,7 @@ const handleTouchStart = (e: TouchEvent) => {
 
 const handleTouchEnd = (e: TouchEvent) => {
   const target = e.target as HTMLElement
-  if (target && target.closest('.post-images, .has-carousel')) return
+  if (target && target.closest('.post-images:not(.single-img)')) return
 
   const deltaX = e.changedTouches[0].clientX - touchStartX.value
   const deltaY = e.changedTouches[0].clientY - touchStartY.value
