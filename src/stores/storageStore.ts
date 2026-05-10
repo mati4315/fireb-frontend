@@ -19,8 +19,7 @@ export const useStorageStore = defineStore('storage', () => {
   const uploadProgress = ref<number>(0);
   const uploading = ref<boolean>(false);
   const error = ref<string | null>(null);
-  const uploadProvider = String(import.meta.env.VITE_IMAGE_UPLOAD_PROVIDER || 'firebase').toLowerCase();
-  const useHostingUpload = uploadProvider === 'hosting';
+  const useHostingUpload = false; // Bypass env checking and force all user uploads to pure Firebase Storage.
 
   const fileToBase64 = async (file: File): Promise<string> => (
     new Promise((resolve, reject) => {
