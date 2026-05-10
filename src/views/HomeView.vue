@@ -407,10 +407,12 @@ const removeSelectedImage = (id: string) => {
   URL.revokeObjectURL(selectedImages.value[index].previewUrl)
   selectedImages.value.splice(index, 1)
 }
-
-const deriveThumbnailURL = (image: string): string => {
+const deriveThumbnailURL = (image: string, source?: string): string => {
   let derivedThumb = image;
   if (!image || typeof image !== 'string') return derivedThumb;
+  // Solo aplicamos el guión bajo de miniatura generada vía Nodejs a los posts scrapeados.
+  // Los orgánicos (subidos por navegadores) ya tienen su subida webp optimizada.
+  if (source !== 'scraping') return derivedThumb;
   if (image.includes('firebasestorage.googleapis.com')) return derivedThumb;
   
   try {
@@ -451,7 +453,7 @@ const normalizeImageList = (
         }
         
         if (finalThumbUrl === image.url) {
-          finalThumbUrl = deriveThumbnailURL(image.url);
+          finalThumbUrl = deriveThumbnailURL(image.url, item.source);
         }
 
         return {
@@ -467,13 +469,13 @@ const normalizeImageList = (
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string, index: number) => {
-        const derivedThumb = deriveThumbnailURL(image);
+        const derivedThumb = deriveThumbnailURL(image, item.source);
         return {
           url: image,
           thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : derivedThumb,
           width: 16,
           height: 9
-        };
+        }
       })
   }
 

@@ -120,9 +120,11 @@ const canSave = computed(() => {
   return true;
 });
 
-const deriveThumbnailURL = (image: string): string => {
+const deriveThumbnailURL = (image: string, source?: string): string => {
   let derivedThumb = image;
   if (!image || typeof image !== 'string') return derivedThumb;
+  // Solo aplicamos el guión bajo de miniatura generada vía Nodejs a los posts scrapeados.
+  if (source !== 'scraping') return derivedThumb;
   if (image.includes('firebasestorage.googleapis.com')) return derivedThumb;
   
   try {
@@ -153,7 +155,7 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
         }
         
         if (finalThumbUrl === image.url) {
-          finalThumbUrl = deriveThumbnailURL(image.url);
+          finalThumbUrl = deriveThumbnailURL(image.url, item.source);
         }
 
         return {
@@ -167,7 +169,7 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string) => {
-        return { url: image, thumbUrl: deriveThumbnailURL(image) };
+        return { url: image, thumbUrl: deriveThumbnailURL(image, item.source) };
       });
   }
 
