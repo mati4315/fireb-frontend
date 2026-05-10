@@ -410,7 +410,9 @@ const removeSelectedImage = (id: string) => {
 
 const deriveThumbnailURL = (image: string): string => {
   let derivedThumb = image;
-  if (!image) return derivedThumb;
+  if (!image || typeof image !== 'string') return derivedThumb;
+  if (image.includes('firebasestorage.googleapis.com')) return derivedThumb;
+  
   try {
     const urlObj = new URL(image);
     const path = urlObj.pathname;
