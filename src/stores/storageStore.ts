@@ -19,8 +19,7 @@ export const useStorageStore = defineStore('storage', () => {
   const uploadProgress = ref<number>(0);
   const uploading = ref<boolean>(false);
   const error = ref<string | null>(null);
-  const uploadProvider = String(import.meta.env.VITE_IMAGE_UPLOAD_PROVIDER || 'hosting').toLowerCase();
-  const useHostingUpload = uploadProvider === 'hosting';
+  const useHostingUpload = false; // Forzamos Firebase para subidas de usuarios sin depender de las variables de entorno de GitHub
 
   const fileToBase64 = async (file: File): Promise<string> => (
     new Promise((resolve, reject) => {
