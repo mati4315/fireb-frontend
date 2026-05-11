@@ -19,7 +19,7 @@ export const useStorageStore = defineStore('storage', () => {
   const uploadProgress = ref<number>(0);
   const uploading = ref<boolean>(false);
   const error = ref<string | null>(null);
-  const useHostingUpload = false; // Bypass env checking and force all user uploads to pure Firebase Storage.
+  const useHostingUpload = true; // Route user uploads through backend FTP hosting bridge.
 
   const fileToBase64 = async (file: File): Promise<string> => (
     new Promise((resolve, reject) => {

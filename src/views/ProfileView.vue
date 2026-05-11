@@ -533,7 +533,10 @@ const handleSaveProfile = async () => {
 
       const processed = await processImageForPost(selectedAvatarFile.value);
       const extension = processed.thumbFile.type === 'image/webp' ? 'webp' : 'jpg';
-      const path = `avatars/${authStore.user.uid}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_t.${extension}`;
+      const now = new Date();
+      const year = String(now.getFullYear());
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const path = `AVATAR/${authStore.user.uid}/${year}/${month}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_t.${extension}`;
 
       const uploadResult = await storageStore.uploadFileWithProgress(
         processed.thumbFile,
