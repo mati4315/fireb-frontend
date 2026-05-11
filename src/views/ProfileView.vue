@@ -49,6 +49,9 @@ const selectedAvatarFile = ref<File | null>(null);
 const avatarPreviewUrl = ref('');
 const avatarUploading = ref(false);
 const avatarUploadProgress = ref(0);
+const linkingProviderId = ref<string | null>(null);
+const linkProviderError = ref<string | null>(null);
+const linkProviderSuccess = ref<string | null>(null);
 
 const MAX_POST_IMAGES = 4;
 const editingPosts = ref<Record<string, { 
@@ -119,6 +122,26 @@ const canSave = computed(() => {
   if (usernameStatus.value === 'taken' || usernameStatus.value === 'invalid') return false;
   return true;
 });
+
+const linkSocialProvider = async (providerId: string) => {
+  if (!isOwnProfile.value || linkingProviderId.value) return;
+  linkingProviderId.value = providerId;
+  linkProviderError.value = null;
+  linkProviderSuccess.value = null;
+
+  try {
+    const result = await authStore.linkProvider(providerId);
+    if (!result.success) {
+      throw new Error(result.error || 'No se pudo vincular la cuenta.');
+    }
+
+    linkProviderSuccess.value = 'Cuenta social vinculada correctamente.';
+  } catch (err: any) {
+    linkProviderError.value = err?.message || 'No se pudo vincular la cuenta social.';
+  } finally {
+    linkingProviderId.value = null;
+  }
+};
 
 const deriveThumbnailURL = (image: string, source?: string): string => {
   let derivedThumb = image;
@@ -784,12 +807,24 @@ onBeforeUnmount(() => {
               :key="provider.id"
               class="social-connected-item"
             >
-              <span class="social-provider-name">{{ provider.label }}</span>
-              <span class="social-provider-mark" :class="{ off: !provider.connected }">
-                {{ provider.connected ? '✅' : '❌' }}
-              </span>
+              <div class="social-provider-left">
+                <span class="social-provider-name">{{ provider.label }}</span>
+                <span class="social-provider-mark" :class="{ off: !provider.connected }">
+                  {{ provider.connected ? '✅' : '❌' }}
+                </span>
+              </div>
+              <button
+                v-if="!provider.connected"
+                class="secondary-btn social-link-btn"
+                :disabled="Boolean(linkingProviderId)"
+                @click="linkSocialProvider(provider.id)"
+              >
+                {{ linkingProviderId === provider.id ? 'Vinculando...' : `Vincular ${provider.label}` }}
+              </button>
             </div>
           </div>
+          <p v-if="linkProviderError" class="inline-error">{{ linkProviderError }}</p>
+          <p v-if="linkProviderSuccess" class="inline-success">{{ linkProviderSuccess }}</p>
         </div>
 
         <label class="avatar-upload">
@@ -1126,10 +1161,22 @@ onBeforeUnmount(() => {
 }
 
 .social-connected-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.social-provider-left {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.9rem;
+}
+
+.social-link-btn {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
 }
 
 .social-provider-name {

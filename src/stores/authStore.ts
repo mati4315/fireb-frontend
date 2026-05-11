@@ -13,7 +13,8 @@ import {
   getRedirectResult,
   signInWithCredential,
   fetchSignInMethodsForEmail,
-  linkWithCredential
+  linkWithCredential,
+  linkWithPopup
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -407,6 +408,73 @@ export const useAuthStore = defineStore('auth', () => {
     return loginWithProvider('google.com');
   };
 
+  const linkProvider = async (providerId: string) => {
+    loading.value = true;
+    error.value = null;
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('Debes iniciar sesion para vincular cuentas.');
+      }
+
+      if (isNativePlatform() && (providerId === 'google.com' || providerId === 'facebook.com')) {
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+        const nativeResult = providerId === 'google.com'
+          ? await FirebaseAuthentication.signInWithGoogle()
+          : await FirebaseAuthentication.signInWithFacebook();
+
+        const nativeCredential = nativeResult.credential;
+        if (!nativeCredential) {
+          throw new Error('No se pudo obtener credencial nativa para vincular la cuenta.');
+        }
+
+        let firebaseCredential;
+        if (providerId === 'google.com') {
+          firebaseCredential = GoogleAuthProvider.credential(
+            nativeCredential.idToken || null,
+            nativeCredential.accessToken || null
+          );
+        } else {
+          const facebookToken = nativeCredential.accessToken || '';
+          if (!facebookToken) {
+            throw new Error('No se pudo obtener token de Facebook.');
+          }
+          firebaseCredential = FacebookAuthProvider.credential(facebookToken);
+        }
+
+        await linkWithCredential(currentUser, firebaseCredential);
+      } else {
+        let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
+        if (providerId === 'google.com') {
+          provider = new GoogleAuthProvider();
+        } else if (providerId === 'facebook.com') {
+          provider = new FacebookAuthProvider();
+        } else {
+          provider = new OAuthProvider(providerId);
+        }
+
+        await linkWithPopup(currentUser, provider);
+      }
+
+      await currentUser.reload();
+      user.value = auth.currentUser;
+      await refreshTokenClaims(currentUser, true);
+
+      loading.value = false;
+      return { success: true };
+    } catch (err: any) {
+      if (err?.code === 'auth/provider-already-linked') {
+        loading.value = false;
+        return { success: true };
+      }
+      console.error('Link Provider Error:', err);
+      error.value = err?.message || 'No se pudo vincular la cuenta social.';
+      loading.value = false;
+      return { success: false, error: error.value };
+    }
+  };
+
   const logout = async () => {
     try {
       await signOut(auth);
@@ -450,6 +518,7 @@ export const useAuthStore = defineStore('auth', () => {
     signup,
     loginWithProvider,
     loginWithGoogle,
+    linkProvider,
     logout,
     updateDefaultFeedTabPreference
   };
