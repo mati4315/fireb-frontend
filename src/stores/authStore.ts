@@ -9,8 +9,11 @@ import {
   FacebookAuthProvider,
   OAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   getRedirectResult,
-  signInWithCredential
+  signInWithCredential,
+  fetchSignInMethodsForEmail,
+  linkWithCredential
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -317,6 +320,12 @@ export const useAuthStore = defineStore('auth', () => {
         provider = new OAuthProvider(providerId);
       }
 
+      if (providerId === 'facebook.com') {
+        await signInWithRedirect(auth, provider);
+        loading.value = false;
+        return { success: true };
+      }
+
       const { user: firebaseUser } = await signInWithPopup(auth, provider);
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
@@ -330,11 +339,67 @@ export const useAuthStore = defineStore('auth', () => {
       console.error('Login Error:', err);
       if (err.code === 'auth/popup-closed-by-user') {
         error.value = 'El inicio de sesión fue cancelado.';
+      } else if (err.code === 'auth/account-exists-with-different-credential') {
+        const email = (err?.customData?.email || '').toString().trim();
+        let message = 'Este correo ya existe con otro método. Inicia sesión con ese método para vincular la cuenta.';
+
+        if (email) {
+          try {
+            const methods = await fetchSignInMethodsForEmail(auth, email);
+            let pendingCredential: any = null;
+
+            if (providerId === 'facebook.com') {
+              pendingCredential = FacebookAuthProvider.credentialFromError(err);
+            } else if (providerId === 'google.com') {
+              pendingCredential = GoogleAuthProvider.credentialFromError(err);
+            }
+
+            if (pendingCredential && methods.includes('google.com')) {
+              const googleProvider = new GoogleAuthProvider();
+              const { user: existingUser } = await signInWithPopup(auth, googleProvider);
+
+              try {
+                await linkWithCredential(existingUser, pendingCredential);
+              } catch (linkErr: any) {
+                if (linkErr?.code !== 'auth/provider-already-linked' && linkErr?.code !== 'auth/credential-already-in-use') {
+                  throw linkErr;
+                }
+              }
+
+              user.value = existingUser;
+              await refreshTokenClaims(existingUser, true);
+              const profile = await refreshUserProfile(existingUser.uid);
+              if (!profile) {
+                await ensureProfileDocument(existingUser);
+              }
+
+              loading.value = false;
+              error.value = null;
+              return { success: true };
+            }
+
+            const labelsByMethod: Record<string, string> = {
+              password: 'Email y contraseña',
+              'google.com': 'Google',
+              'facebook.com': 'Facebook',
+              'apple.com': 'Apple',
+              'github.com': 'GitHub'
+            };
+            if (methods.length > 0) {
+              const labelList = methods.map((method) => labelsByMethod[method] || method).join(', ');
+              message = `Este correo (${email}) ya está registrado con: ${labelList}. Usa ese método para iniciar sesión.`;
+            }
+          } catch (lookupError) {
+            console.error('Error resolving sign-in methods:', lookupError);
+          }
+        }
+
+        error.value = message;
       } else {
         error.value = err.message;
       }
       loading.value = false;
-      return { success: false, error: err.message };
+      return { success: false, error: error.value || err.message };
     }
   };
 
