@@ -45,7 +45,11 @@ const handleProviderLogin = async (providerId: string) => {
         v-for="provider in authStore.socialProviders"
         :key="provider.id"
         type="button"
-        class="google-btn"
+        class="social-btn"
+        :class="{
+          'google-btn': provider.id === 'google.com',
+          'facebook-btn': provider.id === 'facebook.com'
+        }"
         :disabled="authStore.loading"
         @click="handleProviderLogin(provider.id)"
       >
@@ -145,7 +149,7 @@ const handleProviderLogin = async (providerId: string) => {
   font-size: 0.95rem;
 }
 
-.google-btn {
+.social-btn {
   width: 100%;
   display: flex;
   align-items: center;
@@ -161,9 +165,20 @@ const handleProviderLogin = async (providerId: string) => {
   transition: all 0.2s;
 }
 
-.google-btn:hover:not(:disabled) {
+.social-btn:hover:not(:disabled) {
   background-color: var(--social-bg);
   transform: translateY(-1px);
+}
+
+.facebook-btn {
+  background-color: #1877f2;
+  border-color: #1877f2;
+  color: #fff;
+}
+
+.facebook-btn:hover:not(:disabled) {
+  background-color: #166fe5;
+  border-color: #166fe5;
 }
 
 .google-icon {
