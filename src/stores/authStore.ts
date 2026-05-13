@@ -339,7 +339,16 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (err: any) {
       console.error('Login Error:', err);
       if (err.code === 'auth/popup-closed-by-user') {
-        error.value = 'El inicio de sesión fue cancelado.';
+        if (!isNativePlatform() && providerId === 'facebook.com') {
+          try {
+            await signInWithRedirect(auth, new FacebookAuthProvider());
+            loading.value = false;
+            return { success: true };
+          } catch (redirectErr) {
+            console.error('Facebook redirect fallback error:', redirectErr);
+          }
+        }
+        error.value = 'El inicio de sesion fue cancelado.';
       } else if (err.code === 'auth/account-exists-with-different-credential') {
         const email = (err?.customData?.email || '').toString().trim();
         let message = 'Este correo ya existe con otro método. Inicia sesión con ese método para vincular la cuenta.';
@@ -468,6 +477,15 @@ export const useAuthStore = defineStore('auth', () => {
         loading.value = false;
         return { success: true };
       }
+      if (err?.code === 'auth/popup-closed-by-user' && !isNativePlatform() && providerId === 'facebook.com') {
+        try {
+          await signInWithRedirect(auth, new FacebookAuthProvider());
+          loading.value = false;
+          return { success: true };
+        } catch (redirectErr) {
+          console.error('Facebook link redirect fallback error:', redirectErr);
+        }
+      }
       console.error('Link Provider Error:', err);
       error.value = err?.message || 'No se pudo vincular la cuenta social.';
       loading.value = false;
@@ -523,3 +541,4 @@ export const useAuthStore = defineStore('auth', () => {
     updateDefaultFeedTabPreference
   };
 });
+
