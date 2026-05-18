@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '@/stores/authStore';
 import {
   useLotteryStore,
@@ -21,6 +21,20 @@ const showLoginPrompt = ref(false);
 const nowMs = ref(Date.now());
 const modalLotteryId = ref<string | null>(null);
 const modalCell = ref<LotteryNumberCell | null>(null);
+const didAutoExpandFirstLottery = ref(false);
+const availableTiltClassByKey = new Map<string, string>();
+
+const AVAILABLE_TILT_CLASSES = [
+  'tilt-neg8',
+  'tilt-neg6',
+  'tilt-neg4',
+  'tilt-neg2',
+  'tilt-0',
+  'tilt-pos2',
+  'tilt-pos4',
+  'tilt-pos6',
+  'tilt-pos8'
+] as const;
 
 let nowTimer: ReturnType<typeof setInterval> | null = null;
 const successTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -136,9 +150,13 @@ const canBuyMoreNumbers = (lottery: Lottery): boolean => {
   return getUserTicketCount(lottery.id) < lottery.maxTicketsPerUser;
 };
 
+const isLimitReached = (lottery: Lottery): boolean => {
+  return !canBuyMoreNumbers(lottery);
+};
+
 const getUserNumbersLabel = (lotteryId: string): string => {
   const numbers = lotteryStore.getUserNumbers(lotteryId);
-  if (numbers.length === 0) return 'Sin numeros';
+  if (numbers.length === 0) return 'Aún no seleccionaste ningún número';
   return numbers.join(', ');
 };
 
@@ -212,6 +230,18 @@ const setFilter = async (lottery: Lottery, filter: LotteryNumberFilter) => {
 
 const getCellClass = (lotteryId: string, cell: LotteryNumberCell): string[] => {
   const classes = ['number-btn', `state-${cell.state}`];
+  if (cell.state === 'available') {
+    const key = `${lotteryId}_${cell.number}`;
+    const existingTiltClass = availableTiltClassByKey.get(key);
+    if (existingTiltClass) {
+      classes.push(existingTiltClass);
+    } else {
+      const randomIdx = Math.floor(Math.random() * AVAILABLE_TILT_CLASSES.length);
+      const randomTiltClass = AVAILABLE_TILT_CLASSES[randomIdx];
+      availableTiltClassByKey.set(key, randomTiltClass);
+      classes.push(randomTiltClass);
+    }
+  }
   if (lotteryStore.isSelectingNumber(lotteryId, cell.number)) {
     classes.push('is-pending');
   }
@@ -253,6 +283,15 @@ const modalCanBuy = computed(() => {
   if (!canBuyMoreNumbers(lottery)) return false;
   if (lotteryStore.isSelectingNumber(lottery.id, cell.number)) return false;
   return true;
+});
+
+const modalLimitReached = computed(() => {
+  const lottery = modalLottery.value;
+  const cell = modalCell.value;
+  if (!lottery || !cell) return false;
+  if (cell.state !== 'available') return false;
+  if (!authStore.isAuthenticated) return false;
+  return isLimitReached(lottery);
 });
 
 const getFriendlyError = (error: any): string => {
@@ -320,6 +359,26 @@ const closeLoginPrompt = () => {
   showLoginPrompt.value = false;
 };
 
+watch(
+  lotteries,
+  async (nextLotteries) => {
+    if (didAutoExpandFirstLottery.value || nextLotteries.length === 0) return;
+
+    const firstLottery = nextLotteries[0];
+    expandedByLottery.value = { [firstLottery.id]: true };
+    didAutoExpandFirstLottery.value = true;
+
+    clearError(firstLottery.id);
+    try {
+      await ensurePageLoaded(firstLottery.id);
+      void prefetchAllPages(firstLottery.id, getPage(firstLottery.id));
+    } catch {
+      setError(firstLottery.id, 'No se pudieron cargar los numeros de esta loteria.');
+    }
+  },
+  { immediate: true }
+);
+
 onMounted(() => {
   lotteryStore.initPublicLotteriesListener();
   lotteryStore.initUserEntriesListener();
@@ -384,20 +443,36 @@ onBeforeUnmount(() => {
         <div class="lottery-meta">
           <span>Inicio: <strong>{{ formatDateTime(lottery.startsAt) }}</strong></span>
           <span>Cierre: <strong>{{ formatDateTime(lottery.endsAt) }}</strong></span>
-          <span>Vendidos: <strong>{{ lottery.participantsCount }} / {{ lottery.maxNumber }}</strong></span>
-          <span>Disponibles: <strong>{{ getAvailableCount(lottery) }}</strong></span>
-          <span>Tiempo: <strong>{{ getCountdownLabel(lottery) }}</strong></span>
           <span>Tus numeros: <strong>{{ getUserNumbersLabel(lottery.id) }}</strong></span>
         </div>
 
         <div class="lottery-progress">
           <div class="progress-top">
             <strong>{{ getSoldProgressPercent(lottery) }}%</strong>
-            <span>{{ lottery.participantsCount }} vendidos / {{ getAvailableCount(lottery) }} disponibles</span>
+            <span>{{ lottery.participantsCount }} participantes / {{ getAvailableCount(lottery) }} disponibles</span>
           </div>
           <div class="progress-track" role="progressbar" :aria-valuenow="getSoldProgressPercent(lottery)" aria-valuemin="0" aria-valuemax="100">
             <div class="progress-fill" :style="{ width: `${getSoldProgressPercent(lottery)}%` }"></div>
           </div>
+        </div>
+
+        <div class="lottery-time">
+          <span class="time-icon" aria-hidden="true">⏱</span>
+          <span>Tiempo restante: <strong>{{ getCountdownLabel(lottery) }}</strong></span>
+        </div>
+
+        <div v-if="isLimitReached(lottery)" class="lottery-limit-banner" role="status" aria-live="polite">
+          <span class="limit-icon" aria-hidden="true">!</span>
+          <span>Ya alcanzaste el limite de numeros para esta loteria.</span>
+        </div>
+
+        <div class="lottery-progress-actions">
+          <button
+            class="ghost-btn"
+            @click="toggleExpanded(lottery.id)"
+          >
+            {{ isExpanded(lottery.id) ? 'Ocultar numeros' : 'Elegir numero' }}
+          </button>
         </div>
 
         <div v-if="lottery.winner" class="winner-banner">
@@ -412,15 +487,6 @@ onBeforeUnmount(() => {
         <p v-if="errorByLottery[lottery.id]" class="lottery-error">
           {{ errorByLottery[lottery.id] }}
         </p>
-
-        <footer class="lottery-actions">
-          <button
-            class="ghost-btn"
-            @click="toggleExpanded(lottery.id)"
-          >
-            {{ isExpanded(lottery.id) ? 'Ocultar numeros' : 'Elegir numero' }}
-          </button>
-        </footer>
 
         <div v-if="isExpanded(lottery.id)" class="numbers-panel">
           <div class="numbers-toolbar">
@@ -521,31 +587,9 @@ onBeforeUnmount(() => {
     <div v-if="modalLottery && modalCell" class="number-modal-backdrop" @click="closeNumberModal">
       <div class="number-modal" @click.stop>
         <h3>Numero {{ modalCell.number }}</h3>
-
-        <p v-if="modalCell.state === 'available'" class="modal-status available">
-          Disponible para compra
+        <p v-if="modalLimitReached" class="modal-warning">
+          Ya alcanzaste el limite de numeros para esta loteria. Espera el proximo sorteo.
         </p>
-
-        <div v-else class="modal-owner">
-          <img
-            v-if="modalCell.entry?.userProfilePicUrl"
-            :src="modalCell.entry.userProfilePicUrl"
-            alt="perfil comprador"
-            class="modal-owner-avatar"
-          />
-          <div>
-            <p class="modal-status sold">
-              {{ modalCell.state === 'mine' ? 'Este numero es tuyo' : 'Numero ocupado' }}
-            </p>
-            <p>
-              Comprador:
-              <strong>
-                {{ modalCell.state === 'mine' ? 'Tu cuenta' : (modalCell.entry?.userName || 'Usuario') }}
-              </strong>
-            </p>
-            <small>Fecha: {{ formatDateTime(modalCell.entry?.createdAt || null) }}</small>
-          </div>
-        </div>
 
         <p v-if="modalCell.state === 'available'">
           Limite por usuario: <strong>{{ modalLottery.maxTicketsPerUser }}</strong>
@@ -557,10 +601,16 @@ onBeforeUnmount(() => {
           <button
             v-if="modalCell.state === 'available'"
             class="primary-btn"
-            :disabled="!modalCanBuy"
+            :disabled="!modalCanBuy || modalLimitReached"
             @click="buySelectedNumber"
           >
-            {{ lotteryStore.isSelectingNumber(modalLottery.id, modalCell.number) ? 'Comprando...' : `Comprar ${modalCell.number}` }}
+            {{
+              lotteryStore.isSelectingNumber(modalLottery.id, modalCell.number)
+                ? 'Comprando...'
+                : modalLimitReached
+                  ? 'Limite alcanzado'
+                  : `seleccionar Nº ${modalCell.number}`
+            }}
           </button>
         </div>
       </div>
@@ -568,7 +618,7 @@ onBeforeUnmount(() => {
 
     <AuthPromptModal
       :open="showLoginPrompt"
-      title="Inicia sesion para comprar numero"
+      title="Inicia sesion para seleccionar un numero"
       message="Con tu cuenta puedes elegir numeros y seguir tus compras de loteria."
       @close="closeLoginPrompt"
     />
@@ -713,6 +763,30 @@ onBeforeUnmount(() => {
   transition: width 0.25s ease;
 }
 
+.lottery-time {
+  margin-top: 0.55rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.time-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg) 88%);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
 .winner-banner {
   margin-top: 0.75rem;
   padding: 0.55rem 0.7rem;
@@ -734,17 +808,49 @@ onBeforeUnmount(() => {
 }
 
 .lottery-error {
-  margin: 0.6rem 0 0;
-  color: #991b1b;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin: 0.65rem 0 0;
+  padding: 0.58rem 0.68rem;
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: #9f1239;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
-.lottery-actions {
+.lottery-limit-banner {
+  margin: 0.6rem 0 0;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid #fdba74;
+  border-radius: 11px;
+  background: #fff7ed;
+  color: #9a3412;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.limit-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ea580c;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.lottery-progress-actions {
   margin-top: 0.8rem;
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 button {
@@ -761,9 +867,36 @@ button {
   color: var(--text-h);
 }
 
+.lottery-progress-actions .ghost-btn {
+  min-width: 180px;
+  padding: 0.72rem 1.2rem;
+  font-size: 0.96rem;
+  font-weight: 800;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 14%, #ffffff 86%) 0%,
+    color-mix(in srgb, var(--accent) 8%, var(--bg) 92%) 100%
+  );
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 24%, transparent 76%);
+}
+
 .primary-btn {
   background: var(--accent);
   color: #fff;
+}
+
+.number-modal .modal-actions .primary-btn:disabled {
+  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+  color: rgba(255, 255, 255, 0.88);
+  border: 1px solid #64748b;
+  box-shadow: none;
+  opacity: 0.58;
+  filter: saturate(0.45);
+  cursor: not-allowed !important;
+  transform: none !important;
+  pointer-events: none;
 }
 
 button:disabled {
@@ -856,10 +989,34 @@ button:disabled {
 }
 
 .number-btn.state-available {
-  background: #f6ffed;
-  border-color: #b7eb8f;
-  color: #237804;
+  border: 2px solid #111;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #ffffff 0%, #f3f3f3 52%, #dcdcdc 100%);
+  color: #101010;
+  font-family: 'Comic Sans MS', 'Trebuchet MS', cursive;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 1px;
+  font-size: 1.03rem;
+  font-weight: 900;
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.22), inset 0 1px 2px rgba(255, 255, 255, 0.9);
 }
+
+.number-btn.state-available .number-label {
+  font-size: 1.16rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.number-btn.state-available.tilt-neg8 { transform: rotate(-8deg); }
+.number-btn.state-available.tilt-neg6 { transform: rotate(-6deg); }
+.number-btn.state-available.tilt-neg4 { transform: rotate(-4deg); }
+.number-btn.state-available.tilt-neg2 { transform: rotate(-2deg); }
+.number-btn.state-available.tilt-0 { transform: rotate(0deg); }
+.number-btn.state-available.tilt-pos2 { transform: rotate(2deg); }
+.number-btn.state-available.tilt-pos4 { transform: rotate(4deg); }
+.number-btn.state-available.tilt-pos6 { transform: rotate(6deg); }
+.number-btn.state-available.tilt-pos8 { transform: rotate(8deg); }
 
 .number-btn.state-sold {
   background: #fff1f0;
@@ -975,6 +1132,17 @@ button:disabled {
 
 .modal-status.sold {
   color: #a8071a;
+}
+
+.modal-warning {
+  margin: 0.65rem 0 0.25rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid #fdba74;
+  border-radius: 11px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .modal-owner {

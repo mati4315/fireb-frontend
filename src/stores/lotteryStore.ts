@@ -512,7 +512,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     }),
     () => {
       if (!authStore.user?.uid) return;
-      void initUserEntriesListener();
+      void initUserEntriesListener(true);
     }
   );
 
