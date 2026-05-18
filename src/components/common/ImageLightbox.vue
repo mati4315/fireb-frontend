@@ -12,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const currentIndex = ref(0)
+const isImageLoading = ref(true)
 const isZoomed = ref(false)
 const zoomOrigin = ref({ x: '50%', y: '50%' })
 const panX = ref(0)
@@ -32,6 +33,14 @@ const resetZoom = () => {
   panX.value = 0
   panY.value = 0
   isDragging.value = false
+}
+
+const onImageLoad = () => {
+  isImageLoading.value = false
+}
+
+const onImageError = () => {
+  isImageLoading.value = false
 }
 
 const close = () => {
@@ -172,9 +181,15 @@ watch(
     if (!props.open) return
     const next = props.initialIndex ?? 0
     currentIndex.value = normalizeIndex(next)
+    isImageLoading.value = true
   },
   { immediate: true }
 )
+
+watch(currentImage, () => {
+  if (!props.open) return
+  isImageLoading.value = true
+})
 
 watch(
   () => props.open,
@@ -205,11 +220,20 @@ onBeforeUnmount(() => {
         ‹
       </button>
 
+      <div v-if="isImageLoading" class="image-loader" aria-live="polite" aria-label="Cargando imagen">
+        <span class="spinner" aria-hidden="true"></span>
+      </div>
+
       <img 
         :src="currentImage" 
         class="lightbox-image" 
         :class="{ 'zoomed': isZoomed, 'dragging': isDragging }"
-        :style="isZoomed ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: `translate(${panX}px, ${panY}px) scale(2.5)` } : {}"
+        :style="[
+          isZoomed
+            ? { transformOrigin: `${zoomOrigin.x} ${zoomOrigin.y}`, transform: `translate(${panX}px, ${panY}px) scale(2.5)` }
+            : {},
+          { opacity: isImageLoading ? 0 : 1 }
+        ]"
         alt="Imagen ampliada" 
         @mousedown.stop="onPointerDown"
         @touchstart.stop="onPointerDown"
@@ -219,6 +243,8 @@ onBeforeUnmount(() => {
         @mouseup.stop="endDrag"
         @touchend.stop="endDrag"
         @mouseleave.stop="endDrag"
+        @load="onImageLoad"
+        @error="onImageError"
       />
 
       <button
@@ -255,10 +281,37 @@ onBeforeUnmount(() => {
   object-fit: contain;
   border-radius: 14px;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  transition: transform 0.25s ease-out;
+  transition: transform 0.25s ease-out, opacity 0.18s linear;
   cursor: zoom-in;
   touch-action: none;
   will-change: transform;
+}
+
+.image-loader {
+  position: absolute;
+  z-index: 2015;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(2px);
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .lightbox-image.zoomed {

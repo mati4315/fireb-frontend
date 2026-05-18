@@ -78,7 +78,7 @@ export const useStorageStore = defineStore('storage', () => {
         if (onProgress) onProgress(100);
         uploading.value = false;
         return {
-          url: payload.url,
+          url: String(payload.url).trim(),
           path: payload.path,
           sizeBytes: Number(payload.sizeBytes || file.size),
           contentType: payload.contentType || file.type || 'application/octet-stream'

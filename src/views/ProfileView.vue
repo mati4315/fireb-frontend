@@ -13,6 +13,7 @@ import { buildContentDetailPath } from '@/utils/contentLinks';
 import { isAdminUser } from '@/utils/roles';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
+const AVATAR_PUBLIC_BASE_URL = 'https://bot.cdelu.io';
 
 const route = useRoute();
 const router = useRouter();
@@ -569,7 +570,10 @@ const handleSaveProfile = async () => {
         }
       );
 
-      profilePictureUrl = uploadResult.url;
+      const uploadedPath = String(uploadResult.path || '').trim().replace(/^\/+/, '');
+      profilePictureUrl = uploadedPath
+        ? `${AVATAR_PUBLIC_BASE_URL}/${uploadedPath}`
+        : String(uploadResult.url || '').trim();
       avatarUploading.value = false;
     }
 
