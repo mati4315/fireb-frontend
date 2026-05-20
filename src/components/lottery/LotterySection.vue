@@ -23,6 +23,7 @@ const modalLotteryId = ref<string | null>(null);
 const modalCell = ref<LotteryNumberCell | null>(null);
 const didAutoExpandFirstLottery = ref(false);
 const availableTiltClassByKey = new Map<string, string>();
+const availableBallClassByKey = new Map<string, string>();
 
 const AVAILABLE_TILT_CLASSES = [
   'tilt-neg8',
@@ -34,6 +35,18 @@ const AVAILABLE_TILT_CLASSES = [
   'tilt-pos4',
   'tilt-pos6',
   'tilt-pos8'
+] as const;
+
+const AVAILABLE_BALL_CLASSES = [
+  'ball-yellow',
+  'ball-blue',
+  'ball-green',
+  'ball-orange',
+  'ball-red',
+  'ball-purple',
+  'ball-cyan',
+  'ball-black',
+  'ball-white'
 ] as const;
 
 let nowTimer: ReturnType<typeof setInterval> | null = null;
@@ -233,6 +246,7 @@ const getCellClass = (lotteryId: string, cell: LotteryNumberCell): string[] => {
   if (cell.state === 'available') {
     const key = `${lotteryId}_${cell.number}`;
     const existingTiltClass = availableTiltClassByKey.get(key);
+    const existingBallClass = availableBallClassByKey.get(key);
     if (existingTiltClass) {
       classes.push(existingTiltClass);
     } else {
@@ -240,6 +254,14 @@ const getCellClass = (lotteryId: string, cell: LotteryNumberCell): string[] => {
       const randomTiltClass = AVAILABLE_TILT_CLASSES[randomIdx];
       availableTiltClassByKey.set(key, randomTiltClass);
       classes.push(randomTiltClass);
+    }
+    if (existingBallClass) {
+      classes.push(existingBallClass);
+    } else {
+      const randomIdx = Math.floor(Math.random() * AVAILABLE_BALL_CLASSES.length);
+      const randomBallClass = AVAILABLE_BALL_CLASSES[randomIdx];
+      availableBallClassByKey.set(key, randomBallClass);
+      classes.push(randomBallClass);
     }
   }
   if (lotteryStore.isSelectingNumber(lotteryId, cell.number)) {
@@ -989,23 +1011,34 @@ button:disabled {
 }
 
 .number-btn.state-available {
-  border: 2px solid #111;
+  border: 0;
   border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #ffffff 0%, #f3f3f3 52%, #dcdcdc 100%);
-  color: #101010;
-  font-family: 'Comic Sans MS', 'Trebuchet MS', cursive;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 1px;
+  background: radial-gradient(circle at 28% 24%, #ffffff 0%, #f4f4f4 26%, #d5d5d5 100%);
+  color: #fff;
+  font-family: 'Trebuchet MS', 'Verdana', sans-serif;
   font-size: 1.03rem;
   font-weight: 900;
-  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.22), inset 0 1px 2px rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 5px 10px rgba(0, 0, 0, 0.24),
+    inset 0 -7px 12px rgba(0, 0, 0, 0.2);
 }
 
 .number-btn.state-available .number-label {
-  font-size: 1.16rem;
+  font-size: 0.9rem;
   font-weight: 900;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
+  color: #1f2937;
+  text-shadow: none;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  padding: 0 0.15rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
 }
 
 .number-btn.state-available.tilt-neg8 { transform: rotate(-8deg); }
@@ -1017,6 +1050,44 @@ button:disabled {
 .number-btn.state-available.tilt-pos4 { transform: rotate(4deg); }
 .number-btn.state-available.tilt-pos6 { transform: rotate(6deg); }
 .number-btn.state-available.tilt-pos8 { transform: rotate(8deg); }
+
+.number-btn.state-available.ball-yellow {
+  background: radial-gradient(circle at 30% 23%, #fff7c4 0%, #facc15 45%, #ca8a04 100%);
+  color: #111827;
+}
+.number-btn.state-available.ball-blue {
+  background: radial-gradient(circle at 30% 23%, #dbeafe 0%, #3b82f6 45%, #1d4ed8 100%);
+}
+.number-btn.state-available.ball-green {
+  background: radial-gradient(circle at 30% 23%, #dcfce7 0%, #22c55e 45%, #15803d 100%);
+}
+.number-btn.state-available.ball-orange {
+  background: radial-gradient(circle at 30% 23%, #ffedd5 0%, #f97316 45%, #c2410c 100%);
+}
+.number-btn.state-available.ball-red {
+  background: radial-gradient(circle at 30% 23%, #fee2e2 0%, #ef4444 45%, #b91c1c 100%);
+}
+.number-btn.state-available.ball-purple {
+  background: radial-gradient(circle at 30% 23%, #f3e8ff 0%, #a855f7 45%, #7e22ce 100%);
+}
+.number-btn.state-available.ball-cyan {
+  background: radial-gradient(circle at 30% 23%, #cffafe 0%, #06b6d4 45%, #0e7490 100%);
+}
+.number-btn.state-available.ball-black {
+  background: radial-gradient(circle at 30% 23%, #d4d4d8 0%, #3f3f46 45%, #111827 100%);
+}
+.number-btn.state-available.ball-white {
+  background: radial-gradient(circle at 30% 23%, #ffffff 0%, #e5e7eb 45%, #cbd5e1 100%);
+  color: #111827;
+}
+
+.number-btn.state-available:hover {
+  scale: 1.08;
+  filter: brightness(1.08) saturate(1.06);
+  box-shadow:
+    0 8px 14px rgba(0, 0, 0, 0.28),
+    inset 0 -7px 12px rgba(0, 0, 0, 0.2);
+}
 
 .number-btn.state-sold {
   background: #fff1f0;
@@ -1121,19 +1192,6 @@ button:disabled {
   color: var(--text-h);
 }
 
-.modal-status {
-  margin: 0.65rem 0;
-  font-weight: 700;
-}
-
-.modal-status.available {
-  color: #237804;
-}
-
-.modal-status.sold {
-  color: #a8071a;
-}
-
 .modal-warning {
   margin: 0.65rem 0 0.25rem;
   padding: 0.62rem 0.72rem;
@@ -1143,21 +1201,6 @@ button:disabled {
   color: #9a3412;
   font-size: 0.86rem;
   font-weight: 700;
-}
-
-.modal-owner {
-  margin-top: 0.6rem;
-  display: flex;
-  gap: 0.7rem;
-  align-items: center;
-}
-
-.modal-owner-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--border);
 }
 
 .modal-actions {
