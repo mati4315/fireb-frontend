@@ -24,6 +24,9 @@ const modalCell = ref<LotteryNumberCell | null>(null);
 const didAutoExpandFirstLottery = ref(false);
 const availableTiltClassByKey = new Map<string, string>();
 const availableBallClassByKey = new Map<string, string>();
+const numbersTouchStartX = ref(0);
+const numbersTouchStartY = ref(0);
+const numbersTouchStartTime = ref(0);
 
 const AVAILABLE_TILT_CLASSES = [
   'tilt-neg8',
@@ -239,6 +242,36 @@ const setFilter = async (lottery: Lottery, filter: LotteryNumberFilter) => {
   };
 
   await setPage(lottery, 1);
+};
+
+const handleNumbersTouchStart = (e: TouchEvent) => {
+  numbersTouchStartX.value = e.touches[0].clientX;
+  numbersTouchStartY.value = e.touches[0].clientY;
+  numbersTouchStartTime.value = Date.now();
+};
+
+const handleNumbersTouchEnd = async (lottery: Lottery, e: TouchEvent) => {
+  if (lotteryStore.isNumberPageLoading(lottery.id, getPage(lottery.id))) return;
+
+  const deltaX = e.changedTouches[0].clientX - numbersTouchStartX.value;
+  const deltaY = e.changedTouches[0].clientY - numbersTouchStartY.value;
+  const deltaTime = Date.now() - numbersTouchStartTime.value;
+
+  const minSwipeDistance = 40;
+  const maxVerticalDistance = 90;
+  const maxTime = 450;
+
+  if (
+    Math.abs(deltaX) > minSwipeDistance &&
+    Math.abs(deltaY) < maxVerticalDistance &&
+    deltaTime < maxTime
+  ) {
+    if (deltaX < 0) {
+      await setPage(lottery, getPage(lottery.id) + 1);
+    } else {
+      await setPage(lottery, getPage(lottery.id) - 1);
+    }
+  }
 };
 
 const getCellClass = (lotteryId: string, cell: LotteryNumberCell): string[] => {
@@ -552,7 +585,12 @@ onBeforeUnmount(() => {
             Cargando numeros...
           </p>
 
-          <div v-else class="numbers-grid">
+          <div
+            v-else
+            class="numbers-grid"
+            @touchstart="handleNumbersTouchStart"
+            @touchend="handleNumbersTouchEnd(lottery, $event)"
+          >
             <button
               v-for="cell in getNumberCells(lottery.id)"
               :key="`${lottery.id}_${cell.number}`"
