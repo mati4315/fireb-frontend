@@ -27,6 +27,8 @@ const availableBallClassByKey = new Map<string, string>();
 const numbersTouchStartX = ref(0);
 const numbersTouchStartY = ref(0);
 const numbersTouchStartTime = ref(0);
+const numbersSwipeDetected = ref(false);
+const suppressOpenModalUntilByLottery = ref<Record<string, number>>({});
 
 const AVAILABLE_TILT_CLASSES = [
   'tilt-neg8',
@@ -248,6 +250,15 @@ const handleNumbersTouchStart = (e: TouchEvent) => {
   numbersTouchStartX.value = e.touches[0].clientX;
   numbersTouchStartY.value = e.touches[0].clientY;
   numbersTouchStartTime.value = Date.now();
+  numbersSwipeDetected.value = false;
+};
+
+const handleNumbersTouchMove = (e: TouchEvent) => {
+  const deltaX = e.touches[0].clientX - numbersTouchStartX.value;
+  const deltaY = e.touches[0].clientY - numbersTouchStartY.value;
+  if (Math.abs(deltaX) > 24 && Math.abs(deltaY) < 90) {
+    numbersSwipeDetected.value = true;
+  }
 };
 
 const handleNumbersTouchEnd = async (lottery: Lottery, e: TouchEvent) => {
@@ -266,6 +277,10 @@ const handleNumbersTouchEnd = async (lottery: Lottery, e: TouchEvent) => {
     Math.abs(deltaY) < maxVerticalDistance &&
     deltaTime < maxTime
   ) {
+    suppressOpenModalUntilByLottery.value = {
+      ...suppressOpenModalUntilByLottery.value,
+      [lottery.id]: Date.now() + 380
+    };
     if (deltaX < 0) {
       await setPage(lottery, getPage(lottery.id) + 1);
     } else {
@@ -307,6 +322,9 @@ const getCellClass = (lotteryId: string, cell: LotteryNumberCell): string[] => {
 };
 
 const openNumberModal = (lottery: Lottery, cell: LotteryNumberCell) => {
+  const suppressUntil = suppressOpenModalUntilByLottery.value[lottery.id] || 0;
+  if (numbersSwipeDetected.value || Date.now() < suppressUntil) return;
+
   clearError(lottery.id);
 
   if (cell.state === 'available' && !authStore.isAuthenticated) {
@@ -589,6 +607,7 @@ onBeforeUnmount(() => {
             v-else
             class="numbers-grid"
             @touchstart="handleNumbersTouchStart"
+            @touchmove="handleNumbersTouchMove"
             @touchend="handleNumbersTouchEnd(lottery, $event)"
           >
             <button
