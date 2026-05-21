@@ -22,6 +22,7 @@ const surveyStore = useSurveyStore();
 
 const { isVisible: isHeaderVisible } = useHeaderScroll();
 const scrollY = ref(0);
+const feedTabsRef = ref<HTMLElement | null>(null);
 const SECRETOS_SCROLL_KEY = 'cdelu_secretos_scroll_y_v1';
 
 const handleScrollY = () => {
@@ -68,6 +69,22 @@ const setActiveTab = async (tabKey: HomeTabKey) => {
     saveSecretosScrollPosition();
     await router.push(targetPath);
   }
+};
+
+const scrollActiveTabIntoView = (behavior: ScrollBehavior = 'smooth') => {
+  const tabsEl = feedTabsRef.value;
+  if (!tabsEl) return;
+
+  const activeTabEl = tabsEl.querySelector<HTMLElement>(
+    `.tab-btn[data-tab-key="${activeTabKey.value}"]`
+  );
+  if (!activeTabEl) return;
+
+  activeTabEl.scrollIntoView({
+    behavior,
+    block: 'nearest',
+    inline: 'center'
+  });
 };
 
 const saveSecretosScrollPosition = () => {
@@ -374,6 +391,9 @@ onMounted(() => {
   if (!detailSecretId.value) {
     void restoreSecretosScrollPosition();
   }
+  void nextTick(() => {
+    scrollActiveTabIntoView('auto');
+  });
 });
 
 watch(
@@ -388,6 +408,14 @@ watch(
     secretStore.cleanup();
   },
   { immediate: true }
+);
+
+watch(
+  () => [activeTabKey.value, visibleTabs.value.map((tab) => tab.key).join('|')],
+  async () => {
+    await nextTick();
+    scrollActiveTabIntoView('smooth');
+  }
 );
 
 watch(
@@ -416,6 +444,7 @@ onUnmounted(() => {
     @touchend="handleTouchEnd"
   >
     <div
+      ref="feedTabsRef"
       class="feed-tabs"
       :class="{
         'tabs-at-top': scrollY <= 64,
@@ -427,6 +456,7 @@ onUnmounted(() => {
         v-for="tab in visibleTabs"
         :key="tab.key"
         class="tab-btn"
+        :data-tab-key="tab.key"
         :class="{ active: activeTabKey === tab.key }"
         @click="setActiveTab(tab.key)"
       >
@@ -737,6 +767,7 @@ onUnmounted(() => {
   scrollbar-width: none;
   margin-bottom: 1.5rem;
   transition: transform 0.2s ease, opacity 0.2s ease;
+  scroll-padding-inline: 1.5rem;
 }
 
 .feed-tabs::after {
@@ -1546,6 +1577,7 @@ onUnmounted(() => {
   .feed-tabs {
     padding: 0 1rem;
     gap: 1.25rem;
+    scroll-padding-inline: 1rem;
   }
 
   .composer-card {

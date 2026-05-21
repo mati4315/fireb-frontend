@@ -90,6 +90,7 @@ const editingPosts = ref<Record<string, {
 const expandedComments = ref<Record<string, boolean>>({})
 const showLikeLoginPrompt = ref(false)
 const scrollPositions = ref<Record<string, number>>({})
+const feedTabsRef = ref<HTMLElement | null>(null)
 const touchStartX = ref(0)
 const touchStartY = ref(0)
 const touchStartTime = ref(0)
@@ -222,6 +223,22 @@ const setupInfiniteObserver = async () => {
   infiniteObserver.observe(infiniteSentinel.value)
 }
 
+const scrollActiveTabIntoView = (behavior: ScrollBehavior = 'smooth') => {
+  const tabsEl = feedTabsRef.value
+  if (!tabsEl) return
+
+  const activeTabEl = tabsEl.querySelector<HTMLElement>(
+    `.tab-btn[data-tab-key="${feedStore.currentTab}"]`
+  )
+  if (!activeTabEl) return
+
+  activeTabEl.scrollIntoView({
+    behavior,
+    block: 'nearest',
+    inline: 'center'
+  })
+}
+
 const setActiveTab = async (tabKey: string) => {
   if (feedStore.currentTab === tabKey) return
 
@@ -317,6 +334,8 @@ onMounted(async () => {
     await router.replace(getTabPath(fallbackTab))
   }
   await setupInfiniteObserver()
+  await nextTick()
+  scrollActiveTabIntoView('auto')
 })
 
 onUnmounted(() => {
@@ -1335,6 +1354,14 @@ watch(
     }
   }
 )
+
+watch(
+  () => [feedStore.currentTab, visibleTabs.value.map((tab) => tab.key).join('|')],
+  async () => {
+    await nextTick()
+    scrollActiveTabIntoView('smooth')
+  }
+)
 </script>
 
 <template>
@@ -1345,6 +1372,7 @@ watch(
   >
     <div class="feed-container">
       <div 
+        ref="feedTabsRef"
         class="feed-tabs"
         :class="{ 
           'tabs-at-top': scrollY <= 64,
@@ -1356,6 +1384,7 @@ watch(
           v-for="tab in visibleTabs"
           :key="tab.key"
           class="tab-btn"
+          :data-tab-key="tab.key"
           :class="{ active: feedStore.currentTab === tab.key }"
           @click="setActiveTab(tab.key)"
         >
@@ -1755,6 +1784,7 @@ watch(
   scrollbar-width: none;
   margin-bottom: 1.5rem;
   transition: transform 0.2s ease, opacity 0.2s ease;
+  scroll-padding-inline: 1.5rem;
 }
 
 .feed-tabs::after {
@@ -2341,6 +2371,7 @@ watch(
     padding: 0 1rem;
     margin-bottom: 0.5rem;
     gap: 1.25rem;
+    scroll-padding-inline: 1rem;
   }
 
   .feed-tabs::after {

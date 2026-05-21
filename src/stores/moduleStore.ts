@@ -257,14 +257,14 @@ export const useModuleStore = defineStore('module', () => {
     if (modules.value.community.enabled) {
       tabs.push({ key: 'post', label: 'Comunidad' });
     }
-    if (modules.value.secrets.enabled) {
-      tabs.push({ key: 'secrets', label: 'Secretos' });
-    }
     if (modules.value.surveys.enabled) {
       tabs.push({ key: 'surveys', label: 'Encuestas' });
     }
     if (modules.value.lottery.enabled) {
       tabs.push({ key: 'lottery', label: 'Loteria' });
+    }
+    if (modules.value.secrets.enabled) {
+      tabs.push({ key: 'secrets', label: 'Secretos' });
     }
 
     return tabs;
