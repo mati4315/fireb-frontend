@@ -1059,9 +1059,7 @@ button:disabled {
   font-family: 'Trebuchet MS', 'Verdana', sans-serif;
   font-size: 1.03rem;
   font-weight: 900;
-  box-shadow:
-    0 5px 10px rgba(0, 0, 0, 0.24),
-    inset 0 -7px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 .number-btn.state-available .number-label {
@@ -1079,7 +1077,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+  box-shadow: none;
 }
 
 .number-btn.state-available.tilt-neg8 { transform: rotate(-8deg); }
@@ -1125,9 +1123,7 @@ button:disabled {
 .number-btn.state-available:hover {
   scale: 1.08;
   filter: brightness(1.08) saturate(1.06);
-  box-shadow:
-    0 8px 14px rgba(0, 0, 0, 0.28),
-    inset 0 -7px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 .number-btn.state-sold {
@@ -1300,9 +1296,7 @@ button:disabled {
   }
 
   .number-btn.state-available {
-    box-shadow:
-      0 3px 6px rgba(0, 0, 0, 0.2),
-      inset 0 -4px 8px rgba(0, 0, 0, 0.18);
+    box-shadow: none;
   }
 
   .number-btn.state-available:hover {

@@ -297,6 +297,7 @@ const canCreateSecret = computed(() => {
   const text = newSecretText.value.trim();
   return text.length >= secretMinTextLength.value && text.length <= secretMaxTextLength.value;
 });
+const hasSecretDraftText = computed(() => newSecretText.value.trim().length > 0);
 
 const textCount = computed(() => newSecretText.value.length);
 
@@ -577,6 +578,7 @@ onUnmounted(() => {
         <span class="counter" :class="{ warn: textCount > warningThreshold }">{{ textCount }}/{{ secretMaxTextLength }}</span>
         <button
           class="publish-btn"
+          :class="{ 'has-text': hasSecretDraftText }"
           type="button"
           :disabled="creating || !canCreateSecret"
           @click="handleCreateSecret"
@@ -903,7 +905,7 @@ onUnmounted(() => {
 }
 
 .composer-grid.is-neutral {
-  background: #6b728065;
+  background: linear-gradient(135deg, #0ea5a8 0%, #0891b2 100%);
 }
 
 .composer-grid label {
@@ -1001,7 +1003,7 @@ onUnmounted(() => {
 }
 
 .composer-footer.is-neutral {
-  background: #6b728065;
+  background: linear-gradient(135deg, #0ea5a8 0%, #0891b2 100%);
 }
 
 .counter {
@@ -1015,32 +1017,38 @@ onUnmounted(() => {
 }
 
 .publish-btn {
-  border: 1px solid transparent;
-  border-radius: 999px;
+  border: 0;
+  border-radius: 99px;
   background: var(--accent);
   color: #fff;
   font-weight: 800;
-  padding: 0.6rem 1rem;
+  padding: 0.5rem 1.25rem;
   cursor: pointer;
+  transition: opacity 0.2s ease;
 }
 
 .composer-footer.is-male .publish-btn,
 .composer-footer.is-female .publish-btn,
 .composer-footer.is-neutral .publish-btn {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--accent);
   color: #fff;
 }
 
 .composer-footer.is-male .publish-btn:hover,
 .composer-footer.is-female .publish-btn:hover,
 .composer-footer.is-neutral .publish-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  opacity: 0.9;
+}
+
+.publish-btn.has-text {
+  opacity: 0.9;
 }
 
 .publish-btn:disabled {
   opacity: 0.6;
   cursor: default;
+  transform: none;
+  box-shadow: none;
 }
 
 .highlights {
