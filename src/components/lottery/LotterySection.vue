@@ -8,6 +8,7 @@ import {
   type LotteryNumberFilter
 } from '@/stores/lotteryStore';
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
+import LotteryCountdown from '@/components/lottery/LotteryCountdown.vue';
 
 const authStore = useAuthStore();
 const lotteryStore = useLotteryStore();
@@ -18,7 +19,6 @@ const filterByLottery = ref<Record<string, LotteryNumberFilter>>({});
 const errorByLottery = ref<Record<string, string>>({});
 const successNumberByLottery = ref<Record<string, number>>({});
 const showLoginPrompt = ref(false);
-const nowMs = ref(Date.now());
 const modalLotteryId = ref<string | null>(null);
 const modalCell = ref<LotteryNumberCell | null>(null);
 const didAutoExpandFirstLottery = ref(false);
@@ -54,7 +54,6 @@ const AVAILABLE_BALL_CLASSES = [
   'ball-white'
 ] as const;
 
-let nowTimer: ReturnType<typeof setInterval> | null = null;
 const successTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const lotteries = computed(() => lotteryStore.publicLotteries);
@@ -120,25 +119,6 @@ const getStatusClass = (lottery: Lottery): string => {
   return `status-${lottery.status}`;
 };
 
-const getCountdownLabel = (lottery: Lottery): string => {
-  if (!lottery.endsAt) return 'Sin cierre definido';
-  if (lottery.status !== 'active') return 'Cerrada';
-
-  const diff = lottery.endsAt.getTime() - nowMs.value;
-  if (diff <= 0) return 'En espera de cierre manual';
-
-  const totalSeconds = Math.floor(diff / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-};
-
 const formatDateTime = (value: Date | null): string => {
   if (!value) return '-';
   return new Intl.DateTimeFormat('es-AR', {
@@ -190,7 +170,9 @@ const ensurePageLoaded = async (lotteryId: string) => {
 const prefetchAllPages = async (lotteryId: string, currentPage: number) => {
   const bounds = getBounds(lotteryId, currentPage);
   const candidates: number[] = [];
-  for (let page = 1; page <= bounds.totalPages; page += 1) {
+  const minPage = Math.max(1, currentPage - 1);
+  const maxPage = Math.min(bounds.totalPages, currentPage + 1);
+  for (let page = minPage; page <= maxPage; page += 1) {
     if (page !== currentPage) candidates.push(page);
   }
 
@@ -455,19 +437,10 @@ watch(
 onMounted(() => {
   lotteryStore.initPublicLotteriesListener();
   lotteryStore.initUserEntriesListener();
-
-  nowTimer = setInterval(() => {
-    nowMs.value = Date.now();
-  }, 1000);
 });
 
 onBeforeUnmount(() => {
   lotteryStore.cleanupPublicLotteries();
-
-  if (nowTimer) {
-    clearInterval(nowTimer);
-    nowTimer = null;
-  }
 
   for (const timer of successTimers.values()) {
     clearTimeout(timer);
@@ -531,7 +504,7 @@ onBeforeUnmount(() => {
 
         <div class="lottery-time">
           <span class="time-icon" aria-hidden="true">⏱</span>
-          <span>Tiempo restante: <strong>{{ getCountdownLabel(lottery) }}</strong></span>
+          <span>Tiempo restante: <LotteryCountdown :ends-at="lottery.endsAt" :status="lottery.status" /></span>
         </div>
 
         <div v-if="isLimitReached(lottery)" class="lottery-limit-banner" role="status" aria-live="polite">
@@ -606,6 +579,13 @@ onBeforeUnmount(() => {
           <div
             v-else
             class="numbers-grid"
+            v-memo="[
+              lottery.id,
+              getPage(lottery.id),
+              getFilter(lottery.id),
+              lotteryStore.isNumberPageLoading(lottery.id, getPage(lottery.id)),
+              successNumberByLottery[lottery.id]
+            ]"
             @touchstart="handleNumbersTouchStart"
             @touchmove="handleNumbersTouchMove"
             @touchend="handleNumbersTouchEnd(lottery, $event)"
@@ -987,6 +967,7 @@ button:disabled {
   margin-top: 0.9rem;
   border-top: 1px solid var(--border);
   padding-top: 0.8rem;
+  contain: layout paint;
 }
 
 .numbers-toolbar {
@@ -1045,6 +1026,8 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
   gap: 0.5rem;
+  touch-action: pan-y;
+  contain: layout paint style;
 }
 
 .number-btn {
@@ -1061,6 +1044,7 @@ button:disabled {
   overflow: hidden;
   padding: 0;
   transition: transform 0.18s ease, box-shadow 0.2s ease;
+  will-change: transform;
 }
 
 .number-btn:hover {
@@ -1308,6 +1292,21 @@ button:disabled {
 
   .numbers-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.3rem;
+  }
+
+  .number-btn {
+    transition: transform 0.14s ease;
+  }
+
+  .number-btn.state-available {
+    box-shadow:
+      0 3px 6px rgba(0, 0, 0, 0.2),
+      inset 0 -4px 8px rgba(0, 0, 0, 0.18);
+  }
+
+  .number-btn.state-available:hover {
+    transform: none;
   }
 }
 </style>
