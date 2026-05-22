@@ -11,6 +11,7 @@ import ImageLightbox from '@/components/common/ImageLightbox.vue';
 import { runWithConcurrency } from '@/utils/concurrency'; // Assuming this exists based on HomeView logic or I'll check it. Actually HomeView has it inline.
 import { buildContentDetailPath } from '@/utils/contentLinks';
 import { isAdminUser } from '@/utils/roles';
+import LotteryTicketsModal from '@/components/admin/LotteryTicketsModal.vue';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const AVATAR_PUBLIC_BASE_URL = 'https://bot.cdelu.io';
@@ -218,6 +219,16 @@ const isAdmin = computed(() => {
   return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims);
 });
 
+const showGrantTicketsModal = ref(false);
+
+const openGrantTicketsModal = () => {
+  if (!isAdmin.value || isOwnProfile.value || !viewedUserId.value) return;
+  showGrantTicketsModal.value = true;
+};
+
+const closeGrantTicketsModal = () => {
+  showGrantTicketsModal.value = false;
+};
 const getPostMenuOptions = (post: any): MenuOption[] => {
   const isOwner = authStore.user?.uid === post.userId;
   const options: MenuOption[] = [];
@@ -794,7 +805,15 @@ onBeforeUnmount(() => {
             >
               {{ followPending ? 'Actualizando...' : (following ? 'Siguiendo' : 'Seguir') }}
             </button>
+            <button
+              v-if="isAdmin"
+              class="secondary-btn"
+              @click="openGrantTicketsModal"
+            >
+              Agregar tickets loteria
+            </button>
             <p v-if="followError" class="inline-error">{{ followError }}</p>
+
           </div>
         </div>
       </header>
@@ -996,6 +1015,13 @@ onBeforeUnmount(() => {
     </template>
   </section>
   
+  
+  <LotteryTicketsModal
+    :open="showGrantTicketsModal"
+    :user-id="viewedUserId"
+    :username="currentProfile?.username || ''"
+    @close="closeGrantTicketsModal"
+  />
   <ImageLightbox
     :open="lightboxOpen"
     :images="lightboxImages"

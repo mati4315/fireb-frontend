@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/config/firebase';
+import LotteryTicketsModal from '@/components/admin/LotteryTicketsModal.vue';
 import { useAuthStore } from '@/stores/authStore';
 import { isAdminUser, isSuperAdminEmail, isSuperAdminUid } from '@/utils/roles';
 
@@ -33,14 +34,6 @@ type UserItem = {
 
 type SocialProviderSummary = {
   providerIds: string[];
-};
-
-type AdminLotteryOption = {
-  id: string;
-  title: string;
-  status: string;
-  maxNumber: number;
-  maxTicketsPerUser: number;
 };
 
 const authStore = useAuthStore();
@@ -91,12 +84,16 @@ const savingEdit = ref(false);
 
 const showLotteryTicketsModal = ref(false);
 const ticketsTargetUser = ref<UserItem | null>(null);
-const lotteriesForTickets = ref<AdminLotteryOption[]>([]);
-const ticketExtrasByLottery = ref<Record<string, number>>({});
-const selectedLotteryId = ref('');
-const extraTicketsToAdd = ref(1);
-const loadingTicketsModal = ref(false);
-const savingTicketsModal = ref(false);
+
+const closeLotteryTicketsModal = () => {
+  showLotteryTicketsModal.value = false;
+  ticketsTargetUser.value = null;
+};
+
+const openLotteryTicketsModal = (user: UserItem) => {
+  ticketsTargetUser.value = { ...user };
+  showLotteryTicketsModal.value = true;
+};
 
 const resetFeedback = () => {
   feedback.value = '';
@@ -142,137 +139,6 @@ const loadSocialConnections = async (userIds: string[]) => {
   } catch (error) {
     console.error('Error loading social connections:', error);
     socialByUserId.value = {};
-  }
-};
-
-const fetchLotteriesForTickets = async () => {
-  const callable = httpsCallable(functions, 'listLotteriesForAdmin');
-  const response = await callable({});
-  const payload = (response.data || {}) as {
-    lotteries?: Array<{
-      id?: string;
-      title?: string;
-      status?: string;
-      maxNumber?: number;
-      maxTicketsPerUser?: number;
-    }>;
-  };
-
-  const options = (payload.lotteries || [])
-    .map((item) => ({
-      id: (item.id || '').toString().trim(),
-      title: (item.title || '').toString().trim() || '(Sin titulo)',
-      status: (item.status || 'draft').toString().trim(),
-      maxNumber: Math.max(1, Math.floor(Number(item.maxNumber) || 1)),
-      maxTicketsPerUser: Math.max(1, Math.floor(Number(item.maxTicketsPerUser) || 1))
-    }))
-    .filter((item) => item.id.length > 0);
-
-  lotteriesForTickets.value = options;
-  if (options.length > 0 && !options.some((lottery) => lottery.id === selectedLotteryId.value)) {
-    selectedLotteryId.value = options[0].id;
-  }
-};
-
-const fetchUserLotteryTicketExtras = async (userId: string) => {
-  const callable = httpsCallable(functions, 'getLotteryUserTicketExtras');
-  const response = await callable({ userId });
-  const payload = (response.data || {}) as {
-    records?: Record<string, unknown>;
-  };
-  const normalized: Record<string, number> = {};
-  const records = payload.records || {};
-  for (const [lotteryId, value] of Object.entries(records)) {
-    normalized[lotteryId] = Math.max(0, Math.floor(Number(value) || 0));
-  }
-  ticketExtrasByLottery.value = normalized;
-};
-
-const openLotteryTicketsModal = async (user: UserItem) => {
-  ticketsTargetUser.value = { ...user };
-  showLotteryTicketsModal.value = true;
-  loadingTicketsModal.value = true;
-  selectedLotteryId.value = '';
-  extraTicketsToAdd.value = 1;
-  ticketExtrasByLottery.value = {};
-  resetFeedback();
-
-  try {
-    await Promise.all([
-      fetchLotteriesForTickets(),
-      fetchUserLotteryTicketExtras(user.id)
-    ]);
-  } catch (error: any) {
-    errorMessage.value = `No se pudieron cargar los datos de loterias: ${error?.message || error}`;
-  } finally {
-    loadingTicketsModal.value = false;
-  }
-};
-
-const closeLotteryTicketsModal = () => {
-  showLotteryTicketsModal.value = false;
-  ticketsTargetUser.value = null;
-  lotteriesForTickets.value = [];
-  ticketExtrasByLottery.value = {};
-  selectedLotteryId.value = '';
-  extraTicketsToAdd.value = 1;
-  loadingTicketsModal.value = false;
-  savingTicketsModal.value = false;
-};
-
-const selectedLotteryForTickets = computed(() => {
-  return lotteriesForTickets.value.find((lottery) => lottery.id === selectedLotteryId.value) || null;
-});
-
-const selectedLotteryCurrentExtra = computed(() => {
-  if (!selectedLotteryId.value) return 0;
-  return Math.max(0, Math.floor(ticketExtrasByLottery.value[selectedLotteryId.value] || 0));
-});
-
-const selectedLotteryEffectiveLimit = computed(() => {
-  const lottery = selectedLotteryForTickets.value;
-  if (!lottery) return 0;
-  return Math.min(lottery.maxNumber, lottery.maxTicketsPerUser + selectedLotteryCurrentExtra.value);
-});
-
-const grantLotteryTicketsToUser = async () => {
-  if (!ticketsTargetUser.value) return;
-  if (!selectedLotteryId.value) {
-    errorMessage.value = 'Selecciona una loteria.';
-    return;
-  }
-
-  const quantity = Math.max(1, Math.floor(Number(extraTicketsToAdd.value) || 1));
-  savingTicketsModal.value = true;
-  resetFeedback();
-
-  try {
-    const callable = httpsCallable(functions, 'grantLotteryUserExtraTickets');
-    const response = await callable({
-      userId: ticketsTargetUser.value.id,
-      lotteryId: selectedLotteryId.value,
-      quantity
-    });
-    const payload = (response.data || {}) as {
-      added?: number;
-      extraTickets?: number;
-      effectiveLimit?: number;
-    };
-
-    const nextExtra = Math.max(0, Math.floor(Number(payload.extraTickets) || 0));
-    ticketExtrasByLottery.value = {
-      ...ticketExtrasByLottery.value,
-      [selectedLotteryId.value]: nextExtra
-    };
-
-    const added = Math.max(1, Math.floor(Number(payload.added) || quantity));
-    const resolvedLimit = Math.max(1, Math.floor(Number(payload.effectiveLimit) || 1));
-    feedback.value = `Se agregaron ${added} ticket(s) extra. Nuevo limite para esta loteria: ${resolvedLimit}.`;
-    extraTicketsToAdd.value = 1;
-  } catch (error: any) {
-    errorMessage.value = `No se pudieron agregar tickets: ${error?.message || error}`;
-  } finally {
-    savingTicketsModal.value = false;
   }
 };
 
@@ -626,76 +492,14 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    <Teleport to="body">
-      <div v-if="showLotteryTicketsModal" class="modal-overlay" @click.self="closeLotteryTicketsModal">
-        <div class="modal-card">
-          <header class="modal-head">
-            <h3>Tickets de Loteria: @{{ ticketsTargetUser?.username }}</h3>
-            <button class="close-btn" @click="closeLotteryTicketsModal">×</button>
-          </header>
-
-          <div class="modal-body">
-            <div class="user-details-summary">
-              <div class="detail-row">
-                <span class="label">Usuario</span>
-                <span class="value">@{{ ticketsTargetUser?.username }}</span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Email</span>
-                <span class="value">{{ ticketsTargetUser?.email || '-' }}</span>
-              </div>
-              <div class="detail-row" v-if="selectedLotteryForTickets">
-                <span class="label">Tickets Extra Actuales</span>
-                <span class="value">{{ selectedLotteryCurrentExtra }}</span>
-              </div>
-              <div class="detail-row" v-if="selectedLotteryForTickets">
-                <span class="label">Limite Efectivo</span>
-                <span class="value">{{ selectedLotteryEffectiveLimit }}</span>
-              </div>
-            </div>
-
-            <div v-if="loadingTicketsModal" class="loading-cell">Cargando loterias...</div>
-
-            <template v-else>
-              <div class="form-field">
-                <label>Loteria</label>
-                <select v-model="selectedLotteryId">
-                  <option value="" disabled>Selecciona una loteria</option>
-                  <option
-                    v-for="lottery in lotteriesForTickets"
-                    :key="lottery.id"
-                    :value="lottery.id"
-                  >
-                    {{ lottery.title }} ({{ lottery.status }}) - Base {{ lottery.maxTicketsPerUser }}
-                  </option>
-                </select>
-              </div>
-
-              <div class="form-field">
-                <label>Tickets extra a agregar</label>
-                <input
-                  v-model.number="extraTicketsToAdd"
-                  type="number"
-                  min="1"
-                  max="200"
-                />
-              </div>
-            </template>
-          </div>
-
-          <footer class="modal-foot">
-            <button
-              class="primary"
-              :disabled="savingTicketsModal || loadingTicketsModal || !selectedLotteryId"
-              @click="grantLotteryTicketsToUser"
-            >
-              {{ savingTicketsModal ? 'Guardando...' : 'Agregar Tickets' }}
-            </button>
-            <button class="ghost" @click="closeLotteryTicketsModal">Cerrar</button>
-          </footer>
-        </div>
-      </div>
-    </Teleport>
+    
+    <LotteryTicketsModal
+      :open="showLotteryTicketsModal"
+      :user-id="ticketsTargetUser?.id || ''"
+      :username="ticketsTargetUser?.username || ''"
+      :email="ticketsTargetUser?.email"
+      @close="closeLotteryTicketsModal"
+    />
   </section>
 </template>
 
@@ -1098,3 +902,4 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   }
 }
 </style>
+ System.Text.UTF8Encoding
