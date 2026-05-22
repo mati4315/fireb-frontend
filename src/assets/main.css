@@ -1,4 +1,6 @@
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -7,9 +9,9 @@
   --accent: #fb8c00;
   --accent-rgb: 251, 140, 0;
   --accent-bg: rgba(251, 140, 0, 0.08);
-  
+
   /* -- UI Elements (Light Mode) -- */
-  --bg: #f8f9fa;
+  --bg: #56138317;
   --card-bg: #ffffff;
   --text: #4b5563;
   --text-h: #111827;
@@ -80,8 +82,15 @@ a:hover {
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .fade-in {
@@ -92,13 +101,16 @@ a:hover {
 ::-webkit-scrollbar {
   width: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: #f1f1f1;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #ccc;
   border-radius: 10px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #bbb;
 }
@@ -118,9 +130,9 @@ a:hover {
   width: 100%;
   box-sizing: border-box;
 }
+
 @media (max-width: 600px) {
   .inline-editor-textarea {
     min-height: 140px;
   }
 }
-

@@ -1,11 +1,15 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-set "LOG_FILE=%~dp0log.txt"
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
+set "LOG_FILE=%~dp0log_%STAMP%.txt"
+forfiles /p "%~dp0" /m log_*.txt /d -15 /c "cmd /c del /q @path" >nul 2>&1
 
 echo ==========================================
 echo   Generando APK Release...
 echo ==========================================
+echo.
+echo Log: %LOG_FILE%
 echo.
 
 if not exist "android\gradlew.bat" (

@@ -3,13 +3,16 @@ setlocal
 cd /d "%~dp0"
 set "REPO_DIR=%~dp0.."
 set "EXIT_CODE=0"
-set "LOG_FILE=%~dp0log.txt"
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
+set "LOG_FILE=%~dp0log_%STAMP%.txt"
+forfiles /p "%~dp0" /m log_*.txt /d -15 /c "cmd /c del /q @path" >nul 2>&1
 
 echo ==========================================
 echo   Subir cambios a Git (sin dist)
 echo ==========================================
 echo.
 echo Repo: %REPO_DIR%
+echo Log: %LOG_FILE%
 echo.
 
 if not exist "%REPO_DIR%\.git" (
