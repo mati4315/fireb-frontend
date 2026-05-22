@@ -1212,6 +1212,23 @@ button:disabled {
   color: var(--text);
 }
 
+.modal-owner {
+  color: var(--text-h);
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.modal-owner-link {
+  color: var(--accent);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.modal-owner-link:hover {
+  text-decoration: underline;
+}
+
 .number-modal-backdrop {
   position: fixed;
   inset: 0;
