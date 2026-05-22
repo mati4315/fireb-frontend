@@ -85,6 +85,7 @@ type EnterLotteryResponse = {
   selectedNumber?: number;
   participantsCount: number;
   userTicketsCount: number;
+  effectiveMaxTicketsPerUser?: number;
 };
 
 type DrawLotteryWinnerResponse = {
@@ -248,6 +249,7 @@ export const useLotteryStore = defineStore('lottery', () => {
 
   const userNumbersByLottery = ref<Record<string, number[]>>({});
   const userTicketsCountByLottery = ref<Record<string, number>>({});
+  const userExtraTicketsByLottery = ref<Record<string, number>>({});
   const userEntriesUnsubscribe = ref<Unsubscribe | null>(null);
   const userEntriesInitialized = ref(false);
 
@@ -287,6 +289,7 @@ export const useLotteryStore = defineStore('lottery', () => {
   const cleanupUserEntries = () => {
     userEntriesUnsubscribe.value = null;
     userEntriesInitialized.value = false;
+    userExtraTicketsByLottery.value = {};
   };
 
   const cleanupAll = () => {
@@ -337,6 +340,22 @@ export const useLotteryStore = defineStore('lottery', () => {
 
   const getUserTicketsCount = (lotteryId: string): number => {
     return Math.max(0, Math.floor(userTicketsCountByLottery.value[lotteryId] || 0));
+  };
+
+  const getUserExtraTickets = (lotteryId: string): number => {
+    return Math.max(0, Math.floor(userExtraTicketsByLottery.value[lotteryId] || 0));
+  };
+
+  const getEffectiveTicketLimit = (lotteryId: string, baseLimit: number, maxNumber: number): number => {
+    const safeBase = clampInteger(
+      baseLimit,
+      MIN_MAX_TICKETS_PER_USER,
+      MAX_MAX_TICKETS_PER_USER,
+      DEFAULT_MAX_TICKETS_PER_USER
+    );
+    const safeMaxNumber = clampInteger(maxNumber, MIN_MAX_NUMBER, MAX_MAX_NUMBER, DEFAULT_MAX_NUMBER);
+    const extra = getUserExtraTickets(lotteryId);
+    return Math.max(1, Math.min(safeMaxNumber, safeBase + extra));
   };
 
   const hasSelectedNumber = (lotteryId: string, selectedNumber: number): boolean => {
@@ -435,9 +454,29 @@ export const useLotteryStore = defineStore('lottery', () => {
     if (!userId) {
       userNumbersByLottery.value = {};
       userTicketsCountByLottery.value = {};
+      userExtraTicketsByLottery.value = {};
       userEntriesInitialized.value = true;
       return;
     }
+
+    const reloadUserTicketExtras = async () => {
+      try {
+        const callable = httpsCallable(functions, 'getLotteryUserTicketExtras');
+        const response = await callable({ userId });
+        const payload = (response.data || {}) as {
+          records?: Record<string, unknown>;
+        };
+        const records = payload.records || {};
+        const normalized: Record<string, number> = {};
+        for (const [lotteryId, extra] of Object.entries(records)) {
+          normalized[lotteryId] = Math.max(0, Math.floor(Number(extra) || 0));
+        }
+        userExtraTicketsByLottery.value = normalized;
+      } catch (error) {
+        console.error('Error loading user extra lottery tickets:', error);
+        userExtraTicketsByLottery.value = {};
+      }
+    };
 
     const reloadFromKnownLotteries = async () => {
       const uniqueLotteryIds = Array.from(
@@ -459,7 +498,7 @@ export const useLotteryStore = defineStore('lottery', () => {
             const perLotteryQuery = query(
               collection(db, 'lotteries', lotteryId, 'entries'),
               where('userId', '==', userId),
-              limit(MAX_MAX_TICKETS_PER_USER + 2)
+              limit(MAX_MAX_NUMBER + 2)
             );
             const snapshot = await getDocs(perLotteryQuery);
             if (snapshot.empty) return;
@@ -492,6 +531,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     };
 
     await reloadFromKnownLotteries();
+    await reloadUserTicketExtras();
     userEntriesInitialized.value = true;
     userEntriesUnsubscribe.value = null;
   };
@@ -733,8 +773,9 @@ export const useLotteryStore = defineStore('lottery', () => {
     }
 
     const currentTicketsCount = getUserTicketsCount(lotteryId);
-    if (currentTicketsCount >= lottery.maxTicketsPerUser) {
-      throw new Error(`Alcanzaste el maximo de ${lottery.maxTicketsPerUser} numeros para esta loteria.`);
+    const effectiveLimit = getEffectiveTicketLimit(lotteryId, lottery.maxTicketsPerUser, lottery.maxNumber);
+    if (currentTicketsCount >= effectiveLimit) {
+      throw new Error(`Alcanzaste el maximo de ${effectiveLimit} numeros para esta loteria.`);
     }
 
     const page = Math.floor((parsedSelectedNumber - 1) / NUMBER_PAGE_SIZE) + 1;
@@ -804,6 +845,16 @@ export const useLotteryStore = defineStore('lottery', () => {
         userTicketsCountByLottery.value = {
           ...userTicketsCountByLottery.value,
           [lotteryId]: Math.max(0, Math.floor(payload.userTicketsCount))
+        };
+      }
+      if (typeof payload.effectiveMaxTicketsPerUser === 'number') {
+        const resolvedExtra = Math.max(
+          0,
+          Math.floor(payload.effectiveMaxTicketsPerUser) - lottery.maxTicketsPerUser
+        );
+        userExtraTicketsByLottery.value = {
+          ...userExtraTicketsByLottery.value,
+          [lotteryId]: resolvedExtra
         };
       }
 
@@ -1026,6 +1077,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     adminLoading,
     userNumbersByLottery,
     userTicketsCountByLottery,
+    userExtraTicketsByLottery,
     initPublicLotteriesListener,
     cleanupPublicLotteries,
     initAdminLotteriesListener,
@@ -1041,6 +1093,8 @@ export const useLotteryStore = defineStore('lottery', () => {
     clearNumberPagesForLottery,
     getUserNumbers,
     getUserTicketsCount,
+    getUserExtraTickets,
+    getEffectiveTicketLimit,
     hasSelectedNumber,
     isSelectingNumber,
     selectLotteryNumber,

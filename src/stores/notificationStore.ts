@@ -18,7 +18,7 @@ import { app, db, functions } from '@/config/firebase';
 import { useAuthStore } from './authStore';
 import { buildStableDeviceId, isNativePlatform } from '@/platform/capacitor';
 
-type NotificationType = 'like' | 'comment' | 'reply' | 'follow';
+type NotificationType = 'like' | 'comment' | 'reply' | 'follow' | 'system';
 
 type NotificationSettings = {
   notificationsEnabled: boolean;
@@ -49,6 +49,7 @@ export type NotificationRecord = {
   createdAt: any;
   updatedAt: any;
   lastEventAt: any;
+  systemMessage: string;
 };
 
 type NotificationPageState = {
@@ -69,7 +70,7 @@ const PUSH_NUDGE_MAX_COOLDOWN_DAYS = 21;
 const toSafeString = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 const normalizeNotificationType = (value: unknown): NotificationType => {
-  if (value === 'like' || value === 'comment' || value === 'reply' || value === 'follow') {
+  if (value === 'like' || value === 'comment' || value === 'reply' || value === 'follow' || value === 'system') {
     return value;
   }
   return 'comment';
@@ -103,7 +104,8 @@ const mapNotificationDoc = (
     eventCount: Number.isFinite(eventCountRaw) ? Math.max(1, Math.floor(eventCountRaw)) : 1,
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
-    lastEventAt: data.lastEventAt || data.createdAt || null
+    lastEventAt: data.lastEventAt || data.createdAt || null,
+    systemMessage: toSafeString(data.systemMessage)
   };
 };
 
@@ -577,6 +579,9 @@ export const useNotificationStore = defineStore('notifications', () => {
   };
 
   const getMessageSuffix = (item: NotificationRecord): string => {
+    if (item.type === 'system') {
+      return item.systemMessage || 'tienes una nueva notificacion del sistema.';
+    }
     if (item.type === 'like') {
       const suffix = item.eventCount > 1 ? ` (${item.eventCount})` : '';
       return `le dio me gusta a tu publicacion${suffix}.`;

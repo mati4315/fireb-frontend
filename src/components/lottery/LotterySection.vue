@@ -144,8 +144,16 @@ const getUserTicketCount = (lotteryId: string): number => {
   return lotteryStore.getUserTicketsCount(lotteryId);
 };
 
+const getUserTicketLimit = (lottery: Lottery): number => {
+  return lotteryStore.getEffectiveTicketLimit(
+    lottery.id,
+    lottery.maxTicketsPerUser,
+    lottery.maxNumber
+  );
+};
+
 const canBuyMoreNumbers = (lottery: Lottery): boolean => {
-  return getUserTicketCount(lottery.id) < lottery.maxTicketsPerUser;
+  return getUserTicketCount(lottery.id) < getUserTicketLimit(lottery);
 };
 
 const isLimitReached = (lottery: Lottery): boolean => {
@@ -509,7 +517,7 @@ onBeforeUnmount(() => {
 
         <div v-if="isLimitReached(lottery)" class="lottery-limit-banner" role="status" aria-live="polite">
           <span class="limit-icon" aria-hidden="true">!</span>
-          <span>Ya alcanzaste el limite de numeros para esta loteria.</span>
+          <span>Ya alcanzaste tu limite de {{ getUserTicketLimit(lottery) }} numeros para esta loteria.</span>
         </div>
 
         <div class="lottery-progress-actions">
@@ -651,7 +659,7 @@ onBeforeUnmount(() => {
         </p>
 
         <p v-if="modalCell.state === 'available'">
-          Limite por usuario: <strong>{{ modalLottery.maxTicketsPerUser }}</strong>
+          Limite por usuario: <strong>{{ getUserTicketLimit(modalLottery) }}</strong>
           | Tus tickets: <strong>{{ getUserTicketCount(modalLottery.id) }}</strong>
         </p>
 
