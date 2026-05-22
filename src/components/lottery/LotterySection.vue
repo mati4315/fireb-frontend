@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import {
   useLotteryStore,
@@ -12,6 +13,7 @@ import LotteryCountdown from '@/components/lottery/LotteryCountdown.vue';
 
 const authStore = useAuthStore();
 const lotteryStore = useLotteryStore();
+const router = useRouter();
 
 const expandedByLottery = ref<Record<string, boolean>>({});
 const pageByLottery = ref<Record<string, number>>({});
@@ -654,6 +656,20 @@ onBeforeUnmount(() => {
     <div v-if="modalLottery && modalCell" class="number-modal-backdrop" @click="closeNumberModal">
       <div class="number-modal" @click.stop>
         <h3>Numero {{ modalCell.number }}</h3>
+        <p v-if="modalCell.entry" class="modal-owner">
+          Seleccionado por:
+          <a
+            v-if="modalCell.entry.userUsername"
+            href="#"
+            @click.prevent="router.push('/perfil/' + modalCell.entry.userUsername)"
+            class="modal-owner-link"
+          >
+            {{ modalCell.entry.userName }}
+          </a>
+          <span v-else>
+            {{ modalCell.entry.userName }}
+          </span>
+        </p>
         <p v-if="modalLimitReached" class="modal-warning">
           Ya alcanzaste el limite de numeros para esta loteria. Espera el proximo sorteo.
         </p>

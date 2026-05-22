@@ -25,6 +25,7 @@ export type LotteryNumberFilter = 'all' | 'available' | 'sold';
 export type LotteryWinner = {
   userId: string;
   userName: string;
+  userUsername: string;
   userProfilePicUrl: string;
   selectedNumber: number | null;
   selectedAt: Date | null;
@@ -55,6 +56,7 @@ export type LotteryEntry = {
   id: string;
   userId: string;
   userName: string;
+  userUsername: string;
   userProfilePicUrl: string;
   lotteryId: string;
   selectedNumber: number;
@@ -92,9 +94,10 @@ type DrawLotteryWinnerResponse = {
   status: 'ok';
   lotteryId: string;
   winner: {
-    userId: string;
-    userName: string;
-    userProfilePicUrl: string;
+  userId: string;
+  userName: string;
+  userUsername: string;
+  userProfilePicUrl: string;
     selectedNumber: number | null;
   };
   participantsCount: number;
@@ -166,6 +169,7 @@ const normalizeWinner = (value: unknown): LotteryWinner | null => {
   return {
     userId,
     userName,
+    userUsername: typeof data.userUsername === 'string' ? data.userUsername : '',
     userProfilePicUrl: typeof data.userProfilePicUrl === 'string' ? data.userProfilePicUrl : '',
     selectedNumber: parseSelectedNumber(data.selectedNumber),
     selectedAt: toDate(data.selectedAt)
@@ -218,6 +222,7 @@ const normalizeEntry = (id: string, data: Record<string, unknown>): LotteryEntry
     id,
     userId: typeof data.userId === 'string' ? data.userId : '',
     userName: typeof data.userName === 'string' ? data.userName : 'Usuario',
+    userUsername: typeof data.userUsername === 'string' ? data.userUsername : '',
     userProfilePicUrl: typeof data.userProfilePicUrl === 'string' ? data.userProfilePicUrl : '',
     lotteryId: typeof data.lotteryId === 'string' ? data.lotteryId : '',
     selectedNumber: selectedFromField || selectedFromId || 0,
@@ -801,6 +806,7 @@ export const useLotteryStore = defineStore('lottery', () => {
           id: toLotteryEntryId(parsedSelectedNumber),
           userId: authStore.user.uid,
           userName: fallbackName,
+          userUsername: authStore.userProfile?.username || '',
           userProfilePicUrl: fallbackPic,
           lotteryId,
           selectedNumber: parsedSelectedNumber,
@@ -1057,6 +1063,7 @@ export const useLotteryStore = defineStore('lottery', () => {
         winner: {
           userId: payload.winner.userId,
           userName: payload.winner.userName,
+          userUsername: (payload.winner as any).userUsername || '',
           userProfilePicUrl: payload.winner.userProfilePicUrl || '',
           selectedNumber: parseSelectedNumber(payload.winner.selectedNumber),
           selectedAt: new Date()
