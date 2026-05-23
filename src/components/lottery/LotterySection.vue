@@ -94,20 +94,6 @@ const setSuccessNumber = (lotteryId: string, selectedNumber: number) => {
     ...successNumberByLottery.value,
     [lotteryId]: selectedNumber
   };
-
-  const previous = successTimers.get(lotteryId);
-  if (previous) {
-    clearTimeout(previous);
-  }
-
-  const timer = setTimeout(() => {
-    const next = { ...successNumberByLottery.value };
-    delete next[lotteryId];
-    successNumberByLottery.value = next;
-    successTimers.delete(lotteryId);
-  }, 1800);
-
-  successTimers.set(lotteryId, timer);
 };
 
 const getStatusLabel = (lottery: Lottery): string => {
@@ -338,6 +324,21 @@ const modalLottery = computed(() => {
   return lotteryStore.getLotteryById(modalLotteryId.value);
 });
 
+const isSocialOrVerified = computed(() => {
+  if (!authStore.isAuthenticated) return false;
+  const providerIds = (authStore.user?.providerData || []).map((provider: any) => provider.providerId);
+  const hasSocial = providerIds.includes('google.com') || providerIds.includes('facebook.com');
+  const isVerified = authStore.userProfile?.isVerified === true;
+  return hasSocial || isVerified;
+});
+
+const modalSocialWarningNeeded = computed(() => {
+  const lottery = modalLottery.value;
+  if (!lottery || !authStore.isAuthenticated) return false;
+  const isFreeLottery = lottery.isFree !== false;
+  return isFreeLottery && !isSocialOrVerified.value;
+});
+
 const modalCanBuy = computed(() => {
   const lottery = modalLottery.value;
   const cell = modalCell.value;
@@ -347,6 +348,7 @@ const modalCanBuy = computed(() => {
   if (!lotteryStore.isLotteryOpenForEntry(lottery)) return false;
   if (!canBuyMoreNumbers(lottery)) return false;
   if (lotteryStore.isSelectingNumber(lottery.id, cell.number)) return false;
+  if (lottery.isFree !== false && !isSocialOrVerified.value) return false;
   return true;
 });
 
@@ -363,6 +365,9 @@ const getFriendlyError = (error: any): string => {
   const code = String(error?.code || '');
   const message = String(error?.message || '');
 
+  if (message.includes('unverified-account')) {
+    return 'Para participar en sorteos gratuitos necesitas vincular Google o Facebook con el ✅ en tu Perfil.';
+  }
   if (code.includes('already-exists') || message.includes('number-taken')) {
     return 'Ese numero ya esta ocupado. Elige otro disponible.';
   }
@@ -385,7 +390,7 @@ const getFriendlyError = (error: any): string => {
     return 'La funcion de compra esta desactualizada en el servidor. Hay que desplegar enterLottery V2.';
   }
   if (code.includes('permission-denied')) {
-    return 'No tienes permisos para participar en esta loteria.';
+    return 'No tienes permisos para participar en esta loteria o necesitas verificar tu cuenta social.';
   }
   if (code.includes('failed-precondition')) {
     return message || 'Esta loteria no esta disponible para comprar numero.';
@@ -457,6 +462,11 @@ onBeforeUnmount(() => {
   }
   successTimers.clear();
 });
+
+const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => {
+  if (!imageUrl) return '';
+  return imageUrl.replace(/_o\.webp$/, '_t.webp');
+};
 </script>
 
 <template>
@@ -479,7 +489,7 @@ onBeforeUnmount(() => {
       >
         <div v-if="lottery.imageUrl" class="lottery-cover-wrap">
           <img
-            :src="lottery.imageUrl"
+            :src="deriveLotteryThumbnail(lottery.imageUrl)"
             alt="Imagen de loteria"
             class="lottery-cover"
             loading="lazy"
@@ -488,12 +498,17 @@ onBeforeUnmount(() => {
 
         <header class="lottery-head">
           <div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
+              <span :class="['lottery-type-badge', lottery.isFree ? 'is-free' : 'is-paid']">
+                {{ lottery.isFree ? 'Gratuita 🎁' : 'De Pago 💳' }}
+              </span>
+              <span :class="['lottery-status', getStatusClass(lottery)]">
+                {{ getStatusLabel(lottery) }}
+              </span>
+            </div>
             <h3>{{ lottery.title }}</h3>
             <p v-if="lottery.description" class="lottery-description">{{ lottery.description }}</p>
           </div>
-          <span :class="['lottery-status', getStatusClass(lottery)]">
-            {{ getStatusLabel(lottery) }}
-          </span>
         </header>
 
         <div class="lottery-meta">
@@ -517,10 +532,7 @@ onBeforeUnmount(() => {
           <span>Tiempo restante: <LotteryCountdown :ends-at="lottery.endsAt" :status="lottery.status" /></span>
         </div>
 
-        <div v-if="isLimitReached(lottery)" class="lottery-limit-banner" role="status" aria-live="polite">
-          <span class="limit-icon" aria-hidden="true">!</span>
-          <span>Ya alcanzaste tu limite de {{ getUserTicketLimit(lottery) }} numeros para esta loteria.</span>
-        </div>
+
 
         <div class="lottery-progress-actions">
           <button
@@ -536,8 +548,12 @@ onBeforeUnmount(() => {
           <span v-if="lottery.winner.selectedNumber"> | Participo con el N° {{ lottery.winner.selectedNumber }}</span>
         </div>
 
-        <p v-if="successNumberByLottery[lottery.id]" class="lottery-success">
-          Numero {{ successNumberByLottery[lottery.id] }} comprado correctamente.
+        <p
+          v-for="num in lotteryStore.getUserNumbers(lottery.id)"
+          :key="`${lottery.id}_success_${num}`"
+          class="lottery-success"
+        >
+          Ya estás participando con el número {{ num }}
         </p>
 
         <p v-if="errorByLottery[lottery.id]" class="lottery-error">
@@ -672,6 +688,19 @@ onBeforeUnmount(() => {
         </p>
         <p v-if="modalLimitReached" class="modal-warning">
           Ya alcanzaste el limite de numeros para esta loteria. Espera el proximo sorteo.
+        </p>
+        <p v-if="modalSocialWarningNeeded" class="modal-warning" style="border-color: #fca5a5; background: #fff5f5; color: #c53030; line-height: 1.5;">
+          Para participar en esta lotería gratuita, debes tener al menos una cuenta social conectada (Google o Facebook) con el ✅. 
+          Puedes vincularla ingresando a tu 
+          <RouterLink
+            to="/perfil"
+            @click="closeNumberModal"
+            style="color: #b91c1c; text-decoration: underline; font-weight: bold; transition: opacity 0.2s;"
+            onmouseover="this.style.opacity='0.8'"
+            onmouseout="this.style.opacity='1'"
+          >
+            Perfil
+          </RouterLink>.
         </p>
 
         <p v-if="modalCell.state === 'available'">
@@ -1102,6 +1131,27 @@ button:disabled {
   align-items: center;
   justify-content: center;
   box-shadow: none;
+}
+
+.lottery-type-badge {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+.lottery-type-badge.is-free {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+.lottery-type-badge.is-paid {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
 }
 
 .number-btn.state-available.tilt-neg8 { transform: rotate(-8deg); }

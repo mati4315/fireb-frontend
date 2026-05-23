@@ -17,9 +17,14 @@ type LotteryForm = {
   description: string;
   imageUrl: string;
   status: LotteryStatus;
+  isFree: boolean;
   endsAt: string;
   maxNumber: number;
   maxTicketsPerUser: number;
+  hasPremio: boolean;
+  premioType: 'dinero' | 'otros';
+  premioDinero: number | null;
+  premioOtros: string;
 };
 
 const MIN_MAX_NUMBER = 10;
@@ -50,9 +55,14 @@ const lotteryForm = reactive<LotteryForm>({
   description: '',
   imageUrl: '',
   status: 'active',
+  isFree: true,
   endsAt: '',
   maxNumber: 100,
-  maxTicketsPerUser: 1
+  maxTicketsPerUser: 1,
+  hasPremio: true,
+  premioType: 'dinero',
+  premioDinero: null,
+  premioOtros: ''
 });
 
 const isAuthorized = computed(() => {
@@ -86,7 +96,7 @@ const parseInputDate = (value: string, endOfDay: boolean = false): Date | null =
   return parsed;
 };
 
-const cropLogoToSquare = async (file: File): Promise<File> => {
+const processLotteryImage = async (file: File): Promise<{ optimizedFile: File; thumbFile: File }> => {
   const objectUrl = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -103,36 +113,66 @@ const cropLogoToSquare = async (file: File): Promise<File> => {
 
     const sx = Math.floor((image.naturalWidth - sourceSize) / 2);
     const sy = Math.floor((image.naturalHeight - sourceSize) / 2);
-    const targetSize = 720;
 
+    // 1. Imagen optimizada principal (720x720)
+    const targetSize = 720;
     const canvas = document.createElement('canvas');
     canvas.width = targetSize;
     canvas.height = targetSize;
-
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('No se pudo preparar el recorte del logo.');
     }
-
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.drawImage(image, sx, sy, sourceSize, sourceSize, 0, 0, targetSize, targetSize);
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, 'image/webp', 0.92);
+    const optimizedBlob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/webp', 0.85);
     });
-    if (!blob) {
+    if (!optimizedBlob) {
       throw new Error('No se pudo exportar el logo recortado.');
     }
 
-    const safeName = (file.name || 'lottery_logo').replace(/\.[^/.]+$/, '');
-    return new File([blob], `${safeName}.webp`, {
-      type: 'image/webp',
-      lastModified: Date.now()
+    // 2. Miniatura (240x240)
+    const thumbSize = 240;
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = thumbSize;
+    thumbCanvas.height = thumbSize;
+    const thumbContext = thumbCanvas.getContext('2d');
+    if (!thumbContext) {
+      throw new Error('No se pudo preparar la miniatura del logo.');
+    }
+    thumbContext.imageSmoothingEnabled = true;
+    thumbContext.imageSmoothingQuality = 'high';
+    thumbContext.drawImage(image, sx, sy, sourceSize, sourceSize, 0, 0, thumbSize, thumbSize);
+
+    const thumbBlob = await new Promise<Blob | null>((resolve) => {
+      thumbCanvas.toBlob(resolve, 'image/webp', 0.80);
     });
+    if (!thumbBlob) {
+      throw new Error('No se pudo exportar la miniatura del logo.');
+    }
+
+    const safeName = (file.name || 'lottery_logo').replace(/\.[^/.]+$/, '');
+    return {
+      optimizedFile: new File([optimizedBlob], `${safeName}_o.webp`, {
+        type: 'image/webp',
+        lastModified: Date.now()
+      }),
+      thumbFile: new File([thumbBlob], `${safeName}_t.webp`, {
+        type: 'image/webp',
+        lastModified: Date.now()
+      })
+    };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
+};
+
+const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => {
+  if (!imageUrl) return '';
+  return imageUrl.replace(/_o\.webp$/, '_t.webp');
 };
 
 const formatReadOnlyDate = (value: Date | null): string => {
@@ -156,9 +196,14 @@ const resetForm = () => {
   lotteryForm.description = '';
   lotteryForm.imageUrl = '';
   lotteryForm.status = 'active';
+  lotteryForm.isFree = true;
   lotteryForm.endsAt = '';
   lotteryForm.maxNumber = 100;
   lotteryForm.maxTicketsPerUser = 1;
+  lotteryForm.hasPremio = true;
+  lotteryForm.premioType = 'dinero';
+  lotteryForm.premioDinero = null;
+  lotteryForm.premioOtros = '';
   logoFile.value = null;
   logoPreviewUrl.value = '';
   if (logoInputRef.value) {
@@ -176,9 +221,14 @@ const setFormFromLottery = (lottery: Lottery) => {
   lotteryForm.description = lottery.description;
   lotteryForm.imageUrl = lottery.imageUrl || '';
   lotteryForm.status = lottery.status === 'completed' ? 'closed' : lottery.status;
+  lotteryForm.isFree = lottery.isFree !== false;
   lotteryForm.endsAt = dateToDateInputValue(lottery.endsAt);
   lotteryForm.maxNumber = lottery.maxNumber;
   lotteryForm.maxTicketsPerUser = lottery.maxTicketsPerUser;
+  lotteryForm.hasPremio = lottery.hasPremio !== false;
+  lotteryForm.premioType = lottery.premioType === 'otros' ? 'otros' : 'dinero';
+  lotteryForm.premioDinero = typeof lottery.premioDinero === 'number' ? lottery.premioDinero : null;
+  lotteryForm.premioOtros = lottery.premioOtros || '';
   logoFile.value = null;
   logoPreviewUrl.value = lottery.imageUrl || '';
   if (logoInputRef.value) {
@@ -205,6 +255,7 @@ const buildPayload = (imageUrl: string): SaveLotteryPayload => {
   const endsAt = parseInputDate(lotteryForm.endsAt, true);
   const maxNumber = Number(lotteryForm.maxNumber);
   const maxTicketsPerUser = Number(lotteryForm.maxTicketsPerUser);
+  const isFree = Boolean(lotteryForm.isFree);
 
   if (!endsAt) {
     throw new Error('Debes seleccionar una fecha de cierre valida.');
@@ -230,15 +281,41 @@ const buildPayload = (imageUrl: string): SaveLotteryPayload => {
     );
   }
 
+  let finalPremioDinero: number | null = null;
+  let finalPremioOtros = '';
+
+  if (lotteryForm.hasPremio) {
+    if (lotteryForm.premioType === 'dinero') {
+      if (lotteryForm.premioDinero === null || (lotteryForm.premioDinero as any) === '') {
+        throw new Error('Debes ingresar un valor para el premio en dinero.');
+      }
+      const parsedVal = Number(lotteryForm.premioDinero);
+      if (!Number.isFinite(parsedVal) || parsedVal < 0) {
+        throw new Error('El premio en dinero debe ser un número válido mayor o igual a 0.');
+      }
+      finalPremioDinero = parsedVal;
+    } else {
+      finalPremioOtros = (lotteryForm.premioOtros || '').trim();
+      if (!finalPremioOtros) {
+        throw new Error('El premio de tipo "otros" no puede estar vacío.');
+      }
+    }
+  }
+
   return {
     title: lotteryForm.title,
     description: lotteryForm.description,
     imageUrl,
     status: lotteryForm.status,
+    isFree,
     startsAt,
     endsAt,
     maxNumber,
-    maxTicketsPerUser
+    maxTicketsPerUser,
+    hasPremio: lotteryForm.hasPremio,
+    premioType: lotteryForm.premioType,
+    premioDinero: finalPremioDinero,
+    premioOtros: finalPremioOtros
   };
 };
 
@@ -288,13 +365,22 @@ const saveLottery = async () => {
     let uploadWarning = '';
     if (logoFile.value) {
       try {
-        const processedLogo = await cropLogoToSquare(logoFile.value);
+        const processed = await processLotteryImage(logoFile.value);
         const ownerId = authStore.user?.uid || 'staff';
-        const extension = (processedLogo.name.split('.').pop() || 'webp').toLowerCase();
-        const path = `posts/${ownerId}/lotteries/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extension}`;
-        const uploaded = await storageStore.uploadFileWithProgress(processedLogo, path);
-        finalImageUrl = uploaded.url;
-      } catch {
+        const timestamp = Date.now();
+        const randomString = Math.random().toString(36).slice(2, 8);
+
+        const mainPath = `posts/${ownerId}/lotteries/${timestamp}_${randomString}_o.webp`;
+        const thumbPath = `posts/${ownerId}/lotteries/${timestamp}_${randomString}_t.webp`;
+
+        const [mainUpload] = await Promise.all([
+          storageStore.uploadFileWithProgress(processed.optimizedFile, mainPath),
+          storageStore.uploadFileWithProgress(processed.thumbFile, thumbPath)
+        ]);
+
+        finalImageUrl = mainUpload.url;
+      } catch (err: any) {
+        console.error('Error procesando/subiendo logo:', err);
         uploadWarning = 'No se pudo subir el logo. La loteria se guardo sin imagen.';
       }
     }
@@ -482,14 +568,24 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <label class="field">
-            <span>Estado inicial</span>
-            <select v-model="lotteryForm.status">
-              <option value="draft">Borrador</option>
-              <option value="active">Activa</option>
-              <option value="closed">Cerrada</option>
-            </select>
-          </label>
+          <div class="cols-2">
+            <label class="field">
+              <span>Estado inicial</span>
+              <select v-model="lotteryForm.status">
+                <option value="draft">Borrador</option>
+                <option value="active">Activa</option>
+                <option value="closed">Cerrada</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Tipo de lotería</span>
+              <select v-model="lotteryForm.isFree">
+                <option :value="true">Gratuita (Verificación Social)</option>
+                <option :value="false">De Pago (Próximamente)</option>
+              </select>
+            </label>
+          </div>
 
           <div class="cols-2">
             <label class="field">
@@ -525,6 +621,41 @@ onBeforeUnmount(() => {
             </label>
           </div>
 
+          <div class="field inline" style="margin-top: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <input v-model="lotteryForm.hasPremio" type="checkbox" id="hasPremioCheck" />
+            <label for="hasPremioCheck" style="cursor: pointer; font-weight: 600;">¿Esta lotería tiene un premio asociado?</label>
+          </div>
+
+          <div v-if="lotteryForm.hasPremio" class="cols-2" style="margin-bottom: 1rem;">
+            <label class="field">
+              <span>Tipo de premio</span>
+              <select v-model="lotteryForm.premioType">
+                <option value="dinero">Dinero 💵</option>
+                <option value="otros">Otros Premios 🎁</option>
+              </select>
+            </label>
+
+            <label v-if="lotteryForm.premioType === 'dinero'" class="field">
+              <span>Monto en Dinero ($ ARS)</span>
+              <input
+                v-model.number="lotteryForm.premioDinero"
+                type="number"
+                min="0"
+                placeholder="Ej: 5000"
+              />
+            </label>
+
+            <label v-else class="field">
+              <span>Especificar premio (texto)</span>
+              <input
+                v-model="lotteryForm.premioOtros"
+                type="text"
+                maxlength="200"
+                placeholder="Ej: Remera Oficial + Gorra"
+              />
+            </label>
+          </div>
+
           <div class="actions">
             <button class="primary" :disabled="savingLottery" @click="saveLottery">
               {{
@@ -547,7 +678,7 @@ onBeforeUnmount(() => {
           <div v-for="lottery in lotteries" :key="lottery.id" class="lottery-item">
             <img
               v-if="lottery.imageUrl"
-              :src="lottery.imageUrl"
+              :src="deriveLotteryThumbnail(lottery.imageUrl)"
               alt="Logo loteria"
               class="lottery-thumb"
               loading="lazy"
@@ -555,6 +686,9 @@ onBeforeUnmount(() => {
             <div class="lottery-main">
               <h3>{{ lottery.title || 'Sin titulo' }}</h3>
               <p>{{ lottery.description || 'Sin descripcion' }}</p>
+              <small>
+                Tipo: <strong>{{ lottery.isFree ? 'Gratuita 🎁' : 'De Pago 💳' }}</strong>
+              </small>
               <small>
                 Estado <strong>{{ lottery.status }}</strong> |
                 Participantes {{ lottery.participantsCount }}

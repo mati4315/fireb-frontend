@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProfileStore, type PublicProfile } from '@/stores/profileStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { useFeedStore } from '@/stores/feedStore';
+import { db } from '@/config/firebase';
+import { collection, collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 import ImageLightbox from '@/components/common/ImageLightbox.vue';
@@ -54,6 +56,166 @@ const avatarUploadProgress = ref(0);
 const linkingProviderId = ref<string | null>(null);
 const linkProviderError = ref<string | null>(null);
 const linkProviderSuccess = ref<string | null>(null);
+
+const lotteriesParticipated = ref<number | null>(null);
+const lotteriesWon = ref<number | null>(null);
+const loadingStats = ref(false);
+
+const formatCreationDate = (value: any): string => {
+  if (!value) return '-';
+  
+  let dateObj: Date | null = null;
+  if (value instanceof Date) {
+    dateObj = value;
+  } else if (typeof value?.toDate === 'function') {
+    dateObj = value.toDate();
+  } else if (typeof value === 'object' && value.seconds) {
+    dateObj = new Date(value.seconds * 1000);
+  } else if (typeof value === 'string' || typeof value === 'number') {
+    dateObj = new Date(value);
+  }
+  
+  if (!dateObj || Number.isNaN(dateObj.getTime())) return '-';
+  
+  return new Intl.DateTimeFormat('es-AR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }).format(dateObj);
+};
+
+const userParticipations = ref<Array<{
+  lotteryId: string;
+  title: string;
+  numbers: number[];
+  isWinner: boolean;
+  winningNumber: number | null;
+  status: string;
+  imageUrl: string;
+  description: string;
+}>>([]);
+
+const userWins = ref<Array<{
+  lotteryId: string;
+  title: string;
+  winningNumber: number | null;
+  status: string;
+  imageUrl: string;
+  description: string;
+}>>([]);
+
+const showParticipatedModal = ref(false);
+const showWinsModal = ref(false);
+
+const loadLotteryStats = async (uid: string) => {
+  if (!uid) return;
+  loadingStats.value = true;
+  try {
+    const participatedQuery = query(
+      collectionGroup(db, 'entries'),
+      where('userId', '==', uid)
+    );
+    const participatedSnap = await getDocs(participatedQuery);
+    
+    const uniqueLotteryIds = new Set<string>();
+    participatedSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data?.lotteryId) {
+        uniqueLotteryIds.add(data.lotteryId);
+      }
+    });
+    lotteriesParticipated.value = uniqueLotteryIds.size;
+
+    const lotterySnaps = await Promise.all(
+      Array.from(uniqueLotteryIds).map(id => getDoc(doc(db, 'lotteries', id)))
+    );
+    const lotteriesMap = new Map<string, any>();
+    lotterySnaps.forEach(snap => {
+      if (snap.exists()) {
+        lotteriesMap.set(snap.id, snap.data());
+      }
+    });
+
+    const groupedNumbers = new Map<string, number[]>();
+    participatedSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data?.lotteryId && typeof data?.selectedNumber === 'number') {
+        const nums = groupedNumbers.get(data.lotteryId) || [];
+        nums.push(data.selectedNumber);
+        groupedNumbers.set(data.lotteryId, nums);
+      }
+    });
+
+    const tempParticipations: any[] = [];
+    groupedNumbers.forEach((numbers, lotteryId) => {
+      const lotteryData = lotteriesMap.get(lotteryId) || {};
+      const winnerUserId = lotteryData.winner?.userId;
+      const winnerNumber = lotteryData.winner?.selectedNumber;
+      const isWinner = winnerUserId === uid && typeof winnerNumber === 'number' && numbers.includes(winnerNumber);
+
+      let premioText = '';
+      if (lotteryData.hasPremio !== false) {
+        if (lotteryData.premioType === 'dinero') {
+          premioText = typeof lotteryData.premioDinero === 'number' ? `Premio: $${lotteryData.premioDinero}` : 'Premio en Dinero';
+        } else {
+          premioText = lotteryData.premioOtros ? `Premio: ${lotteryData.premioOtros}` : 'Premio Especial';
+        }
+      } else {
+        premioText = lotteryData.description || '';
+      }
+
+      tempParticipations.push({
+        lotteryId,
+        title: lotteryData.title || lotteryData.nombre || `Lotería #${lotteryId.slice(0, 6)}`,
+        numbers: numbers.sort((a, b) => a - b),
+        isWinner,
+        winningNumber: typeof winnerNumber === 'number' ? winnerNumber : null,
+        status: lotteryData.status || 'active',
+        imageUrl: lotteryData.imageUrl || '',
+        description: premioText
+      });
+    });
+    userParticipations.value = tempParticipations;
+
+    const winsQuery = query(
+      collection(db, 'lotteries'),
+      where('winner.userId', '==', uid)
+    );
+    const winsSnap = await getDocs(winsQuery);
+    lotteriesWon.value = winsSnap.size;
+
+    userWins.value = winsSnap.docs.map(docSnap => {
+      const lotteryData = docSnap.data();
+      let premioText = '';
+      if (lotteryData.hasPremio !== false) {
+        if (lotteryData.premioType === 'dinero') {
+          premioText = typeof lotteryData.premioDinero === 'number' ? `Premio: $${lotteryData.premioDinero}` : 'Premio en Dinero';
+        } else {
+          premioText = lotteryData.premioOtros ? `Premio: ${lotteryData.premioOtros}` : 'Premio Especial';
+        }
+      } else {
+        premioText = lotteryData.description || '';
+      }
+
+      return {
+        lotteryId: docSnap.id,
+        title: lotteryData.title || lotteryData.nombre || `Lotería #${docSnap.id.slice(0, 6)}`,
+        winningNumber: lotteryData.winner?.selectedNumber || null,
+        status: lotteryData.status || 'completed',
+        imageUrl: lotteryData.imageUrl || '',
+        description: premioText
+      };
+    });
+  } catch (e) {
+    console.error('Error fetching lottery stats:', e);
+    lotteriesParticipated.value = 0;
+    lotteriesWon.value = 0;
+    userParticipations.value = [];
+    userWins.value = [];
+  } finally {
+    loadingStats.value = false;
+  }
+};
 
 const MAX_POST_IMAGES = 4;
 const editingPosts = ref<Record<string, { 
@@ -477,6 +639,7 @@ const loadProfileContext = async () => {
 
     currentProfile.value = profile;
     viewedUserId.value = profile.userId;
+    void loadLotteryStats(profile.userId);
 
     if (isOwnProfile.value) {
       resetFormFromProfile();
@@ -791,10 +954,39 @@ onBeforeUnmount(() => {
             </a>
           </p>
 
+          <p class="secondary profile-joined-date">
+            <span class="joined-icon">📅</span> Miembro desde el {{ formatCreationDate(currentProfile.createdAt) }}
+          </p>
+
           <div class="stats-row">
             <span><strong>{{ currentProfile.stats.postsCount }}</strong> publicaciones</span>
             <span><strong>{{ currentProfile.stats.followersCount }}</strong> seguidores</span>
             <span><strong>{{ currentProfile.stats.followingCount }}</strong> siguiendo</span>
+          </div>
+
+          <div class="lottery-stats-container">
+            <button
+              class="lottery-stat-badge participated clickable"
+              title="Ver loterías participadas"
+              @click="showParticipatedModal = true"
+            >
+              <span class="stat-icon">🎟️</span>
+              <div class="stat-info">
+                <span class="stat-value">{{ lotteriesParticipated !== null ? lotteriesParticipated : '...' }}</span>
+                <span class="stat-label">Loterías Participadas</span>
+              </div>
+            </button>
+            <button
+              class="lottery-stat-badge won clickable"
+              title="Ver loterías ganadas"
+              @click="showWinsModal = true"
+            >
+              <span class="stat-icon">🏆</span>
+              <div class="stat-info">
+                <span class="stat-value">{{ lotteriesWon !== null ? lotteriesWon : '...' }}</span>
+                <span class="stat-label">Loterías Ganadas</span>
+              </div>
+            </button>
           </div>
 
           <div v-if="!isOwnProfile" class="actions-row">
@@ -823,27 +1015,50 @@ onBeforeUnmount(() => {
         <p class="secondary">Edita tu perfil publico. Los cambios se reflejan en tus publicaciones y comentarios.</p>
 
         <div class="social-connected">
-          <h3>Connected social accounts</h3>
+          <h3>Cuentas sociales vinculadas</h3>
+          <p class="social-subtitle">
+            Vincula tus cuentas para verificar tu identidad y participar en las loterías gratuitas 🎁.
+          </p>
           <div class="social-connected-list">
             <div
               v-for="provider in socialProvidersStatus"
               :key="provider.id"
-              class="social-connected-item"
+              class="social-card"
+              :class="{ connected: provider.connected }"
             >
-              <div class="social-provider-left">
-                <span class="social-provider-name">{{ provider.label }}</span>
-                <span class="social-provider-mark" :class="{ off: !provider.connected }">
-                  {{ provider.connected ? '✅' : '❌' }}
+              <div class="social-card-left">
+                <span class="social-icon-wrapper">
+                  <svg v-if="provider.id === 'google.com'" class="social-svg-icon" viewBox="0 0 24 24" width="20" height="20">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                  </svg>
+                  <svg v-else-if="provider.id === 'facebook.com'" class="social-svg-icon fb" viewBox="0 0 24 24" width="20" height="20" fill="#1877F2">
+                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                  </svg>
                 </span>
+                <div class="social-info">
+                  <span class="social-name">{{ provider.label }}</span>
+                  <span class="social-status-label" :class="{ connected: provider.connected }">
+                    {{ provider.connected ? 'Vinculado y verificado ✅' : 'No vinculado' }}
+                  </span>
+                </div>
               </div>
-              <button
-                v-if="!provider.connected"
-                class="secondary-btn social-link-btn"
-                :disabled="Boolean(linkingProviderId)"
-                @click="linkSocialProvider(provider.id)"
-              >
-                {{ linkingProviderId === provider.id ? 'Vinculando...' : `Vincular ${provider.label}` }}
-              </button>
+              <div class="social-card-right">
+                <span v-if="provider.connected" class="social-status-pill connected">
+                  Verificado ✅
+                </span>
+                <button
+                  v-else
+                  class="social-action-btn"
+                  :disabled="Boolean(linkingProviderId)"
+                  @click="linkSocialProvider(provider.id)"
+                >
+                  <span v-if="linkingProviderId === provider.id">Vinculando...</span>
+                  <span v-else>Vincular</span>
+                </button>
+              </div>
             </div>
           </div>
           <p v-if="linkProviderError" class="inline-error">{{ linkProviderError }}</p>
@@ -1028,6 +1243,86 @@ onBeforeUnmount(() => {
     :initial-index="lightboxStartIndex"
     @close="closeLightbox"
   />
+
+  <!-- Modal Loterías Participadas -->
+  <div v-if="showParticipatedModal" class="custom-modal-overlay" @click.self="showParticipatedModal = false">
+    <div class="custom-modal-content card premium-modal">
+      <div class="modal-header">
+        <h2>Loterías Participadas 🎟️</h2>
+        <button class="close-modal-btn" @click="showParticipatedModal = false">×</button>
+      </div>
+      
+      <div class="modal-scroll-area">
+        <div v-if="loadingStats" class="modal-loading">
+          Cargando participaciones...
+        </div>
+        <div v-else-if="userParticipations.length === 0" class="modal-empty-state">
+          <span class="empty-icon">🎟️</span>
+          <p>Aún no has participado en ninguna lotería.</p>
+        </div>
+        <div v-else class="participations-list">
+          <div v-for="part in userParticipations" :key="part.lotteryId" class="participation-card">
+            <div class="part-main-info">
+              <img v-if="part.imageUrl" :src="part.imageUrl" class="part-img" />
+              <div class="part-text">
+                <h4 class="part-title">{{ part.title }}</h4>
+                <p class="part-desc" v-if="part.description">{{ part.description }}</p>
+                <div class="part-numbers">
+                  <span class="numbers-label">Tus números:</span>
+                  <span v-for="num in part.numbers" :key="num" class="number-tag">
+                    #{{ num }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="part-status-badge" :class="part.status">
+              <span v-if="part.isWinner" class="winner-label">🏆 ¡Ganaste!</span>
+              <span v-else-if="part.status === 'completed'" class="ended-label">Finalizada</span>
+              <span v-else class="active-label">Activa</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Loterías Ganadas -->
+  <div v-if="showWinsModal" class="custom-modal-overlay" @click.self="showWinsModal = false">
+    <div class="custom-modal-content card premium-modal wins-modal">
+      <div class="modal-header">
+        <h2>Loterías Ganadas 🏆</h2>
+        <button class="close-modal-btn" @click="showWinsModal = false">×</button>
+      </div>
+      
+      <div class="modal-scroll-area">
+        <div v-if="loadingStats" class="modal-loading">
+          Cargando victorias...
+        </div>
+        <div v-else-if="userWins.length === 0" class="modal-empty-state">
+          <span class="empty-icon">🏆</span>
+          <p>Aún no has ganado ninguna lotería. ¡Sigue participando para tener más oportunidades! 🍀</p>
+        </div>
+        <div v-else class="participations-list">
+          <div v-for="win in userWins" :key="win.lotteryId" class="participation-card win-card">
+            <div class="part-main-info">
+              <img v-if="win.imageUrl" :src="win.imageUrl" class="part-img" />
+              <div class="part-text">
+                <h4 class="part-title">{{ win.title }}</h4>
+                <p class="part-desc" v-if="win.description">{{ win.description }}</p>
+                <div class="win-number-row">
+                  <span class="win-label">Número ganador:</span>
+                  <span class="win-number-tag">#{{ win.winningNumber }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="part-status-badge won">
+              <span class="winner-label">🏆 Premio</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -1133,6 +1428,99 @@ onBeforeUnmount(() => {
   color: var(--text-h);
 }
 
+.profile-joined-date {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+  color: var(--text);
+  opacity: 0.85;
+  margin-top: 0.45rem;
+}
+
+.joined-icon {
+  font-size: 0.95rem;
+}
+
+.lottery-stats-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+  width: 100%;
+}
+
+.lottery-stat-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 1rem;
+  border-radius: 16px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border);
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.015);
+}
+
+.lottery-stat-badge:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.03);
+}
+
+.lottery-stat-badge.participated {
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border) 75%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 3%, var(--card-bg) 97%),
+    color-mix(in srgb, var(--accent) 7%, var(--card-bg) 93%)
+  );
+}
+
+.lottery-stat-badge.participated:hover {
+  border-color: var(--accent);
+}
+
+.lottery-stat-badge.won {
+  border-color: rgba(16, 185, 129, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.02),
+    rgba(16, 185, 129, 0.05)
+  );
+}
+
+.lottery-stat-badge.won:hover {
+  border-color: #10b981;
+}
+
+.stat-icon {
+  font-size: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.05));
+}
+
+.stat-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-h);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
 .actions-row {
   margin-top: 0.8rem;
   display: flex;
@@ -1173,49 +1561,150 @@ onBeforeUnmount(() => {
   color: var(--text-h);
 }
 
+/* --- NUEVOS ESTILOS PARA SOCIAL CONNECTED --- */
 .social-connected {
-  margin-top: 0.85rem;
-  display: grid;
-  gap: 0.45rem;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  border-radius: 20px;
+  background: var(--social-bg, rgba(249, 250, 251, 0.03));
+  border: 1px solid var(--border);
 }
 
 .social-connected h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1.1rem;
+  font-weight: 700;
   color: var(--text-h);
+}
+
+.social-subtitle {
+  margin: 0.35rem 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.4;
 }
 
 .social-connected-list {
   display: grid;
-  gap: 0.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.75rem;
 }
 
-.social-connected-item {
+.social-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.4rem;
-  font-size: 0.9rem;
+  padding: 1rem 1.2rem;
+  border-radius: 16px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.01);
 }
 
-.social-provider-left {
-  display: inline-flex;
+.social-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+}
+
+.social-card.connected {
+  background: rgba(16, 185, 129, 0.03);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.social-card.connected:hover {
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.social-card-left {
+  display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.85rem;
 }
 
-.social-link-btn {
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
+.social-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--social-bg, #f3f4f6);
+  border: 1px solid var(--border);
 }
 
-.social-provider-name {
+.social-svg-icon {
+  display: block;
+}
+
+.social-svg-icon.fb {
+  color: #1877F2;
+}
+
+.social-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.social-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.social-status-label {
+  font-size: 0.78rem;
   color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.social-status-label.connected {
+  color: #10b981;
   font-weight: 600;
 }
 
-.social-provider-mark.off {
-  opacity: 0.85;
+.social-status-pill {
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.35rem 0.75rem;
+  border-radius: 99px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.social-status-pill.connected {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.social-action-btn {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 99px;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.social-action-btn:hover {
+  background: var(--accent-hover, #0284c7);
+  transform: scale(1.03);
+}
+
+.social-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .form-grid {
@@ -1382,6 +1871,11 @@ label small {
     justify-content: center;
   }
 
+  .lottery-stats-container {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+
   .actions-row {
     align-items: center;
     width: 100%;
@@ -1467,5 +1961,270 @@ label small {
   height: auto;
   max-height: 450px;
   border-radius: 12px;
+}
+
+/* --- ESTILOS DE MODALES PREMIUM --- */
+.custom-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 15, 30, 0.75);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 1rem;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.premium-modal {
+  width: 100%;
+  max-width: 580px;
+  background: linear-gradient(135deg, var(--card-bg), color-mix(in srgb, var(--card-bg) 92%, #111827 8%));
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
+  border-radius: 24px;
+  overflow: hidden;
+  padding: 1.5rem !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 80vh;
+  animation: scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.85rem;
+}
+
+.modal-header h2 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-h);
+  margin: 0;
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-size: 1.8rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.2s;
+  padding: 0 0.5rem;
+}
+
+.close-modal-btn:hover {
+  color: var(--accent);
+}
+
+.modal-scroll-area {
+  overflow-y: auto;
+  max-height: 60vh;
+  padding-right: 0.4rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.modal-scroll-area::-webkit-scrollbar {
+  width: 5px;
+}
+
+.modal-scroll-area::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 99px;
+}
+
+.modal-loading {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.modal-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  color: var(--text);
+  gap: 0.75rem;
+}
+
+.empty-icon {
+  font-size: 2.8rem;
+}
+
+.modal-empty-state p {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.participations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding-bottom: 0.5rem;
+}
+
+.participation-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1.1rem;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  transition: all 0.22s ease;
+}
+
+.participation-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.part-main-info {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  flex: 1;
+}
+
+.part-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.part-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.part-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-h);
+}
+
+.part-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.8;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.numbers-label {
+  font-size: 0.76rem;
+  color: var(--text);
+  opacity: 0.7;
+  font-weight: 500;
+}
+
+.number-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.part-status-badge {
+  flex-shrink: 0;
+  padding: 0.25rem 0.65rem;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.part-status-badge.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.part-status-badge.completed {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.part-status-badge.won,
+.winner-label {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.win-number-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.win-label {
+  font-size: 0.76rem;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.win-number-tag {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #fff;
+  background: #10b981;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+}
+
+.lottery-stat-badge.clickable {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 </style>

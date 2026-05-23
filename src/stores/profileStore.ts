@@ -50,6 +50,7 @@ export type PublicProfile = {
   isVerified: boolean;
   rol?: string; // Add optional role property
   stats: ProfileStats;
+  createdAt?: any;
 };
 
 type UpdateProfilePayload = {
@@ -99,7 +100,8 @@ const toPublicProfile = (userId: string, data: Record<string, unknown>): PublicP
     profilePictureUrl: String(data.profilePictureUrl || '').trim(),
     isVerified: data.isVerified === true,
     rol: typeof data.rol === 'string' ? data.rol : undefined,
-    stats: toStats((data.stats || {}) as RawStats)
+    stats: toStats((data.stats || {}) as RawStats),
+    createdAt: data.createdAt
   };
 };
 

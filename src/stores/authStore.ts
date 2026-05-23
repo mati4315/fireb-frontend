@@ -333,7 +333,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (err: any) {
       console.error('Login Error:', err);
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/popup-blocked') {
-        if (!isNativePlatform() && providerId === 'facebook.com') {
+        if (err.code === 'auth/popup-blocked' && !isNativePlatform() && providerId === 'facebook.com') {
           try {
             await signInWithRedirect(auth, new FacebookAuthProvider());
             loading.value = false;
@@ -473,7 +473,7 @@ export const useAuthStore = defineStore('auth', () => {
         loading.value = false;
         return { success: true };
       }
-      if (err?.code === 'auth/popup-closed-by-user' && !isNativePlatform() && providerId === 'facebook.com') {
+      if (err?.code === 'auth/popup-blocked' && !isNativePlatform() && providerId === 'facebook.com') {
         try {
           await signInWithRedirect(auth, new FacebookAuthProvider());
           loading.value = false;

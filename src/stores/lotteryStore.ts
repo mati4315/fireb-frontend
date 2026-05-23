@@ -37,6 +37,7 @@ export type Lottery = {
   description: string;
   imageUrl: string;
   status: LotteryStatus;
+  isFree: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
   maxNumber: number;
@@ -50,6 +51,10 @@ export type Lottery = {
   createdAt: Date | null;
   updatedAt: Date | null;
   deletedAt: Date | null;
+  hasPremio?: boolean;
+  premioType?: 'dinero' | 'otros';
+  premioDinero?: number | null;
+  premioOtros?: string;
 };
 
 export type LotteryEntry = {
@@ -75,10 +80,15 @@ export type SaveLotteryPayload = {
   description: string;
   imageUrl?: string;
   status: LotteryStatus;
+  isFree: boolean;
   startsAt: Date;
   endsAt: Date;
   maxNumber: number;
   maxTicketsPerUser: number;
+  hasPremio: boolean;
+  premioType: 'dinero' | 'otros';
+  premioDinero: number | null;
+  premioOtros: string;
 };
 
 type EnterLotteryResponse = {
@@ -185,6 +195,7 @@ const normalizeLottery = (id: string, data: Record<string, unknown>): Lottery =>
     description: typeof data.description === 'string' ? data.description.trim() : '',
     imageUrl: typeof data.imageUrl === 'string' ? data.imageUrl.trim() : '',
     status: normalizeStatus(data.status),
+    isFree: data.isFree !== false,
     startsAt: toDate(data.startsAt),
     endsAt: toDate(data.endsAt),
     maxNumber: clampInteger(data.maxNumber, MIN_MAX_NUMBER, MAX_MAX_NUMBER, DEFAULT_MAX_NUMBER),
@@ -206,7 +217,11 @@ const normalizeLottery = (id: string, data: Record<string, unknown>): Lottery =>
     updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : '',
     createdAt: toDate(data.createdAt),
     updatedAt: toDate(data.updatedAt),
-    deletedAt: toDate(data.deletedAt)
+    deletedAt: toDate(data.deletedAt),
+    hasPremio: data.hasPremio !== false,
+    premioType: data.premioType === 'otros' ? 'otros' : 'dinero',
+    premioDinero: typeof data.premioDinero === 'number' ? data.premioDinero : null,
+    premioOtros: typeof data.premioOtros === 'string' ? data.premioOtros.trim() : ''
   };
 };
 
@@ -895,6 +910,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     const imageUrl = typeof payload.imageUrl === 'string'
       ? trimLimited(payload.imageUrl, 2000)
       : '';
+    const isFree = payload.isFree !== false;
 
     if (!title) {
       throw new Error('El titulo es obligatorio.');
@@ -930,15 +946,41 @@ export const useLotteryStore = defineStore('lottery', () => {
       );
     }
 
+    const hasPremio = payload.hasPremio !== false;
+    const premioType = payload.premioType === 'otros' ? 'otros' : 'dinero';
+    
+    let premioDinero: number | null = null;
+    let premioOtros = '';
+
+    if (hasPremio) {
+      if (premioType === 'dinero') {
+        const parsedVal = Number(payload.premioDinero);
+        if (payload.premioDinero === null || !Number.isFinite(parsedVal) || parsedVal < 0) {
+          throw new Error('El premio en dinero debe ser un número válido mayor o igual a 0.');
+        }
+        premioDinero = parsedVal;
+      } else {
+        premioOtros = typeof payload.premioOtros === 'string' ? payload.premioOtros.trim() : '';
+        if (!premioOtros) {
+          throw new Error('El premio de tipo "otros" no puede estar vacío.');
+        }
+      }
+    }
+
     return {
       title,
       description,
       startsAt: payload.startsAt,
       endsAt: payload.endsAt,
       status: payload.status,
+      isFree,
       imageUrl,
       maxNumber,
-      maxTicketsPerUser
+      maxTicketsPerUser,
+      hasPremio,
+      premioType,
+      premioDinero,
+      premioOtros
     };
   };
 
@@ -951,6 +993,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       description: sanitized.description,
       imageUrl: sanitized.imageUrl || '',
       status: sanitized.status,
+      isFree: sanitized.isFree,
       startsAt: Timestamp.fromDate(sanitized.startsAt),
       endsAt: Timestamp.fromDate(sanitized.endsAt),
       maxNumber: sanitized.maxNumber,
@@ -963,7 +1006,11 @@ export const useLotteryStore = defineStore('lottery', () => {
       updatedBy: userId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      deletedAt: null
+      deletedAt: null,
+      hasPremio: sanitized.hasPremio,
+      premioType: sanitized.premioType,
+      premioDinero: sanitized.premioDinero,
+      premioOtros: sanitized.premioOtros
     });
   };
 
@@ -978,6 +1025,7 @@ export const useLotteryStore = defineStore('lottery', () => {
         description: sanitized.description,
         imageUrl: sanitized.imageUrl || '',
         status: sanitized.status,
+        isFree: sanitized.isFree,
         startsAt: Timestamp.fromDate(sanitized.startsAt),
         endsAt: Timestamp.fromDate(sanitized.endsAt),
         maxNumber: sanitized.maxNumber,
@@ -985,7 +1033,11 @@ export const useLotteryStore = defineStore('lottery', () => {
         entrySchemaVersion: 2,
         migrationStatus: 'done',
         updatedBy: userId,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        hasPremio: sanitized.hasPremio,
+        premioType: sanitized.premioType,
+        premioDinero: sanitized.premioDinero,
+        premioOtros: sanitized.premioOtros
       },
       { merge: true }
     );
