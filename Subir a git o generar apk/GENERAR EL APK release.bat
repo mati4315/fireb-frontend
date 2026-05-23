@@ -12,7 +12,7 @@ echo.
 echo Log: %LOG_FILE%
 echo.
 
-if not exist "android\gradlew.bat" (
+if not exist "..\android\gradlew.bat" (
   echo ERROR: No se encontro "android\gradlew.bat"
   echo [%date% %time%] ERROR: No se encontro android\gradlew.bat.>> "%LOG_FILE%"
   pause
@@ -28,7 +28,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-pushd android
+pushd ..\android
 call .\gradlew.bat assembleRelease >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
   echo.
@@ -42,7 +42,7 @@ popd
 
 echo.
 echo APK generado en:
-echo %~dp0android\app\build\outputs\apk\release\app-release.apk
+echo %~dp0..\android\app\build\outputs\apk\release\app-release.apk
 echo [%date% %time%] OK: APK release generado correctamente.>> "%LOG_FILE%"
 echo.
 pause

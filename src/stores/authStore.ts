@@ -491,6 +491,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   const logout = async () => {
     try {
+      if (isNativePlatform()) {
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+        await FirebaseAuthentication.signOut();
+      }
       await signOut(auth);
       user.value = null;
       userProfile.value = null;

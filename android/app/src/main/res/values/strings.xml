@@ -6,4 +6,5 @@
     <string name="custom_url_scheme">cdelu.ar.app</string>
     <string name="facebook_app_id">831677939598834</string>
     <string name="fb_login_protocol_scheme">fb831677939598834</string>
+    <string name="facebook_client_token">582e3d2936eb5b164b70f855fd9e6e16</string>
 </resources>
