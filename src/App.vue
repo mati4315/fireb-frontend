@@ -131,7 +131,10 @@ const openNotificationsConfig = async () => {
   await router.push('/notificaciones')
 }
 
+const showPushBanner = ref(true)
+
 const activatePushFromBanner = async () => {
+  showPushBanner.value = false
   try {
     await notificationStore.enableWebPush()
   } catch (error) {
@@ -140,6 +143,7 @@ const activatePushFromBanner = async () => {
 }
 
 const dismissPushBanner = () => {
+  showPushBanner.value = false
   notificationStore.dismissPushNudge()
 }
 </script>
@@ -297,7 +301,7 @@ const dismissPushBanner = () => {
 
     <main class="content-wrapper">
       <section
-        v-if="authStore.isAuthenticated && notificationStore.shouldShowPushNudge"
+        v-if="showPushBanner && authStore.isAuthenticated && notificationStore.shouldShowPushNudge"
         class="push-banner"
       >
         <p class="push-banner-text">
@@ -660,41 +664,79 @@ const dismissPushBanner = () => {
 }
 
 .push-banner {
-  margin: 0.8rem 0.8rem 0;
-  padding: 0.8rem;
-  border: 1px solid var(--accent-border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--card-bg));
+  margin: 1rem 1.5rem 0;
+  padding: 1rem 1.2rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 14px;
+  background: var(--card-bg);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.8rem;
+  gap: 1rem;
+  animation: pushBannerIn 0.35s ease-out forwards;
+}
+
+@keyframes pushBannerIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.push-banner::before {
+  content: '🔔';
+  font-size: 1.3rem;
+  flex-shrink: 0;
 }
 
 .push-banner-text {
   margin: 0;
   color: var(--text-h);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  flex: 1;
 }
 
 .push-banner-actions {
   display: flex;
-  gap: 0.45rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .push-banner-btn,
 .push-banner-dismiss {
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 10px;
-  background: var(--card-bg);
-  color: var(--text-h);
-  padding: 0.45rem 0.7rem;
+  padding: 0.5rem 1rem;
   font-size: 0.84rem;
+  font-weight: 600;
   cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
 }
 
 .push-banner-btn {
-  border-color: var(--accent-border);
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+}
+
+.push-banner-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.push-banner-dismiss {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.push-banner-dismiss:hover {
+  background: var(--hover-bg);
+  color: var(--text-h);
 }
 
 @media (max-width: 768px) {
@@ -761,9 +803,14 @@ const dismissPushBanner = () => {
   }
 
   .push-banner {
-    margin: 0.6rem;
+    margin: 0.75rem;
     flex-direction: column;
     align-items: flex-start;
+    padding: 0.85rem 1rem;
+  }
+
+  .push-banner::before {
+    display: none;
   }
 
   .push-banner-actions {
@@ -773,6 +820,7 @@ const dismissPushBanner = () => {
   .push-banner-btn,
   .push-banner-dismiss {
     flex: 1;
+    text-align: center;
   }
 }
 </style>
