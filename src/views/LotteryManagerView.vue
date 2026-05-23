@@ -18,6 +18,7 @@ type LotteryForm = {
   imageUrl: string;
   status: LotteryStatus;
   isFree: boolean;
+  startsAt: string;
   endsAt: string;
   maxNumber: number;
   maxTicketsPerUser: number;
@@ -56,6 +57,7 @@ const lotteryForm = reactive<LotteryForm>({
   imageUrl: '',
   status: 'active',
   isFree: true,
+  startsAt: '',
   endsAt: '',
   maxNumber: 100,
   maxTicketsPerUser: 1,
@@ -64,6 +66,10 @@ const lotteryForm = reactive<LotteryForm>({
   premioDinero: null,
   premioOtros: ''
 });
+
+// Countdown timer
+const countdownNow = ref(Date.now());
+let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
 const isAuthorized = computed(() => {
   const rol = authStore.userProfile?.rol;
@@ -81,19 +87,34 @@ const resetFeedback = () => {
   errorMessage.value = '';
 };
 
-const dateToDateInputValue = (value: Date | null): string => {
+const dateToDatetimeLocalValue = (value: Date | null): string => {
   if (!value) return '';
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, '0');
   const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const hours = String(value.getHours()).padStart(2, '0');
+  const mins = String(value.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${mins}`;
 };
 
-const parseInputDate = (value: string, endOfDay: boolean = false): Date | null => {
+const parseInputDatetime = (value: string): Date | null => {
   if (!value) return null;
-  const parsed = new Date(endOfDay ? `${value}T23:59:59` : `${value}T00:00:00`);
+  const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed;
+};
+
+const formatCountdown = (targetMs: number): string => {
+  const diffMs = targetMs - countdownNow.value;
+  if (diffMs <= 0) return 'Finalizado';
+  const totalSec = Math.floor(diffMs / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+  if (days > 0) return `${days}d ${hours}h ${mins}m`;
+  if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+  return `${mins}m ${secs}s`;
 };
 
 const processLotteryImage = async (file: File): Promise<{ optimizedFile: File; thumbFile: File }> => {
@@ -197,6 +218,7 @@ const resetForm = () => {
   lotteryForm.imageUrl = '';
   lotteryForm.status = 'active';
   lotteryForm.isFree = true;
+  lotteryForm.startsAt = dateToDatetimeLocalValue(new Date());
   lotteryForm.endsAt = '';
   lotteryForm.maxNumber = 100;
   lotteryForm.maxTicketsPerUser = 1;
@@ -222,7 +244,8 @@ const setFormFromLottery = (lottery: Lottery) => {
   lotteryForm.imageUrl = lottery.imageUrl || '';
   lotteryForm.status = lottery.status === 'completed' ? 'closed' : lottery.status;
   lotteryForm.isFree = lottery.isFree !== false;
-  lotteryForm.endsAt = dateToDateInputValue(lottery.endsAt);
+  lotteryForm.startsAt = dateToDatetimeLocalValue(lottery.startsAt || new Date());
+  lotteryForm.endsAt = dateToDatetimeLocalValue(lottery.endsAt);
   lotteryForm.maxNumber = lottery.maxNumber;
   lotteryForm.maxTicketsPerUser = lottery.maxTicketsPerUser;
   lotteryForm.hasPremio = lottery.hasPremio !== false;
@@ -240,25 +263,17 @@ const getAvailableNumbers = (lottery: Lottery): number => {
   return Math.max(0, lottery.maxNumber - lottery.participantsCount);
 };
 
-const selectedEditingLottery = computed(() => {
-  if (!editingLotteryId.value) return null;
-  return lotteries.value.find((lottery) => lottery.id === editingLotteryId.value) || null;
-});
 
-const readOnlyStartDateLabel = computed(() => {
-  const source = selectedEditingLottery.value?.startsAt || new Date();
-  return formatReadOnlyDate(source);
-});
 
 const buildPayload = (imageUrl: string): SaveLotteryPayload => {
-  const startsAt = selectedEditingLottery.value?.startsAt || new Date();
-  const endsAt = parseInputDate(lotteryForm.endsAt, true);
+  const startsAt = parseInputDatetime(lotteryForm.startsAt) || new Date();
+  const endsAt = parseInputDatetime(lotteryForm.endsAt);
   const maxNumber = Number(lotteryForm.maxNumber);
   const maxTicketsPerUser = Number(lotteryForm.maxTicketsPerUser);
   const isFree = Boolean(lotteryForm.isFree);
 
   if (!endsAt) {
-    throw new Error('Debes seleccionar una fecha de cierre valida.');
+    throw new Error('Debes seleccionar una fecha y hora de cierre valida.');
   }
   if (endsAt.getTime() <= startsAt.getTime()) {
     throw new Error('La fecha de cierre debe ser posterior al inicio.');
@@ -484,6 +499,10 @@ onMounted(() => {
   if (!isAuthorized.value) return;
   moduleStore.initModulesListener();
   lotteryStore.initAdminLotteriesListener();
+  lotteryForm.startsAt = dateToDatetimeLocalValue(new Date());
+  countdownInterval = setInterval(() => {
+    countdownNow.value = Date.now();
+  }, 1000);
 });
 
 onBeforeUnmount(() => {
@@ -492,6 +511,7 @@ onBeforeUnmount(() => {
     logoPreviewObjectUrl.value = null;
   }
   lotteryStore.cleanupAdminLotteries();
+  if (countdownInterval) clearInterval(countdownInterval);
 });
 </script>
 
@@ -589,12 +609,24 @@ onBeforeUnmount(() => {
 
           <div class="cols-2">
             <label class="field">
-              <span>Hoy</span>
-              <div class="readonly-date">{{ readOnlyStartDateLabel }}</div>
+              <span>Inicio del sorteo</span>
+              <input
+                v-model="lotteryForm.startsAt"
+                type="datetime-local"
+              />
+              <small class="field-hint" v-if="lotteryForm.startsAt">
+                {{ new Date(lotteryForm.startsAt) > new Date() ? '⏳ Programado — comienza en ' + formatCountdown(new Date(lotteryForm.startsAt).getTime()) : '📅 Fecha actual o pasada' }}
+              </small>
             </label>
             <label class="field">
-              <span>Cierre</span>
-              <input v-model="lotteryForm.endsAt" type="date" />
+              <span>Cierre del sorteo</span>
+              <input
+                v-model="lotteryForm.endsAt"
+                type="datetime-local"
+              />
+              <small class="field-hint" v-if="lotteryForm.endsAt">
+                {{ new Date(lotteryForm.endsAt) > new Date() ? '⏱ Cierra en ' + formatCountdown(new Date(lotteryForm.endsAt).getTime()) : '⚠️ Fecha ya pasada' }}
+              </small>
             </label>
           </div>
 
@@ -702,9 +734,25 @@ onBeforeUnmount(() => {
                 Schema v{{ lottery.entrySchemaVersion }} ({{ lottery.migrationStatus }})
               </small>
               <small>
-                Inicio {{ lottery.startsAt ? lottery.startsAt.toLocaleString('es-AR') : '-' }} |
-                Cierre {{ lottery.endsAt ? lottery.endsAt.toLocaleString('es-AR') : '-' }}
+                Inicio <strong>{{ lottery.startsAt ? formatReadOnlyDate(lottery.startsAt) : '-' }}</strong> |
+                Cierre <strong>{{ lottery.endsAt ? formatReadOnlyDate(lottery.endsAt) : '-' }}</strong>
               </small>
+              <div
+                v-if="lottery.endsAt && lottery.status === 'active'"
+                class="countdown-chip"
+                :class="{ 'countdown-urgent': lottery.endsAt.getTime() - countdownNow < 3600000 }"
+              >
+                <span class="countdown-icon">⏱</span>
+                <span v-if="lottery.endsAt.getTime() > countdownNow">Cierra en {{ formatCountdown(lottery.endsAt.getTime()) }}</span>
+                <span v-else>Tiempo agotado</span>
+              </div>
+              <div
+                v-if="lottery.startsAt && lottery.status === 'draft' && lottery.startsAt.getTime() > countdownNow"
+                class="countdown-chip countdown-scheduled"
+              >
+                <span class="countdown-icon">📅</span>
+                <span>Inicia en {{ formatCountdown(lottery.startsAt.getTime()) }}</span>
+              </div>
               <small v-if="lottery.winner">
                 Ganador: <strong>{{ lottery.winner.userName }}</strong>
                 <span v-if="lottery.winner.selectedNumber"> | Participo con el N° {{ lottery.winner.selectedNumber }}</span>
@@ -854,15 +902,9 @@ onBeforeUnmount(() => {
   font: inherit;
 }
 
-.readonly-date {
-  border: 1px dashed var(--border);
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
-  color: color-mix(in srgb, var(--text) 72%, transparent);
-  border-radius: 10px;
-  padding: 0.58rem 0.7rem;
-  font-weight: 600;
-  pointer-events: none;
-  user-select: none;
+/* datetime-local: make the calendar icon match the theme */
+.field input[type='datetime-local'] {
+  cursor: pointer;
 }
 
 .logo-preview-wrap {
@@ -968,6 +1010,60 @@ button:disabled {
   gap: 0.45rem;
   align-items: flex-start;
   flex-wrap: wrap;
+}
+
+/* ── Countdown chips ───────────────────────────────── */
+.countdown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  padding: 0.28rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg) 88%);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
+  color: var(--accent);
+  animation: pulse-chip 2.5s ease-in-out infinite;
+}
+
+.countdown-chip.countdown-urgent {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #dc2626;
+  animation: pulse-chip-urgent 1s ease-in-out infinite;
+}
+
+.countdown-chip.countdown-scheduled {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #4f46e5;
+  animation: none;
+}
+
+.countdown-icon {
+  font-size: 0.82rem;
+}
+
+.field-hint {
+  font-size: 0.79rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  margin-top: 0.15rem;
+}
+
+@keyframes pulse-chip {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+@keyframes pulse-chip-urgent {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.03); }
 }
 
 @media (max-width: 960px) {

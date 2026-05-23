@@ -505,6 +505,10 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
               <span :class="['lottery-status', getStatusClass(lottery)]">
                 {{ getStatusLabel(lottery) }}
               </span>
+              <span v-if="lottery.hasPremio !== false" class="lottery-prize-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);">
+                <span v-if="lottery.premioType === 'dinero'">💵 Premio: ${{ lottery.premioDinero }}</span>
+                <span v-else>🎁 Premio: {{ lottery.premioOtros }}</span>
+              </span>
             </div>
             <h3>{{ lottery.title }}</h3>
             <p v-if="lottery.description" class="lottery-description">{{ lottery.description }}</p>
