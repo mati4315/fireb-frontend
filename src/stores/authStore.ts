@@ -321,12 +321,6 @@ export const useAuthStore = defineStore('auth', () => {
         provider = new OAuthProvider(providerId);
       }
 
-      if (providerId === 'facebook.com') {
-        await signInWithRedirect(auth, provider);
-        loading.value = false;
-        return { success: true };
-      }
-
       const { user: firebaseUser } = await signInWithPopup(auth, provider);
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
@@ -338,7 +332,7 @@ export const useAuthStore = defineStore('auth', () => {
       return { success: true };
     } catch (err: any) {
       console.error('Login Error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/popup-blocked') {
         if (!isNativePlatform() && providerId === 'facebook.com') {
           try {
             await signInWithRedirect(auth, new FacebookAuthProvider());
@@ -348,7 +342,9 @@ export const useAuthStore = defineStore('auth', () => {
             console.error('Facebook redirect fallback error:', redirectErr);
           }
         }
-        error.value = 'El inicio de sesion fue cancelado.';
+        error.value = err.code === 'auth/popup-blocked'
+          ? 'El navegador bloqueó la ventana emergente de inicio de sesión. Por favor, permítela o intenta de nuevo.'
+          : 'El inicio de sesion fue cancelado.';
       } else if (err.code === 'auth/account-exists-with-different-credential') {
         const email = (err?.customData?.email || '').toString().trim();
         let message = 'Este correo ya existe con otro método. Inicia sesión con ese método para vincular la cuenta.';
