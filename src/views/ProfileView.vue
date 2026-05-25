@@ -1041,7 +1041,7 @@ onBeforeUnmount(() => {
                 <div class="social-info">
                   <span class="social-name">{{ provider.label }}</span>
                   <span class="social-status-label" :class="{ connected: provider.connected }">
-                    {{ provider.connected ? 'Vinculado y verificado ✅' : 'No vinculado' }}
+                    {{ provider.connected ? 'Vinculado ✅' : 'No vinculado' }}
                   </span>
                 </div>
               </div>
@@ -1106,6 +1106,18 @@ onBeforeUnmount(() => {
           <button class="primary-btn" :disabled="!canSave" @click="handleSaveProfile">
             {{ saving ? 'Guardando...' : 'Guardar cambios' }}
           </button>
+        </div>
+
+        <hr class="editor-divider" />
+
+        <div class="danger-zone">
+          <h3>Eliminar cuenta y datos</h3>
+          <p class="secondary">
+            Si deseas eliminar permanentemente tu cuenta de Cdelu.ar, tu perfil y toda la información asociada, puedes realizar la solicitud correspondiente de acuerdo con las políticas de Google Play Store.
+          </p>
+          <router-link to="/eliminar-datos" class="danger-zone-btn">
+            Solicitar eliminación de cuenta y datos
+          </router-link>
         </div>
       </section>
 
@@ -2226,5 +2238,51 @@ label small {
 @keyframes scaleUp {
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
+}
+
+.editor-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0 1.5rem;
+}
+
+.danger-zone {
+  background: color-mix(in srgb, var(--card-bg) 95%, #ef4444 5%);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, #ef4444 20%);
+  padding: 1.5rem;
+  border-radius: 14px;
+}
+
+.danger-zone h3 {
+  color: #ef4444;
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.danger-zone p {
+  margin: 0 0 1.2rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.danger-zone-btn {
+  display: inline-block;
+  background: #ef4444;
+  color: #fff;
+  border: none;
+  padding: 0.65rem 1.2rem;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  text-decoration: none;
+  text-align: center;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.danger-zone-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
 }
 </style>

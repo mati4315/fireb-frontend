@@ -112,6 +112,11 @@ const router = createRouter({
       component: () => import('@/views/TermsView.vue'),
     },
     {
+      path: '/eliminar-datos',
+      name: 'delete-data',
+      component: () => import('@/views/DeleteDataView.vue'),
+    },
+    {
       path: '/ads',
       name: 'ads-manager',
       meta: { requiresStaff: true },
@@ -224,7 +229,8 @@ router.afterEach((to) => {
     config: 'Configuracion - Cdelu.ar',
     'secrets-manager': 'Gestion Secretos - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',
-    terms: 'Terminos y Condiciones - Cdelu.ar'
+    terms: 'Terminos y Condiciones - Cdelu.ar',
+    'delete-data': 'Eliminar Datos - Cdelu.ar'
   };
 
   const routeName = typeof to.name === 'string' ? to.name : '';
