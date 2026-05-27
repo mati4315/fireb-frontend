@@ -2,11 +2,10 @@ import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 
 export const useThemeStore = defineStore('theme', () => {
-  // Check localStorage or system preference
+  // Check localStorage or default to dark mode
   const savedTheme = localStorage.getItem('theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   
-  const isDark = ref(savedTheme ? savedTheme === 'dark' : prefersDark);
+  const isDark = ref(savedTheme ? savedTheme === 'dark' : true);
 
   const toggleTheme = () => {
     isDark.value = !isDark.value;
