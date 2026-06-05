@@ -12,7 +12,7 @@ const firebaseConfig = {
   storageBucket: "cdeluar-ddefc.firebasestorage.app", // HARDCODED para evitar conflictos con el secret
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-53VQDTEMDW"
 };
 
 // Initialize Firebase
@@ -27,7 +27,7 @@ const functions = getFunctions(app);
 
 // Initialize analytics only if valid ID exists
 let analytics;
-if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID) {
+if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-53VQDTEMDW") {
   try {
     analytics = getAnalytics(app);
   } catch (e) {
