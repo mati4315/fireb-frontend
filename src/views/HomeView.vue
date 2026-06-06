@@ -451,32 +451,42 @@ const deriveThumbnailURL = (image: string, source?: string): string => {
   return derivedThumb;
 };
 
+const normalizePublicImageUrl = (value: string): string => {
+  const image = typeof value === 'string' ? value.trim() : '';
+  if (!image) return image;
+
+  return image
+    .replace(/^https:\/\/cdelu\.ar\/imagenes\//i, 'https://bot.cdelu.io/images/')
+    .replace(/^https:\/\/bot\.cdelu\.io\/images\//i, 'https://bot.cdelu.io/images/');
+};
+
 const normalizeImageList = (
   item: any
 ): Array<{ url: string; thumbUrl: string; width?: number; height?: number }> => {
   const legacyMiniThumb =
-    (typeof item?.imgMiniatura === 'string' && item.imgMiniatura.trim()) ||
-    (typeof item?.img_miniatura === 'string' && item.img_miniatura.trim()) ||
-    (typeof item?.thumbnailUrl === 'string' && item.thumbnailUrl.trim()) ||
+    normalizePublicImageUrl(typeof item?.imgMiniatura === 'string' ? item.imgMiniatura : '') ||
+    normalizePublicImageUrl(typeof item?.img_miniatura === 'string' ? item.img_miniatura : '') ||
+    normalizePublicImageUrl(typeof item?.thumbnailUrl === 'string' ? item.thumbnailUrl : '') ||
     ''
 
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
     return item.imagesV2
       .filter((image: any) => image && typeof image.url === 'string')
       .map((image: any) => {
-        let finalThumbUrl = image.url;
+        const normalizedUrl = normalizePublicImageUrl(image.url);
+        let finalThumbUrl = normalizedUrl;
         if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim()) {
-          finalThumbUrl = image.thumbUrl;
+          finalThumbUrl = normalizePublicImageUrl(image.thumbUrl);
         } else if (legacyMiniThumb) {
           finalThumbUrl = legacyMiniThumb;
         }
         
-        if (finalThumbUrl === image.url) {
-          finalThumbUrl = deriveThumbnailURL(image.url, item.source);
+        if (finalThumbUrl === normalizedUrl) {
+          finalThumbUrl = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source));
         }
 
         return {
-          url: image.url,
+          url: normalizedUrl,
           thumbUrl: finalThumbUrl,
           width: Number.isFinite(Number(image.width)) ? Number(image.width) : undefined,
           height: Number.isFinite(Number(image.height)) ? Number(image.height) : undefined
@@ -488,9 +498,10 @@ const normalizeImageList = (
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string, index: number) => {
-        const derivedThumb = deriveThumbnailURL(image, item.source);
+        const normalizedUrl = normalizePublicImageUrl(image);
+        const derivedThumb = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source));
         return {
-          url: image,
+          url: normalizedUrl,
           thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : derivedThumb,
           width: 16,
           height: 9

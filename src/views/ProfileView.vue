@@ -331,22 +331,32 @@ const deriveThumbnailURL = (image: string, source?: string): string => {
   return derivedThumb;
 };
 
+const normalizePublicImageUrl = (value: string): string => {
+  const image = typeof value === 'string' ? value.trim() : '';
+  if (!image) return image;
+
+  return image
+    .replace(/^https:\/\/cdelu\.ar\/imagenes\//i, 'https://bot.cdelu.io/images/')
+    .replace(/^https:\/\/bot\.cdelu\.io\/images\//i, 'https://bot.cdelu.io/images/');
+};
+
 const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }> => {
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
     return item.imagesV2
       .filter((image: any) => image && typeof image.url === 'string')
       .map((image: any) => {
-        let finalThumbUrl = image.url;
+        const normalizedUrl = normalizePublicImageUrl(image.url);
+        let finalThumbUrl = normalizedUrl;
         if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim()) {
-          finalThumbUrl = image.thumbUrl;
+          finalThumbUrl = normalizePublicImageUrl(image.thumbUrl);
         }
         
-        if (finalThumbUrl === image.url) {
-          finalThumbUrl = deriveThumbnailURL(image.url, item.source);
+        if (finalThumbUrl === normalizedUrl) {
+          finalThumbUrl = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source));
         }
 
         return {
-          url: image.url,
+          url: normalizedUrl,
           thumbUrl: finalThumbUrl
         };
       });
@@ -356,7 +366,8 @@ const normalizeImageList = (item: any): Array<{ url: string; thumbUrl: string }>
     return item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string) => {
-        return { url: image, thumbUrl: deriveThumbnailURL(image, item.source) };
+        const normalizedUrl = normalizePublicImageUrl(image);
+        return { url: normalizedUrl, thumbUrl: normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source)) };
       });
   }
 
