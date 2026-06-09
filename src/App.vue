@@ -2,12 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
+import { useModuleStore } from '@/stores/moduleStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useNotificationStore, type NotificationRecord } from '@/stores/notificationStore'
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
+import RadioDock from '@/components/radio/RadioDock.vue'
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(0)
@@ -15,6 +17,7 @@ const handleScrollY = () => { scrollY.value = window.scrollY }
 
 onMounted(() => {
   window.addEventListener('scroll', handleScrollY, { passive: true })
+  moduleStore.initModulesListener()
 })
 
 onBeforeUnmount(() => {
@@ -24,6 +27,7 @@ onBeforeUnmount(() => {
 const shouldHideHeader = computed(() => !isHeaderVisible.value && scrollY.value > 64)
 
 const authStore = useAuthStore()
+const moduleStore = useModuleStore()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
 const route = useRoute()
@@ -47,6 +51,8 @@ const canManageComments = computed(() => {
   const uid = authStore.user?.uid
   return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims)
 })
+
+const showRadioDock = computed(() => moduleStore.modules.radio.enabled && moduleStore.modules.radio.active)
 
 const toggleUserMenu = () => {
   isUserMenuOpen.value = !isUserMenuOpen.value
@@ -273,6 +279,15 @@ const dismissPushBanner = () => {
               </RouterLink>
 
               <RouterLink
+                v-if="canManageStaff"
+                to="/radio"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Radio
+              </RouterLink>
+
+              <RouterLink
                 v-if="canManageComments"
                 to="/comentarios/gestion"
                 class="dropdown-item"
@@ -299,7 +314,7 @@ const dismissPushBanner = () => {
       </div>
     </header>
 
-    <main class="content-wrapper">
+    <main class="content-wrapper" :class="{ 'content-wrapper--with-radio': showRadioDock }">
       <section
         v-if="showPushBanner && authStore.isAuthenticated && notificationStore.shouldShowPushNudge"
         class="push-banner"
@@ -317,6 +332,7 @@ const dismissPushBanner = () => {
         </div>
       </section>
       <RouterView />
+      <RadioDock v-if="showRadioDock" />
     </main>
   </div>
 </template>
@@ -661,6 +677,10 @@ const dismissPushBanner = () => {
 .content-wrapper {
   max-width: 1200px;
   margin: 0 auto;
+}
+
+.content-wrapper--with-radio {
+  padding-bottom: 8.5rem;
 }
 
 .push-banner {

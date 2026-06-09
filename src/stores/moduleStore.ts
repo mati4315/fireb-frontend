@@ -19,6 +19,16 @@ export interface AdsModuleConfig {
   clickCooldownMs: number;
 }
 
+export interface RadioModuleConfig {
+  enabled: boolean;
+  active: boolean;
+  title: string;
+  description: string;
+  audioUrl: string;
+  liveUrl: string;
+  ctaLabel: string;
+}
+
 export interface ModulesConfig {
   news: { enabled: boolean };
   community: { enabled: boolean };
@@ -37,6 +47,7 @@ export interface ModulesConfig {
   surveys: { enabled: boolean };
   lottery: { enabled: boolean };
   ads: AdsModuleConfig;
+  radio: RadioModuleConfig;
 }
 
 const DEFAULT_MODULES_CONFIG: ModulesConfig = {
@@ -67,9 +78,18 @@ const DEFAULT_MODULES_CONFIG: ModulesConfig = {
     tabs: ['todo'],
     impressionCooldownMs: 60 * 60 * 1000,
     clickCooldownMs: 0
+  },
+  radio: {
+    enabled: true,
+    active: false,
+    title: 'Radio en vivo',
+    description: 'Escucha la transmision en directo.',
+    audioUrl: '',
+    liveUrl: '',
+    ctaLabel: 'Ir al link'
   }
 };
-const MODULES_CACHE_KEY = 'cdeluar.modules.config.cache.v1';
+const MODULES_CACHE_KEY = 'cdeluar.modules.config.cache.v2';
 const MODULES_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const clamp = (value: number, min: number, max: number): number =>
@@ -92,6 +112,26 @@ const sanitizeTabs = (value: unknown): FeedTabKey[] => {
   return tabs.length > 0 ? tabs : ['todo'];
 };
 
+const sanitizeRadioConfig = (raw: any): RadioModuleConfig => {
+  const rawRadio = raw?.radio ?? {};
+
+  return {
+    enabled: toBoolean(rawRadio.enabled, DEFAULT_MODULES_CONFIG.radio.enabled),
+    active: toBoolean(rawRadio.active, DEFAULT_MODULES_CONFIG.radio.active),
+    title: typeof rawRadio.title === 'string' && rawRadio.title.trim()
+      ? rawRadio.title.trim()
+      : DEFAULT_MODULES_CONFIG.radio.title,
+    description: typeof rawRadio.description === 'string'
+      ? rawRadio.description.trim()
+      : DEFAULT_MODULES_CONFIG.radio.description,
+    audioUrl: typeof rawRadio.audioUrl === 'string' ? rawRadio.audioUrl.trim() : '',
+    liveUrl: typeof rawRadio.liveUrl === 'string' ? rawRadio.liveUrl.trim() : '',
+    ctaLabel: typeof rawRadio.ctaLabel === 'string' && rawRadio.ctaLabel.trim()
+      ? rawRadio.ctaLabel.trim()
+      : DEFAULT_MODULES_CONFIG.radio.ctaLabel
+  };
+};
+
 const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawNews = raw?.news ?? {};
   const rawCommunity = raw?.community ?? {};
@@ -102,6 +142,7 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
   const rawSurveys = raw?.surveys ?? {};
   const rawLottery = raw?.lottery ?? {};
   const rawAds = raw?.ads ?? {};
+  const radio = sanitizeRadioConfig(raw);
 
   return {
     news: {
@@ -183,7 +224,8 @@ const sanitizeModulesConfig = (raw: any): ModulesConfig => {
         0,
         24 * 60 * 60 * 1000
       )
-    }
+    },
+    radio
   };
 };
 
@@ -233,6 +275,7 @@ export const useModuleStore = defineStore('module', () => {
     if (moduleName === 'comments') return modules.value.comments.enabled;
     if (moduleName === 'surveys') return modules.value.surveys.enabled;
     if (moduleName === 'lottery') return modules.value.lottery.enabled;
+    if (moduleName === 'radio') return modules.value.radio.enabled;
     return modules.value.ads.enabled;
   };
 

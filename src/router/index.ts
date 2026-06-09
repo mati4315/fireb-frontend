@@ -141,6 +141,12 @@ const router = createRouter({
       component: () => import('@/views/SecretsManagerView.vue'),
     },
     {
+      path: '/radio',
+      name: 'radio-manager',
+      meta: { requiresStaff: true },
+      component: () => import('@/views/RadioManagerView.vue'),
+    },
+    {
       path: '/comentarios/gestion',
       name: 'comments-manager',
       meta: { requiresAdmin: true },
@@ -228,6 +234,7 @@ router.afterEach((to) => {
     notifications: 'Notificaciones - Cdelu.ar',
     config: 'Configuracion - Cdelu.ar',
     'secrets-manager': 'Gestion Secretos - Cdelu.ar',
+    'radio-manager': 'Radio - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',
     terms: 'Terminos y Condiciones - Cdelu.ar',
     'delete-data': 'Eliminar Datos - Cdelu.ar'
