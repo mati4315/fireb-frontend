@@ -8,8 +8,10 @@ import { useNotificationStore, type NotificationRecord } from '@/stores/notifica
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 
+import { defineAsyncComponent } from 'vue'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
-import RadioDock from '@/components/radio/RadioDock.vue'
+
+const RadioDock = defineAsyncComponent(() => import('@/components/radio/RadioDock.vue'))
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(0)
@@ -110,7 +112,7 @@ watch(
       notificationStore.cleanup()
       return
     }
-    await notificationStore.init()
+    await notificationStore.initBadgeListener()
   },
   { immediate: true }
 )

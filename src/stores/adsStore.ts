@@ -117,6 +117,20 @@ const normalizeAd = (id: string, data: any): FeedAd => {
   };
 };
 
+const buildConfigSignature = (config: AdsModuleConfig): string =>
+  [
+    config.enabled ? '1' : '0',
+    config.maxAdsPerFeed,
+    config.minPostsBetweenAds,
+    config.probability,
+    config.fetchLimit,
+    config.trackImpressions ? '1' : '0',
+    config.trackClicks ? '1' : '0',
+    config.tabs.join(','),
+    config.impressionCooldownMs,
+    config.clickCooldownMs
+  ].join('|');
+
 export const useAdsStore = defineStore('ads', () => {
   const authStore = useAuthStore();
 
@@ -128,6 +142,7 @@ export const useAdsStore = defineStore('ads', () => {
   const cooldowns = loadCooldowns();
   const sessionId = getSessionId();
   let flushTimer: ReturnType<typeof setInterval> | null = null;
+  let lastConfigSignature = '';
 
   const isAdWithinSchedule = (ad: FeedAd): boolean => {
     const now = Date.now();
@@ -198,15 +213,30 @@ export const useAdsStore = defineStore('ads', () => {
 
   const initAds = async (config: AdsModuleConfig, forceRefresh = false) => {
     if (loading.value) return;
-    if (initialized.value && !forceRefresh) return;
+    const configSignature = buildConfigSignature(config);
+    if (initialized.value && !forceRefresh && configSignature === lastConfigSignature) return;
 
     loading.value = true;
     try {
-      if (!forceRefresh) {
-        loadAdsFromCache();
+      const cacheLoaded = !forceRefresh ? loadAdsFromCache() : false;
+      if (cacheLoaded) {
+        initialized.value = true;
+        lastConfigSignature = configSignature;
+        loading.value = false;
+        void fetchAds(config)
+          .then(() => {
+            initialized.value = true;
+            lastConfigSignature = buildConfigSignature(config);
+          })
+          .catch((error) => {
+            console.error('Error refreshing ads:', error);
+          });
+        return;
       }
+
       await fetchAds(config);
       initialized.value = true;
+      lastConfigSignature = configSignature;
     } catch (error) {
       console.error('Error loading ads:', error);
       if (!loadAdsFromCache()) {
@@ -403,6 +433,7 @@ export const useAdsStore = defineStore('ads', () => {
 
   const cleanup = () => {
     initialized.value = false;
+    lastConfigSignature = '';
 
     if (flushTimer) {
       clearInterval(flushTimer);

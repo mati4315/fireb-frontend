@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import {
   collection,
   doc,
@@ -15,9 +15,12 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/config/firebase';
-import LotteryTicketsModal from '@/components/admin/LotteryTicketsModal.vue';
 import { useAuthStore } from '@/stores/authStore';
 import { isAdminUser, isSuperAdminEmail, isSuperAdminUid } from '@/utils/roles';
+
+const LotteryTicketsModal = defineAsyncComponent(
+  () => import('@/components/admin/LotteryTicketsModal.vue')
+);
 
 type UserRole = 'usuario' | 'colaborador' | 'admin' | 'administrador' | 'super_admin' | 'Sistema-no-user';
 
@@ -270,8 +273,7 @@ const deleteUser = async (user: UserItem) => {
 
 onMounted(() => {
   if (isAuthorized.value) {
-    fetchTotalCount();
-    loadUsers();
+    void Promise.all([fetchTotalCount(), loadUsers()]);
   }
 });
 </script>

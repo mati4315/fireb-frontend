@@ -330,9 +330,20 @@ export const useModuleStore = defineStore('module', () => {
 
     loading.value = true;
     try {
-      if (!forceRefresh) {
-        loadModulesFromCache();
+      const cacheLoaded = !forceRefresh ? loadModulesFromCache() : false;
+      if (cacheLoaded) {
+        initialized.value = true;
+        loading.value = false;
+        void fetchModules()
+          .then(() => {
+            initialized.value = true;
+          })
+          .catch((error) => {
+            console.error('Error refreshing module config:', error);
+          });
+        return;
       }
+
       await fetchModules();
       initialized.value = true;
     } catch (error) {

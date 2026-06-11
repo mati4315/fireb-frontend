@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useModuleStore } from '@/stores/moduleStore';
-import { useStorageStore } from '@/stores/storageStore';
 import {
   useLotteryStore,
   type Lottery,
@@ -36,7 +35,6 @@ const MAX_MAX_TICKETS_PER_USER = 5;
 const authStore = useAuthStore();
 const moduleStore = useModuleStore();
 const lotteryStore = useLotteryStore();
-const storageStore = useStorageStore();
 
 const moduleEnabled = ref(true);
 const savingConfig = ref(false);
@@ -50,6 +48,8 @@ const logoFile = ref<File | null>(null);
 const logoPreviewUrl = ref('');
 const logoPreviewObjectUrl = ref<string | null>(null);
 const logoInputRef = ref<HTMLInputElement | null>(null);
+const uploadProgress = ref(0);
+const uploadingLogo = ref(false);
 
 const lotteryForm = reactive<LotteryForm>({
   title: '',
@@ -380,23 +380,34 @@ const saveLottery = async () => {
     let uploadWarning = '';
     if (logoFile.value) {
       try {
+        const { useStorageStore } = await import('@/stores/storageStore');
+        const storageStore = useStorageStore();
         const processed = await processLotteryImage(logoFile.value);
         const ownerId = authStore.user?.uid || 'staff';
         const timestamp = Date.now();
         const randomString = Math.random().toString(36).slice(2, 8);
+        uploadingLogo.value = true;
+        uploadProgress.value = 0;
 
         const mainPath = `posts/${ownerId}/lotteries/${timestamp}_${randomString}_o.webp`;
         const thumbPath = `posts/${ownerId}/lotteries/${timestamp}_${randomString}_t.webp`;
 
         const [mainUpload] = await Promise.all([
-          storageStore.uploadFileWithProgress(processed.optimizedFile, mainPath),
-          storageStore.uploadFileWithProgress(processed.thumbFile, thumbPath)
+          storageStore.uploadFileWithProgress(processed.optimizedFile, mainPath, (progress) => {
+            uploadProgress.value = Math.max(uploadProgress.value, progress * 0.5);
+          }),
+          storageStore.uploadFileWithProgress(processed.thumbFile, thumbPath, (progress) => {
+            uploadProgress.value = Math.max(uploadProgress.value, 50 + progress * 0.5);
+          })
         ]);
 
         finalImageUrl = mainUpload.url;
+        uploadProgress.value = 100;
       } catch (err: any) {
         console.error('Error procesando/subiendo logo:', err);
         uploadWarning = 'No se pudo subir el logo. La loteria se guardo sin imagen.';
+      } finally {
+        uploadingLogo.value = false;
       }
     }
 
@@ -416,6 +427,7 @@ const saveLottery = async () => {
     errorMessage.value = error?.message || 'No se pudo guardar la loteria.';
   } finally {
     savingLottery.value = false;
+    uploadProgress.value = 0;
   }
 };
 
@@ -692,7 +704,7 @@ onBeforeUnmount(() => {
             <button class="primary" :disabled="savingLottery" @click="saveLottery">
               {{
                 savingLottery
-                  ? `Guardando... ${storageStore.uploading ? `${Math.round(storageStore.uploadProgress)}%` : ''}`
+                  ? `Guardando... ${uploadingLogo ? `${Math.round(uploadProgress)}%` : ''}`
                   : editingLotteryId ? 'Actualizar loteria' : 'Crear loteria'
               }}
             </button>

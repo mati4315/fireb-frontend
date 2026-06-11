@@ -122,6 +122,9 @@ const MIN_MAX_NUMBER = 10;
 const MAX_MAX_NUMBER = 200;
 const MIN_MAX_TICKETS_PER_USER = 1;
 const MAX_MAX_TICKETS_PER_USER = 5;
+const LOTTERY_CACHE_TTL_MS = 5 * 60 * 1000;
+const LOTTERY_PUBLIC_CACHE_KEY = 'cdeluar.lotteries.public.cache.v1';
+const LOTTERY_ADMIN_CACHE_KEY = 'cdeluar.lotteries.admin.cache.v1';
 
 const toDate = (value: unknown): Date | null => {
   if (!value) return null;
@@ -248,6 +251,42 @@ const normalizeEntry = (id: string, data: Record<string, unknown>): LotteryEntry
 
 const trimLimited = (value: string, maxLength: number): string => {
   return value.trim().slice(0, maxLength);
+};
+
+const readLotteryCache = (key: string): Lottery[] | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const updatedAt = Number((parsed as Record<string, unknown>).updatedAt || 0);
+    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > LOTTERY_CACHE_TTL_MS) return null;
+    const items = Array.isArray((parsed as Record<string, unknown>).items)
+      ? ((parsed as Record<string, unknown>).items as Record<string, unknown>[])
+      : [];
+    return items.map((item) => normalizeLottery(
+      typeof item.id === 'string' ? item.id : '',
+      item
+    )).filter((item) => Boolean(item.id));
+  } catch {
+    return null;
+  }
+};
+
+const writeLotteryCache = (key: string, lotteries: Lottery[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        items: lotteries
+      })
+    );
+  } catch {
+    // Ignore cache quota errors.
+  }
 };
 
 export const useLotteryStore = defineStore('lottery', () => {
@@ -423,6 +462,32 @@ export const useLotteryStore = defineStore('lottery', () => {
     if (publicInitialized.value && !forceRefresh) return;
 
     publicLoading.value = true;
+    const cachedLotteries = !forceRefresh ? readLotteryCache(LOTTERY_PUBLIC_CACHE_KEY) : null;
+    if (cachedLotteries) {
+      publicLotteries.value = cachedLotteries;
+      publicInitialized.value = true;
+      publicLoading.value = false;
+      void (async () => {
+        try {
+          const lotteriesQuery = query(
+            collection(db, 'lotteries'),
+            where('deletedAt', '==', null),
+            orderBy('createdAt', 'desc'),
+            limit(PUBLIC_PAGE_SIZE)
+          );
+          const snapshot = await getDocs(lotteriesQuery);
+          publicLotteries.value = snapshot.docs.map((lotteryDoc) =>
+            normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
+          );
+          publicInitialized.value = true;
+          writeLotteryCache(LOTTERY_PUBLIC_CACHE_KEY, publicLotteries.value);
+        } catch (error) {
+          console.error('Error refreshing lotteries:', error);
+        }
+      })();
+      return;
+    }
+
     const lotteriesQuery = query(
       collection(db, 'lotteries'),
       where('deletedAt', '==', null),
@@ -437,6 +502,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       );
       publicInitialized.value = true;
       publicLoading.value = false;
+      writeLotteryCache(LOTTERY_PUBLIC_CACHE_KEY, publicLotteries.value);
     } catch (error) {
       console.error('Error loading lotteries:', error);
       publicLoading.value = false;
@@ -447,6 +513,32 @@ export const useLotteryStore = defineStore('lottery', () => {
     if (adminInitialized.value && !forceRefresh) return;
 
     adminLoading.value = true;
+    const cachedLotteries = !forceRefresh ? readLotteryCache(LOTTERY_ADMIN_CACHE_KEY) : null;
+    if (cachedLotteries) {
+      adminLotteries.value = cachedLotteries;
+      adminInitialized.value = true;
+      adminLoading.value = false;
+      void (async () => {
+        try {
+          const lotteriesQuery = query(
+            collection(db, 'lotteries'),
+            where('deletedAt', '==', null),
+            orderBy('createdAt', 'desc'),
+            limit(ADMIN_PAGE_SIZE)
+          );
+          const snapshot = await getDocs(lotteriesQuery);
+          adminLotteries.value = snapshot.docs.map((lotteryDoc) =>
+            normalizeLottery(lotteryDoc.id, lotteryDoc.data() as Record<string, unknown>)
+          );
+          adminInitialized.value = true;
+          writeLotteryCache(LOTTERY_ADMIN_CACHE_KEY, adminLotteries.value);
+        } catch (error) {
+          console.error('Error refreshing admin lotteries:', error);
+        }
+      })();
+      return;
+    }
+
     const lotteriesQuery = query(
       collection(db, 'lotteries'),
       where('deletedAt', '==', null),
@@ -461,6 +553,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       );
       adminInitialized.value = true;
       adminLoading.value = false;
+      writeLotteryCache(LOTTERY_ADMIN_CACHE_KEY, adminLotteries.value);
     } catch (error) {
       console.error('Error loading admin lotteries:', error);
       adminLoading.value = false;

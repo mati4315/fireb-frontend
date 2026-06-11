@@ -12,8 +12,6 @@ import { useCommentStore } from '@/stores/commentStore'
 import { useLikesStore } from '@/stores/likesStore'
 import { useProfileStore } from '@/stores/profileStore'
 
-import FeedAdItem from '@/components/feed/FeedAdItem.vue'
-import SecretCard from '@/components/feed/SecretCard.vue'
 import { mapSecretData } from '@/stores/secretStore'
 import { db } from '@/config/firebase'
 import {
@@ -41,6 +39,8 @@ const LotterySection = defineAsyncComponent(() => import('@/components/lottery/L
 const CommentSection = defineAsyncComponent(() => import('@/components/comments/CommentSection.vue'))
 const CommentPreviewList = defineAsyncComponent(() => import('@/components/comments/CommentPreviewList.vue'))
 const OptionsMenu = defineAsyncComponent(() => import('@/components/common/OptionsMenu.vue'))
+const FeedAdItem = defineAsyncComponent(() => import('@/components/feed/FeedAdItem.vue'))
+const SecretCard = defineAsyncComponent(() => import('@/components/feed/SecretCard.vue'))
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(window.scrollY)
@@ -98,6 +98,8 @@ const detailLoading = ref(false)
 const detailNotFound = ref(false)
 const detailTargetItem = ref<any | null>(null)
 let infiniteObserver: IntersectionObserver | null = null
+let primeLikesTimer: ReturnType<typeof setTimeout> | null = null
+let lastPrimeLikesSignature = ''
 const isNativeApp = isNativePlatform()
 
 const shouldShowSurveysTab = computed(() => {
@@ -185,6 +187,52 @@ const revokeSelectedImagePreviews = () => {
   for (const image of selectedImages.value) {
     URL.revokeObjectURL(image.previewUrl)
   }
+}
+
+type NormalizedImage = {
+  url: string
+  thumbUrl: string
+  width?: number
+  height?: number
+}
+
+const normalizedImageCache = new WeakMap<object, { signature: string; value: NormalizedImage[] }>()
+
+const buildImageSignature = (item: any): string => {
+  const legacyThumb =
+    typeof item?.imgMiniatura === 'string'
+      ? item.imgMiniatura
+      : typeof item?.img_miniatura === 'string'
+        ? item.img_miniatura
+        : typeof item?.thumbnailUrl === 'string'
+          ? item.thumbnailUrl
+          : ''
+
+  const imagesV2Signature = Array.isArray(item?.imagesV2)
+    ? item.imagesV2
+        .map((image: any) => {
+          if (!image || typeof image.url !== 'string') return ''
+          return [
+            image.url,
+            typeof image.thumbUrl === 'string' ? image.thumbUrl : '',
+            Number.isFinite(Number(image.width)) ? Number(image.width) : '',
+            Number.isFinite(Number(image.height)) ? Number(image.height) : ''
+          ].join(':')
+        })
+        .join('|')
+    : ''
+
+  const imagesSignature = Array.isArray(item?.images)
+    ? item.images.filter((image: any) => typeof image === 'string' && image.trim().length > 0).join('|')
+    : ''
+
+  return [
+    item?.id || '',
+    item?.source || '',
+    legacyThumb,
+    imagesV2Signature,
+    imagesSignature
+  ].join('::')
 }
 
 const clearSelectedImages = () => {
@@ -309,6 +357,32 @@ const handleTouchEnd = (e: TouchEvent) => {
   }
 }
 
+const getVisibleLikeSignature = (): string => {
+  const userId = authStore.user?.uid || ''
+  const ids = displayFeedItems.value
+    .filter((item) => !item.isAd && isLikesEnabledForItem(item))
+    .map((item) => item.id)
+    .join('|')
+  return `${userId}::${ids}`
+}
+
+const schedulePrimeVisibleLikes = () => {
+  const signature = getVisibleLikeSignature()
+  if (!signature || signature === lastPrimeLikesSignature) return
+
+  if (primeLikesTimer) {
+    clearTimeout(primeLikesTimer)
+  }
+
+  primeLikesTimer = setTimeout(() => {
+    primeLikesTimer = null
+    const currentSignature = getVisibleLikeSignature()
+    if (currentSignature !== signature) return
+    lastPrimeLikesSignature = signature
+    void primeVisibleLikes()
+  }, 80)
+}
+
 onMounted(async () => {
   const routeTab = getRouteTabKey()
   const fallbackTab = resolveHomeFallbackTabKey()
@@ -342,6 +416,10 @@ onUnmounted(() => {
   if (infiniteObserver) {
     infiniteObserver.disconnect()
     infiniteObserver = null
+  }
+  if (primeLikesTimer) {
+    clearTimeout(primeLikesTimer)
+    primeLikesTimer = null
   }
   revokeSelectedImagePreviews()
   surveyStore.cleanupFeaturedSurvey()
@@ -460,29 +538,37 @@ const normalizePublicImageUrl = (value: string): string => {
     .replace(/^https:\/\/bot\.cdelu\.io\/images\//i, 'https://bot.cdelu.io/images/');
 };
 
-const normalizeImageList = (
-  item: any
-): Array<{ url: string; thumbUrl: string; width?: number; height?: number }> => {
+const normalizeImageList = (item: any): NormalizedImage[] => {
+  if (!item || typeof item !== 'object') return []
+
+  const signature = buildImageSignature(item)
+  const cached = normalizedImageCache.get(item)
+  if (cached && cached.signature === signature) {
+    return cached.value
+  }
+
   const legacyMiniThumb =
     normalizePublicImageUrl(typeof item?.imgMiniatura === 'string' ? item.imgMiniatura : '') ||
     normalizePublicImageUrl(typeof item?.img_miniatura === 'string' ? item.img_miniatura : '') ||
     normalizePublicImageUrl(typeof item?.thumbnailUrl === 'string' ? item.thumbnailUrl : '') ||
     ''
 
+  let normalized: NormalizedImage[] = []
+
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
-    return item.imagesV2
+    normalized = item.imagesV2
       .filter((image: any) => image && typeof image.url === 'string')
       .map((image: any) => {
-        const normalizedUrl = normalizePublicImageUrl(image.url);
-        let finalThumbUrl = normalizedUrl;
+        const normalizedUrl = normalizePublicImageUrl(image.url)
+        let finalThumbUrl = normalizedUrl
         if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim()) {
-          finalThumbUrl = normalizePublicImageUrl(image.thumbUrl);
+          finalThumbUrl = normalizePublicImageUrl(image.thumbUrl)
         } else if (legacyMiniThumb) {
-          finalThumbUrl = legacyMiniThumb;
+          finalThumbUrl = legacyMiniThumb
         }
-        
+
         if (finalThumbUrl === normalizedUrl) {
-          finalThumbUrl = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source));
+          finalThumbUrl = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source))
         }
 
         return {
@@ -490,16 +576,14 @@ const normalizeImageList = (
           thumbUrl: finalThumbUrl,
           width: Number.isFinite(Number(image.width)) ? Number(image.width) : undefined,
           height: Number.isFinite(Number(image.height)) ? Number(image.height) : undefined
-        };
+        }
       })
-  }
-
-  if (Array.isArray(item?.images) && item.images.length > 0) {
-    return item.images
+  } else if (Array.isArray(item?.images) && item.images.length > 0) {
+    normalized = item.images
       .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
       .map((image: string, index: number) => {
-        const normalizedUrl = normalizePublicImageUrl(image);
-        const derivedThumb = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source));
+        const normalizedUrl = normalizePublicImageUrl(image)
+        const derivedThumb = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source))
         return {
           url: normalizedUrl,
           thumbUrl: index === 0 && legacyMiniThumb ? legacyMiniThumb : derivedThumb,
@@ -507,13 +591,12 @@ const normalizeImageList = (
           height: 9
         }
       })
+  } else if (legacyMiniThumb) {
+    normalized = [{ url: legacyMiniThumb, thumbUrl: legacyMiniThumb, width: 16, height: 9 }]
   }
 
-  if (legacyMiniThumb) {
-    return [{ url: legacyMiniThumb, thumbUrl: legacyMiniThumb, width: 16, height: 9 }]
-  }
-
-  return []
+  normalizedImageCache.set(item, { signature, value: normalized })
+  return normalized
 }
 
 const shouldHideSecretUserMeta = (item: any): boolean => {
@@ -1283,7 +1366,7 @@ const formatDate = (date: any) => {
 watch(
   () => authStore.user?.uid || '',
   () => {
-    void primeVisibleLikes()
+    schedulePrimeVisibleLikes()
   },
   { immediate: true }
 )
@@ -1291,12 +1374,12 @@ watch(
 watch(
   () => displayFeedItems.value.map((item) => item.id).join('|'),
   () => {
-    void primeVisibleLikes()
+    schedulePrimeVisibleLikes()
   }
 )
 
 watch(
-  () => [feedStore.hasMore, feedStore.allItems.length],
+  [() => feedStore.hasMore, infiniteSentinel],
   async () => {
     await setupInfiniteObserver()
   }
@@ -1316,7 +1399,12 @@ watch(
 )
 
 watch(
-  () => route.fullPath,
+  () => [
+    typeof route.name === 'string' ? route.name : '',
+    route.path,
+    typeof route.params.ref === 'string' ? route.params.ref : '',
+    typeof route.params.slug === 'string' ? route.params.slug : ''
+  ].join('|'),
   () => {
     if (!isDetailRoute.value) {
       const routeName = typeof route.name === 'string' ? route.name : ''

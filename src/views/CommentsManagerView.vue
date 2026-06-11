@@ -65,6 +65,62 @@ const editingText = ref('');
 
 let unsubscribeConfig: (() => void) | null = null;
 let unsubscribeModeration: (() => void) | null = null;
+const COMMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const COMMENTS_CONFIG_CACHE_KEY = 'cdeluar.comments.manager.config.v1';
+const COMMENTS_ITEMS_CACHE_KEY_PREFIX = 'cdeluar.comments.manager.items.v1';
+
+const buildItemsCacheKey = (type: ModerationType) => `${COMMENTS_ITEMS_CACHE_KEY_PREFIX}:${type}`;
+
+const readCache = <T>(key: string): T | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const updatedAt = Number((parsed as Record<string, unknown>).updatedAt || 0);
+    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > COMMENTS_CACHE_TTL_MS) return null;
+    return (parsed as Record<string, unknown>).data as T;
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (key: string, data: unknown) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        data
+      })
+    );
+  } catch {
+    // Ignore cache quota errors.
+  }
+};
+
+const mapModerationDocs = (snapshot: { docs: Array<{ id: string; data: () => any; ref: { path: string } }> }, targetGroup: ModerationType): ModerationItem[] => {
+  return snapshot.docs.map((itemDoc) => {
+    const data = itemDoc.data() || {};
+    return {
+      id: itemDoc.id,
+      type: targetGroup === 'comments' ? 'comment' : 'reply',
+      path: itemDoc.ref.path,
+      contentId: data.contentId || '',
+      commentId: targetGroup === 'comments' ? itemDoc.id : data.commentId || '',
+      module: data.module === 'news' ? 'news' : 'community',
+      userId: data.userId || '',
+      userName: data.userName || 'Usuario',
+      text: data.text || '',
+      isEdited: Boolean(data.isEdited),
+      deletedAt: data.deletedAt || null,
+      createdAt: data.createdAt || null,
+      updatedAt: data.updatedAt || null
+    } satisfies ModerationItem;
+  });
+};
 
 const resetFeedback = () => {
   feedback.value = '';
@@ -98,6 +154,16 @@ const filteredItems = computed(() => {
 
 const loadConfig = () => {
   if (unsubscribeConfig) unsubscribeConfig();
+  const cached = readCache<{
+    enabled?: boolean;
+    newsEnabled?: boolean;
+    communityEnabled?: boolean;
+  }>(COMMENTS_CONFIG_CACHE_KEY);
+  if (cached) {
+    moduleEnabled.value = cached.enabled ?? moduleEnabled.value;
+    moduleNewsEnabled.value = cached.newsEnabled ?? moduleNewsEnabled.value;
+    moduleCommunityEnabled.value = cached.communityEnabled ?? moduleCommunityEnabled.value;
+  }
   unsubscribeConfig = onSnapshot(
     doc(db, '_config', 'modules'),
     (snapshot) => {
@@ -105,6 +171,11 @@ const loadConfig = () => {
       moduleEnabled.value = commentsConfig.enabled ?? true;
       moduleNewsEnabled.value = commentsConfig.newsEnabled ?? true;
       moduleCommunityEnabled.value = commentsConfig.communityEnabled ?? true;
+      writeCache(COMMENTS_CONFIG_CACHE_KEY, {
+        enabled: moduleEnabled.value,
+        newsEnabled: moduleNewsEnabled.value,
+        communityEnabled: moduleCommunityEnabled.value
+      });
     },
     (error) => {
       errorMessage.value = `No se pudo leer configuracion de comentarios: ${error.message}`;
@@ -141,33 +212,25 @@ const loadModerationItems = () => {
     unsubscribeModeration = null;
   }
 
-  loadingItems.value = true;
   const constraints: QueryConstraint[] = [orderBy('createdAt', 'desc'), limit(120)];
 
   const targetGroup = typeFilter.value === 'comments' ? 'comments' : 'replies';
+  const cachedItems = readCache<ModerationItem[]>(buildItemsCacheKey(targetGroup));
+  if (cachedItems) {
+    moderationItems.value = cachedItems;
+    loadingItems.value = false;
+  } else {
+    loadingItems.value = true;
+  }
+
   const moderationQuery = query(collectionGroup(db, targetGroup), ...constraints);
 
   unsubscribeModeration = onSnapshot(
     moderationQuery,
     (snapshot) => {
-      moderationItems.value = snapshot.docs.map((itemDoc) => {
-        const data = itemDoc.data() || {};
-        return {
-          id: itemDoc.id,
-          type: targetGroup === 'comments' ? 'comment' : 'reply',
-          path: itemDoc.ref.path,
-          contentId: data.contentId || '',
-          commentId: targetGroup === 'comments' ? itemDoc.id : data.commentId || '',
-          module: data.module === 'news' ? 'news' : 'community',
-          userId: data.userId || '',
-          userName: data.userName || 'Usuario',
-          text: data.text || '',
-          isEdited: Boolean(data.isEdited),
-          deletedAt: data.deletedAt || null,
-          createdAt: data.createdAt || null,
-          updatedAt: data.updatedAt || null
-        } satisfies ModerationItem;
-      });
+      const nextItems = mapModerationDocs(snapshot, targetGroup);
+      moderationItems.value = nextItems;
+      writeCache(buildItemsCacheKey(targetGroup), nextItems);
       loadingItems.value = false;
     },
     (error) => {

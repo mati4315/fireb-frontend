@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useNotificationStore, type NotificationRecord } from '@/stores/notificationStore';
@@ -64,7 +64,7 @@ const pushPermissionLabel = computed(() => {
 const initStore = async () => {
   actionError.value = null;
   if (!authStore.user?.uid) return;
-  await notificationStore.init();
+  await notificationStore.ensureLoaded();
 };
 
 const savePreferences = async () => {
@@ -163,10 +163,6 @@ watch(
   },
   { immediate: true }
 );
-
-onMounted(async () => {
-  await initStore();
-});
 
 </script>
 

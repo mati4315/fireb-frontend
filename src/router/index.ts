@@ -1,6 +1,6 @@
-import PublicationView from '@/views/PublicationView.vue'
 import { createRouter, createWebHistory } from 'vue-router'
 const HomeView = () => import('@/views/HomeView.vue')
+const PublicationView = () => import('@/views/PublicationView.vue')
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 

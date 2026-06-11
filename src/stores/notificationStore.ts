@@ -184,6 +184,8 @@ export const useNotificationStore = defineStore('notifications', () => {
   let unreadUnsubscribe: Unsubscribe | null = null;
   let foregroundListenerAttached = false;
   let nativePushInitialized = false;
+  let unreadInitializedForUid = '';
+  let listInitializedForUid = '';
 
   const isAuthenticated = computed(() => Boolean(authStore.user?.uid));
   const settings = computed<NotificationSettings>(() =>
@@ -229,10 +231,42 @@ export const useNotificationStore = defineStore('notifications', () => {
   const getUserNotificationsCollection = (uid: string) =>
     collection(db, 'users', uid, 'notifications');
 
-  const initListeners = (uid: string) => {
-    detachListeners();
-    clearState();
+  const initUnreadListener = (uid: string) => {
+    if (unreadInitializedForUid === uid && unreadUnsubscribe) {
+      return;
+    }
 
+    if (unreadUnsubscribe) {
+      unreadUnsubscribe();
+      unreadUnsubscribe = null;
+    }
+
+    unreadInitializedForUid = uid;
+    const notificationsCollection = getUserNotificationsCollection(uid);
+    const unreadQuery = query(notificationsCollection, where('isRead', '==', false));
+    unreadUnsubscribe = onSnapshot(
+      unreadQuery,
+      (snapshot) => {
+        unreadCount.value = snapshot.size;
+      },
+      (error) => {
+        console.error('Error loading unread notification count:', error);
+      }
+    );
+  };
+
+  const initListListener = (uid: string) => {
+    if (listInitializedForUid === uid && listUnsubscribe) {
+      return;
+    }
+
+    if (listUnsubscribe) {
+      listUnsubscribe();
+      listUnsubscribe = null;
+    }
+
+    listInitializedForUid = uid;
+    clearState();
     loading.value = true;
     const notificationsCollection = getUserNotificationsCollection(uid);
     const firstPageQuery = query(
@@ -255,17 +289,6 @@ export const useNotificationStore = defineStore('notifications', () => {
       (error) => {
         console.error('Error loading notifications:', error);
         loading.value = false;
-      }
-    );
-
-    const unreadQuery = query(notificationsCollection, where('isRead', '==', false));
-    unreadUnsubscribe = onSnapshot(
-      unreadQuery,
-      (snapshot) => {
-        unreadCount.value = snapshot.size;
-      },
-      (error) => {
-        console.error('Error loading unread notification count:', error);
       }
     );
   };
@@ -363,23 +386,57 @@ export const useNotificationStore = defineStore('notifications', () => {
     const uid = authStore.user?.uid || '';
     if (!uid) {
       initializedForUid.value = '';
+      unreadInitializedForUid = '';
+      listInitializedForUid = '';
       detachListeners();
       clearState();
       return;
     }
 
-    if (initializedForUid.value === uid && listUnsubscribe && unreadUnsubscribe) {
-      return;
+    if (initializedForUid.value !== uid) {
+      initializedForUid.value = uid;
+      detachListeners();
+      clearState();
     }
 
-    initializedForUid.value = uid;
-    initListeners(uid);
+    initUnreadListener(uid);
+    initListListener(uid);
     await ensureForegroundPushListener();
     await ensureNativePushRegistration();
   };
 
+  const initBadgeListener = async () => {
+    const uid = authStore.user?.uid || '';
+    if (!uid) {
+      initializedForUid.value = '';
+      unreadInitializedForUid = '';
+      return;
+    }
+
+    if (initializedForUid.value !== uid) {
+      initializedForUid.value = uid;
+      if (listUnsubscribe) {
+        listUnsubscribe();
+        listUnsubscribe = null;
+      }
+      clearState();
+    }
+
+    initUnreadListener(uid);
+    await ensureForegroundPushListener();
+    await ensureNativePushRegistration();
+  };
+
+  const ensureLoaded = async () => {
+    const uid = authStore.user?.uid || '';
+    if (!uid) return;
+    initListListener(uid);
+  };
+
   const cleanup = () => {
     initializedForUid.value = '';
+    unreadInitializedForUid = '';
+    listInitializedForUid = '';
     detachListeners();
     clearState();
   };
@@ -637,6 +694,8 @@ export const useNotificationStore = defineStore('notifications', () => {
     browserPermission,
     shouldShowPushNudge,
     init,
+    initBadgeListener,
+    ensureLoaded,
     cleanup,
     loadMore,
     markNotificationRead,

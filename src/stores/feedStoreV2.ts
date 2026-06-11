@@ -105,6 +105,28 @@ export const useFeedStore = defineStore('feed', () => {
     post: { module: 'community' }
   };
 
+  const moduleFeedSignature = computed(() =>
+    [
+      moduleStore.modules.news.enabled ? '1' : '0',
+      moduleStore.modules.community.enabled ? '1' : '0',
+      moduleStore.modules.secrets.enabled ? '1' : '0',
+      moduleStore.modules.surveys.enabled ? '1' : '0',
+      moduleStore.modules.lottery.enabled ? '1' : '0',
+      moduleStore.modules.ads.enabled ? '1' : '0',
+      moduleStore.modules.ads.maxAdsPerFeed,
+      moduleStore.modules.ads.minPostsBetweenAds,
+      moduleStore.modules.ads.probability,
+      moduleStore.modules.ads.tabs.join(','),
+      moduleStore.modules.ads.fetchLimit
+    ].join('|')
+  );
+
+  const adsSignature = computed(() =>
+    adsStore.ads
+      .map((ad) => `${ad.id}:${String(ad.updatedAt || '')}:${ad.active ? '1' : '0'}`)
+      .join('|')
+  );
+
   const availableTabs = computed(() => moduleStore.availableTabs);
 
   const resolveTab = (requestedTab: string): FeedTab => {
@@ -454,26 +476,24 @@ export const useFeedStore = defineStore('feed', () => {
   };
 
   watch(
-    () => moduleStore.modules,
-    (modules) => {
+    moduleFeedSignature,
+    () => {
       const safeTab = resolveTab(currentTab.value);
       if (safeTab !== currentTab.value) {
         initFeed(safeTab);
         return;
       }
 
-      adsStore.initAdsListener(modules.ads);
+      adsStore.initAdsListener(moduleStore.modules.ads);
       rebuildMergedFeed();
-    },
-    { deep: true }
+    }
   );
 
   watch(
-    () => adsStore.ads,
+    adsSignature,
     () => {
       rebuildMergedFeed();
-    },
-    { deep: true }
+    }
   );
 
   const isModuleEnabled = (

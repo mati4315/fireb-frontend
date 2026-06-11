@@ -75,6 +75,10 @@ const ADMIN_PAGE_SIZE = 120;
 const FEATURED_QUERY_SIZE = 6;
 const DEFAULT_SURVEY_DURATION_MINUTES = 30;
 const ALLOWED_SURVEY_DURATIONS = new Set([10, 30, 120, 1440]);
+const SURVEY_CACHE_TTL_MS = 5 * 60 * 1000;
+const SURVEY_PUBLIC_CACHE_KEY = 'cdeluar.surveys.public.cache.v1';
+const SURVEY_FEATURED_CACHE_KEY = 'cdeluar.surveys.featured.cache.v1';
+const SURVEY_ADMIN_CACHE_KEY = 'cdeluar.surveys.admin.cache.v1';
 
 const normalizeStatus = (value: unknown): SurveyStatus => {
   if (value === 'active' || value === 'inactive' || value === 'completed') {
@@ -207,6 +211,40 @@ const addMinutesFromNow = (minutes: number): Date => {
   return new Date(Date.now() + (minutes * 60 * 1000));
 };
 
+const readSurveyCache = (key: string): Survey[] | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const updatedAt = Number((parsed as Record<string, unknown>).updatedAt || 0);
+    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > SURVEY_CACHE_TTL_MS) return null;
+    const items = Array.isArray((parsed as Record<string, unknown>).items) ? (parsed as Record<string, unknown>).items as Record<string, unknown>[] : [];
+    return items.map((item) => normalizeSurvey(
+      typeof item.id === 'string' ? item.id : '',
+      item
+    )).filter((item) => Boolean(item.id));
+  } catch {
+    return null;
+  }
+};
+
+const writeSurveyCache = (key: string, surveys: Survey[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        updatedAt: Date.now(),
+        items: surveys
+      })
+    );
+  } catch {
+    // Ignore cache quota errors.
+  }
+};
+
 export const useSurveyStore = defineStore('survey', () => {
   const authStore = useAuthStore();
 
@@ -290,6 +328,40 @@ export const useSurveyStore = defineStore('survey', () => {
     if (publicInitialized.value && !forceRefresh) return;
 
     publicLoading.value = true;
+    const cachedSurveys = !forceRefresh ? readSurveyCache(SURVEY_PUBLIC_CACHE_KEY) : null;
+    if (cachedSurveys) {
+      publicLiveSurveys.value = cachedSurveys.slice(0, PUBLIC_PAGE_SIZE);
+      publicExtraSurveys.value = [];
+      publicCursor.value = null;
+      publicHasMore.value = cachedSurveys.length >= PUBLIC_PAGE_SIZE;
+      publicInitialized.value = true;
+      publicLoading.value = false;
+      void (async () => {
+        try {
+          const surveysQuery = query(
+            collection(db, 'surveys'),
+            where('status', 'in', ['active', 'completed']),
+            orderBy('createdAt', 'desc'),
+            limit(PUBLIC_PAGE_SIZE)
+          );
+          const snapshot = await getDocs(surveysQuery);
+          const nextSurveys = snapshot.docs.map((surveyDoc) =>
+            normalizeSurvey(surveyDoc.id, surveyDoc.data())
+          );
+          publicLiveSurveys.value = nextSurveys;
+          publicCursor.value = snapshot.docs.length > 0
+            ? snapshot.docs[snapshot.docs.length - 1]
+            : null;
+          publicHasMore.value = snapshot.size >= PUBLIC_PAGE_SIZE;
+          publicInitialized.value = true;
+          writeSurveyCache(SURVEY_PUBLIC_CACHE_KEY, nextSurveys);
+        } catch (error) {
+          console.error('Error refreshing surveys:', error);
+        }
+      })();
+      return;
+    }
+
     publicExtraSurveys.value = [];
 
     const surveysQuery = query(
@@ -310,6 +382,7 @@ export const useSurveyStore = defineStore('survey', () => {
       publicHasMore.value = snapshot.size >= PUBLIC_PAGE_SIZE;
       publicInitialized.value = true;
       publicLoading.value = false;
+      writeSurveyCache(SURVEY_PUBLIC_CACHE_KEY, publicLiveSurveys.value);
     } catch (error) {
       console.error('Error loading surveys:', error);
       publicLoading.value = false;
@@ -326,6 +399,31 @@ export const useSurveyStore = defineStore('survey', () => {
 
     featuredLoading.value = true;
     ensureFeaturedClock();
+    const cachedSurveys = !forceRefresh ? readSurveyCache(SURVEY_FEATURED_CACHE_KEY) : null;
+    if (cachedSurveys) {
+      featuredLiveSurveys.value = cachedSurveys;
+      featuredInitialized.value = true;
+      featuredLoading.value = false;
+      void (async () => {
+        try {
+          const surveysQuery = query(
+            collection(db, 'surveys'),
+            where('status', '==', 'active'),
+            orderBy('createdAt', 'desc'),
+            limit(FEATURED_QUERY_SIZE)
+          );
+          const snapshot = await getDocs(surveysQuery);
+          featuredLiveSurveys.value = snapshot.docs.map((surveyDoc) =>
+            normalizeSurvey(surveyDoc.id, surveyDoc.data())
+          );
+          featuredInitialized.value = true;
+          writeSurveyCache(SURVEY_FEATURED_CACHE_KEY, featuredLiveSurveys.value);
+        } catch (error) {
+          console.error('Error refreshing featured survey:', error);
+        }
+      })();
+      return;
+    }
 
     const surveysQuery = query(
       collection(db, 'surveys'),
@@ -341,6 +439,7 @@ export const useSurveyStore = defineStore('survey', () => {
       );
       featuredInitialized.value = true;
       featuredLoading.value = false;
+      writeSurveyCache(SURVEY_FEATURED_CACHE_KEY, featuredLiveSurveys.value);
     } catch (error) {
       console.error('Error loading featured survey:', error);
       featuredLoading.value = false;
@@ -393,6 +492,31 @@ export const useSurveyStore = defineStore('survey', () => {
     if (adminInitialized.value && !forceRefresh) return;
 
     adminLoading.value = true;
+    const cachedSurveys = !forceRefresh ? readSurveyCache(SURVEY_ADMIN_CACHE_KEY) : null;
+    if (cachedSurveys) {
+      adminSurveys.value = cachedSurveys;
+      adminInitialized.value = true;
+      adminLoading.value = false;
+      void (async () => {
+        try {
+          const surveysQuery = query(
+            collection(db, 'surveys'),
+            orderBy('createdAt', 'desc'),
+            limit(ADMIN_PAGE_SIZE)
+          );
+          const snapshot = await getDocs(surveysQuery);
+          adminSurveys.value = snapshot.docs.map((surveyDoc) =>
+            normalizeSurvey(surveyDoc.id, surveyDoc.data())
+          );
+          adminInitialized.value = true;
+          writeSurveyCache(SURVEY_ADMIN_CACHE_KEY, adminSurveys.value);
+        } catch (error) {
+          console.error('Error refreshing admin surveys:', error);
+        }
+      })();
+      return;
+    }
+
     const surveysQuery = query(
       collection(db, 'surveys'),
       orderBy('createdAt', 'desc'),
@@ -406,6 +530,7 @@ export const useSurveyStore = defineStore('survey', () => {
       );
       adminInitialized.value = true;
       adminLoading.value = false;
+      writeSurveyCache(SURVEY_ADMIN_CACHE_KEY, adminSurveys.value);
     } catch (error) {
       console.error('Error loading admin surveys:', error);
       adminLoading.value = false;
