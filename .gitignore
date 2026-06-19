@@ -30,3 +30,6 @@ dist-ssr
 *.sln
 *.sw?
 *.lnk
+
+# Play store checklist (contains keystore password)
+android_playstore_checklist.md

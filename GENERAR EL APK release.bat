@@ -3,10 +3,14 @@ setlocal
 rem ------------------------------------------------------------
 rem   Generar APK Release (Capacitor + Android)
 rem ------------------------------------------------------------
-rem   1) Compila la web y sincroniza con Capacitor
-rem   2) Ejecuta Gradle para crear el bundle/apk de release
-rem   3) Guarda un log con timestamp y elimina logs viejos (>15 días)
+rem   1) Configura el JDK 21 instalado para la compilacion
+rem   2) Compila la web y sincroniza con Capacitor
+rem   3) Ejecuta Gradle para crear el bundle/apk de release
+rem   4) Guarda un log con timestamp y elimina logs viejos (>15 días)
 rem ------------------------------------------------------------
+
+set "JAVA_HOME=C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot"
+
 
 rem Cambiamos al directorio donde está el script
 cd /d "%~dp0"
