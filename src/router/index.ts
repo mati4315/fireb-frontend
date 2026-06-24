@@ -3,6 +3,8 @@ const HomeView = () => import('@/views/HomeView.vue')
 const PublicationView = () => import('@/views/PublicationView.vue')
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
+import { analytics } from '@/config/firebase'
+import { logEvent } from 'firebase/analytics'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -258,6 +260,14 @@ router.afterEach((to) => {
   setMetaTag('og:title', nextTitle, true);
   setMetaTag('og:url', canonicalUrl, true);
   setMetaTag('twitter:title', nextTitle);
+
+  if (analytics) {
+    logEvent(analytics, 'page_view', {
+      page_title: nextTitle,
+      page_location: canonicalUrl,
+      page_path: canonicalPath
+    })
+  }
 });
 
 export default router

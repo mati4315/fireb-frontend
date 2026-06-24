@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getAnalytics } from "firebase/analytics";
+import { getAnalytics, type Analytics } from "firebase/analytics";
 import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
@@ -26,7 +26,7 @@ const storage = getStorage(app);
 const functions = getFunctions(app);
 
 // Initialize analytics only if valid ID exists
-let analytics;
+let analytics: Analytics | undefined;
 if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-53VQDTEMDW") {
   try {
     analytics = getAnalytics(app);

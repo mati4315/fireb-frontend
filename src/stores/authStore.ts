@@ -131,7 +131,28 @@ export const useAuthStore = defineStore('auth', () => {
     preferred?: { nombre?: string; username?: string; profilePictureUrl?: string }
   ) => {
     const existingProfile = await refreshUserProfile(firebaseUser.uid);
-    if (existingProfile) return existingProfile;
+    const preferredPic = (preferred?.profilePictureUrl || firebaseUser.photoURL || '').toString().trim();
+
+    if (existingProfile) {
+      const currentPic = (existingProfile.profilePictureUrl || '').toString().trim();
+      // Si el perfil ya existe pero no tiene foto de perfil y ahora sí la tenemos disponible, lo actualizamos.
+      if (!currentPic && preferredPic) {
+        try {
+          await updateMyProfileCallable({
+            nombre: existingProfile.nombre || preferred?.nombre || firebaseUser.displayName || 'Usuario',
+            username: existingProfile.username,
+            bio: existingProfile.bio || '',
+            location: existingProfile.location || '',
+            website: existingProfile.website || '',
+            profilePictureUrl: preferredPic
+          });
+          return await refreshUserProfile(firebaseUser.uid);
+        } catch (err) {
+          console.error('Error al actualizar la foto de perfil en el perfil existente:', err);
+        }
+      }
+      return existingProfile;
+    }
 
     const nombre = (preferred?.nombre || firebaseUser.displayName || 'Usuario')
       .trim()
@@ -140,9 +161,7 @@ export const useAuthStore = defineStore('auth', () => {
     const username = /^[a-z0-9_]{3,30}$/.test(preferredUsername)
       ? preferredUsername
       : buildFallbackUsername(firebaseUser);
-    const profilePictureUrl = (preferred?.profilePictureUrl || firebaseUser.photoURL || '')
-      .toString()
-      .trim();
+    const profilePictureUrl = preferredPic;
 
     await updateMyProfileCallable({
       nombre,
@@ -304,10 +323,10 @@ export const useAuthStore = defineStore('auth', () => {
         const { user: firebaseUser } = await signInWithCredential(auth, firebaseCredential)
         user.value = firebaseUser
         await refreshTokenClaims(firebaseUser, true)
-        const profile = await refreshUserProfile(firebaseUser.uid)
-        if (!profile) {
-          await ensureProfileDocument(firebaseUser)
-        }
+        await ensureProfileDocument(firebaseUser, {
+          nombre: nativeResult.user?.displayName || undefined,
+          profilePictureUrl: nativeResult.user?.photoUrl || undefined
+        })
         loading.value = false
         return { success: true }
       }
@@ -324,10 +343,7 @@ export const useAuthStore = defineStore('auth', () => {
       const { user: firebaseUser } = await signInWithPopup(auth, provider);
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
-      const profile = await refreshUserProfile(firebaseUser.uid);
-      if (!profile) {
-        await ensureProfileDocument(firebaseUser);
-      }
+      await ensureProfileDocument(firebaseUser);
       loading.value = false;
       return { success: true };
     } catch (err: any) {
@@ -374,10 +390,7 @@ export const useAuthStore = defineStore('auth', () => {
 
               user.value = existingUser;
               await refreshTokenClaims(existingUser, true);
-              const profile = await refreshUserProfile(existingUser.uid);
-              if (!profile) {
-                await ensureProfileDocument(existingUser);
-              }
+              await ensureProfileDocument(existingUser);
 
               loading.value = false;
               error.value = null;
@@ -449,6 +462,11 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         await linkWithCredential(currentUser, firebaseCredential);
+        // Aseguramos que se actualice la foto de perfil si estaba vacía usando los datos de la red social nativa
+        await ensureProfileDocument(currentUser, {
+          nombre: nativeResult.user?.displayName || undefined,
+          profilePictureUrl: nativeResult.user?.photoUrl || undefined
+        });
       } else {
         let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
         if (providerId === 'google.com') {
@@ -460,6 +478,8 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         await linkWithPopup(currentUser, provider);
+        // Aseguramos que se actualice la foto de perfil en web
+        await ensureProfileDocument(currentUser);
       }
 
       await currentUser.reload();
