@@ -30,6 +30,7 @@ import { runWithConcurrency } from '@/utils/concurrency'
 import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
 import { isNativePlatform } from '@/platform/capacitor'
+import { getPublicNews, publicNewsToFeedItem } from '@/api/publicApi'
 
 const ImageLightbox = defineAsyncComponent(() => import('@/components/common/ImageLightbox.vue'))
 const AuthPromptModal = defineAsyncComponent(() => import('@/components/common/AuthPromptModal.vue'))
@@ -1029,6 +1030,16 @@ const fetchContentDocBySlug = async (
   return fetchContentDocById(mappedContentId)
 }
 
+const fetchPublicNewsDoc = async (reference: string): Promise<any | null> => {
+  try {
+    const news = await getPublicNews(reference)
+    return publicNewsToFeedItem(news)
+  } catch (error) {
+    console.warn('Public news API lookup failed, using Firestore fallback', error)
+    return null
+  }
+}
+
 const resolveContentModule = (item: any): 'news' | 'community' | null => {
   const moduleName = item?.module
   if (moduleName === 'news' || moduleName === 'community') return moduleName
@@ -1128,9 +1139,15 @@ const resolveDetailRoute = async () => {
     let found: any | null = null
 
     if (moduleName === 'news') {
-      found = await fetchContentDocByPublicId(moduleName, refValue)
+      found = await fetchPublicNewsDoc(refValue)
+    }
+
+    if (moduleName === 'news') {
       if (!found) {
-        found = await fetchContentDocById(refValue)
+        found = await fetchContentDocByPublicId(moduleName, refValue)
+        if (!found) {
+          found = await fetchContentDocById(refValue)
+        }
       }
     } else {
       found = await fetchContentDocById(refValue)

@@ -16,6 +16,7 @@ import { db } from '@/config/firebase';
 import { useAuthStore } from './authStore';
 import { useAdsStore, type AdFeedItem } from './adsStore';
 import { useModuleStore, type FeedTabKey, type HomeTabKey } from './moduleStore';
+import { listPublicNews, publicNewsToFeedItem } from '@/api/publicApi';
 
 type FeedTab = HomeTabKey;
 
@@ -40,6 +41,7 @@ export const useFeedStore = defineStore('feed', () => {
     allItems: any[];
     hasMore: boolean;
     lastFetchedAt: number;
+    nextCursor: string | null;
   }
   const tabStates = ref<Record<string, TabState>>({});
 
@@ -49,7 +51,8 @@ export const useFeedStore = defineStore('feed', () => {
         contentItems: [],
         allItems: [],
         hasMore: true,
-        lastFetchedAt: 0
+        lastFetchedAt: 0,
+        nextCursor: null
       };
     }
     return tabStates.value[tab];
@@ -93,7 +96,8 @@ export const useFeedStore = defineStore('feed', () => {
         contentItems: content,
         allItems: [],
         hasMore: hasMoreValue,
-        lastFetchedAt: lastFetchedAtValue
+        lastFetchedAt: lastFetchedAtValue,
+        nextCursor: null
       };
     } catch {
       return null;
@@ -187,6 +191,7 @@ export const useFeedStore = defineStore('feed', () => {
       state.allItems = [];
       state.hasMore = false;
       state.lastFetchedAt = Date.now();
+      state.nextCursor = null;
       if (currentTab.value === targetTab) {
         contentItems.value = [];
         allItems.value = [];
@@ -196,21 +201,33 @@ export const useFeedStore = defineStore('feed', () => {
       return;
     }
 
-    const q = query(
-      collection(db, 'content'),
-      ...getTabConstraints(targetTab),
-      limit(PAGE_SIZE)
-    );
+    let items: any[];
+    let nextCursor: string | null = null;
+    let hasMoreForTab: boolean;
 
-    const snapshot = await getDocs(q);
-    const items = snapshot.docs.map((contentDoc) => ({
-      id: contentDoc.id,
-      ...contentDoc.data({ serverTimestamps: 'estimate' })
-    }));
+    if (targetTab === 'news') {
+      const response = await listPublicNews({ limit: PAGE_SIZE });
+      items = response.data.map(publicNewsToFeedItem);
+      nextCursor = response.pagination.next_cursor;
+      hasMoreForTab = response.pagination.has_next;
+    } else {
+      const q = query(
+        collection(db, 'content'),
+        ...getTabConstraints(targetTab),
+        limit(PAGE_SIZE)
+      );
+      const snapshot = await getDocs(q);
+      items = snapshot.docs.map((contentDoc) => ({
+        id: contentDoc.id,
+        ...contentDoc.data({ serverTimestamps: 'estimate' })
+      }));
+      hasMoreForTab = snapshot.size >= PAGE_SIZE;
+    }
 
     const state = getTabState(targetTab);
     state.contentItems = items;
-    state.hasMore = snapshot.size >= PAGE_SIZE;
+    state.hasMore = hasMoreForTab;
+    state.nextCursor = nextCursor;
     state.lastFetchedAt = Date.now();
 
     if (currentTab.value === targetTab) {
@@ -291,6 +308,33 @@ export const useFeedStore = defineStore('feed', () => {
     if (!hasMore.value || loading.value || contentItems.value.length === 0) return;
 
     const tabAtStart = currentTab.value;
+    if (tabAtStart === 'news') {
+      const state = getTabState(tabAtStart);
+      if (!state.nextCursor) {
+        hasMore.value = false;
+        return;
+      }
+      loading.value = true;
+      try {
+        const response = await listPublicNews({ limit: PAGE_SIZE, cursor: state.nextCursor });
+        const newItems = response.data.map(publicNewsToFeedItem);
+        state.contentItems.push(...newItems.filter(
+          (newItem) => !state.contentItems.some((existingItem) => existingItem.id === newItem.id)
+        ));
+        state.hasMore = response.pagination.has_next;
+        state.nextCursor = response.pagination.next_cursor;
+        state.lastFetchedAt = Date.now();
+        contentItems.value = [...state.contentItems];
+        hasMore.value = state.hasMore;
+        rebuildMergedFeed();
+      } catch (error) {
+        console.error('Error loading public news:', error);
+      } finally {
+        loading.value = false;
+      }
+      return;
+    }
+
     const lastContentItem = contentItems.value[contentItems.value.length - 1];
     const cursor = lastContentItem?.createdAt || lastContentItem?.updatedAt;
     
