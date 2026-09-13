@@ -539,6 +539,16 @@ const normalizePublicImageUrl = (value: string): string => {
     .replace(/^https:\/\/bot\.cdelu\.io\/images\//i, 'https://bot.cdelu.io/images/');
 };
 
+const invalidWordpressThumbnailUrls = new Set([
+  'https://arribanoticias.com.ar/wp-content/uploads/2025/04/logo-arriba-300x201.png',
+  'https://www.elmiercolesdigital.com.ar/wp-content/uploads/2015/04/galeano-300x275.jpg'
+])
+
+const isInvalidWordpressThumbnail = (value: string): boolean => {
+  const normalized = value.split(/[?#]/, 1)[0].replace(/\\/g, '/').toLowerCase()
+  return invalidWordpressThumbnailUrls.has(normalized)
+}
+
 const normalizeImageList = (item: any): NormalizedImage[] => {
   if (!item || typeof item !== 'object') return []
 
@@ -548,21 +558,36 @@ const normalizeImageList = (item: any): NormalizedImage[] => {
     return cached.value
   }
 
-  const legacyMiniThumb =
+  let legacyMiniThumb =
     normalizePublicImageUrl(typeof item?.imgMiniatura === 'string' ? item.imgMiniatura : '') ||
     normalizePublicImageUrl(typeof item?.img_miniatura === 'string' ? item.img_miniatura : '') ||
     normalizePublicImageUrl(typeof item?.thumbnailUrl === 'string' ? item.thumbnailUrl : '') ||
     ''
 
+  const primaryImage = normalizePublicImageUrl(
+    typeof item?.img === 'string'
+      ? item.img
+      : typeof item?.image === 'string'
+        ? item.image
+        : typeof item?.imageUrl === 'string'
+          ? item.imageUrl
+          : typeof item?.coverImage === 'string'
+            ? item.coverImage
+            : ''
+  )
+  if (isInvalidWordpressThumbnail(legacyMiniThumb)) {
+    legacyMiniThumb = primaryImage
+  }
+
   let normalized: NormalizedImage[] = []
 
   if (Array.isArray(item?.imagesV2) && item.imagesV2.length > 0) {
     normalized = item.imagesV2
-      .filter((image: any) => image && typeof image.url === 'string')
+      .filter((image: any) => image && typeof image.url === 'string' && !isInvalidWordpressThumbnail(image.url))
       .map((image: any) => {
         const normalizedUrl = normalizePublicImageUrl(image.url)
         let finalThumbUrl = normalizedUrl
-        if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim()) {
+        if (typeof image.thumbUrl === 'string' && image.thumbUrl.trim() && !isInvalidWordpressThumbnail(image.thumbUrl)) {
           finalThumbUrl = normalizePublicImageUrl(image.thumbUrl)
         } else if (legacyMiniThumb) {
           finalThumbUrl = legacyMiniThumb
@@ -581,7 +606,7 @@ const normalizeImageList = (item: any): NormalizedImage[] => {
       })
   } else if (Array.isArray(item?.images) && item.images.length > 0) {
     normalized = item.images
-      .filter((image: any) => typeof image === 'string' && image.trim().length > 0)
+      .filter((image: any) => typeof image === 'string' && image.trim().length > 0 && !isInvalidWordpressThumbnail(image))
       .map((image: string, index: number) => {
         const normalizedUrl = normalizePublicImageUrl(image)
         const derivedThumb = normalizePublicImageUrl(deriveThumbnailURL(normalizedUrl, item.source))
