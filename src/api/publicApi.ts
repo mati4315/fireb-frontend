@@ -9,7 +9,7 @@ export interface PublicNews {
   published_at: string
   updated_at: string
   category: { id: string; name: string } | null
-  images: Array<{ url: string; alt: string | null }>
+  images: Array<{ url: string; alt: string | null; thumbnail_url: string | null }>
 }
 
 interface PublicNewsResponse {
@@ -78,7 +78,7 @@ export const publicNewsToFeedItem = (news: PublicNews): Record<string, unknown> 
   const publicId = canonicalParts.at(-2) || news.id
   const imagesV2 = news.images.map((image) => ({
     url: image.url,
-    thumbUrl: image.url,
+    thumbUrl: image.thumbnail_url || image.url,
     alt: image.alt || undefined,
     width: 16,
     height: 9
