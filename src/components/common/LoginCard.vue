@@ -110,6 +110,12 @@ const handleProviderLogin = async (providerId: string) => {
         <button type="button" :disabled="authStore.loading" @click="isLogin = !isLogin" class="toggle-btn">
           {{ isLogin ? '¿No tienes cuenta? Registrate aquí' : '¿Ya tienes cuenta? Inicia sesión' }}
         </button>
+
+        <p class="legal-notice">
+          Al continuar, aceptas nuestros 
+          <router-link to="/terminos" class="legal-link">Términos</router-link> y 
+          <router-link to="/privacidad" class="legal-link">Política de Privacidad</router-link>.
+        </p>
       </footer>
     </form>
   </div>
@@ -312,5 +318,23 @@ const handleProviderLogin = async (providerId: string) => {
   opacity: 0.6;
   cursor: not-allowed;
   text-decoration: none;
+}
+
+.legal-notice {
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.8;
+  margin-top: 1rem;
+  line-height: 1.4;
+}
+
+.legal-link {
+  color: var(--primary, var(--accent));
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.legal-link:hover {
+  text-decoration: underline;
 }
 </style>

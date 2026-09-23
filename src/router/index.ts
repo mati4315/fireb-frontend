@@ -105,16 +105,19 @@ const router = createRouter({
     },
     {
       path: '/privacidad',
+      alias: ['/politica-de-privacidad', '/privacy-policy', '/privacy'],
       name: 'privacy',
       component: () => import('@/views/PrivacyView.vue'),
     },
     {
       path: '/terminos',
+      alias: ['/terminos-y-condiciones', '/terms'],
       name: 'terms',
       component: () => import('@/views/TermsView.vue'),
     },
     {
       path: '/eliminar-datos',
+      alias: ['/delete-data', '/data-deletion'],
       name: 'delete-data',
       component: () => import('@/views/DeleteDataView.vue'),
     },
