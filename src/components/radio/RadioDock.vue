@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
           class="radio-dock__play-icon"
           type="button"
           :disabled="!hasAudio"
-          :aria-label="isPlaying ? 'Pausar radio' : 'Reproducir radio'"
+          :aria-label="isCollapsed ? 'Mostrar radio' : isPlaying ? 'Pausar radio' : 'Reproducir radio'"
           @click="handlePlayIconClick"
         >
           <span class="radio-dock__play-icon-shape" :class="{ 'is-playing': isPlaying && hasAudio }">
@@ -130,12 +130,12 @@ onBeforeUnmount(() => {
 
         <div class="radio-dock__text">
           <div class="radio-dock__headline">
-            <span class="radio-dock__badge">EN VIVO</span>
+            <span class="radio-dock__badge"><span aria-hidden="true">●</span> EN VIVO</span>
             <strong class="radio-dock__title">{{ radioTitle }}</strong>
           </div>
           <p v-if="radioDescription" class="radio-dock__description">{{ radioDescription }}</p>
           <p v-else-if="!hasAudio" class="radio-dock__description">
-            Configura la URL del audio en el dashboard para activar el streaming.
+            Transmisión no disponible por el momento.
           </p>
         </div>
       </div>
@@ -167,9 +167,10 @@ onBeforeUnmount(() => {
         class="radio-dock__button radio-dock__button--toggle"
         type="button"
         aria-label="Ocultar radio"
+        title="Minimizar reproductor"
         @click="handleCollapseAction"
       >
-        Ocultar
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
       </button>
     </div>
 
@@ -194,23 +195,23 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   z-index: 1100;
-  padding: 0;
+  padding: 0.6rem 1rem calc(0.6rem + env(safe-area-inset-bottom));
   pointer-events: none;
-  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .radio-dock__inner {
-  width: 100%;
-  margin: 0;
-  padding: 0.6rem 0.85rem calc(0.6rem + env(safe-area-inset-bottom));
+  width: min(100%, 760px);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 0.75rem 0.85rem;
   position: relative;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-bottom: 0;
-  border-radius: 18px 18px 0 0;
+  border-radius: 20px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--card-bg)), var(--card-bg)),
     var(--card-bg);
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.2);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -259,6 +260,7 @@ onBeforeUnmount(() => {
 }
 
 .radio-dock__info {
+  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -266,12 +268,12 @@ onBeforeUnmount(() => {
 }
 
 .radio-dock__play-icon {
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 2.9rem;
+  height: 2.9rem;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
-  color: var(--text-h);
+  background: linear-gradient(145deg, #ffb74d, #fb8c00);
+  color: #241600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -345,11 +347,22 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   padding: 0.22rem 0.55rem;
   border-radius: 999px;
-  background: #16a34a;
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--text-h);
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+}
+
+.radio-dock__badge span {
+  color: #fb8c00;
+  margin-right: 0.15rem;
+}
+
+.radio-dock button:focus-visible,
+.radio-dock a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .radio-dock__text {
@@ -374,6 +387,11 @@ onBeforeUnmount(() => {
 }
 
 .radio-dock__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   margin: 0;
   color: var(--text);
   font-size: 0.78rem;
@@ -384,8 +402,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   gap: 0.22rem;
-  width: min(8.75rem, 42vw);
-  height: 0.6rem;
+  width: 2.8rem;
+  height: 1.2rem;
   margin: 0 0.15rem;
   opacity: 0.9;
   overflow: hidden;
@@ -469,9 +487,10 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-h);
   border-color: var(--accent-border);
-  position: absolute;
-  top: 0.55rem;
-  right: 0.65rem;
+  flex: 0 0 44px;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
 }
 
 .radio-dock__button--link {
@@ -490,11 +509,11 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .radio-dock {
-    padding: 0;
+    padding: 0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom));
   }
 
   .radio-dock__inner {
-    padding: 0.5rem 0.65rem calc(0.5rem + env(safe-area-inset-bottom));
+    padding: 0.65rem;
     flex-direction: row;
     align-items: center;
     gap: 0.55rem;
@@ -523,7 +542,7 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock__wave {
-    width: 5.6rem;
+    width: 1.8rem;
     margin: 0 0 0 0.05rem;
   }
 
@@ -536,8 +555,8 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock__play-icon {
-    width: 2.15rem;
-    height: 2.15rem;
+    width: 2.75rem;
+    height: 2.75rem;
   }
 
   .radio-dock__wave {
@@ -551,8 +570,26 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock__button--toggle {
-    top: 0.45rem;
-    right: 0.5rem;
+    min-height: 44px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 380px) {
+  .radio-dock__wave { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radio-dock__inner,
+  .radio-dock__text,
+  .radio-dock__wave,
+  .radio-dock__actions,
+  .radio-dock__play-icon-shape span {
+    transition: none;
+  }
+  .radio-dock__wave span,
+  .radio-dock__play-icon-shape.is-playing span {
+    animation: none;
   }
 }
 
