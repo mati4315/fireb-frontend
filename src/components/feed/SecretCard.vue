@@ -625,8 +625,9 @@ const handleCreateComment = async () => {
 .report-state {
   margin: 0;
   color: var(--text);
-  font-size: 0.78rem;
+  font-size: 0.92rem;
   font-weight: 600;
+  text-align: center;
 }
 
 .report-modal-overlay {
