@@ -54,6 +54,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleScrollY)
+  if (reportStatusTimer) clearTimeout(reportStatusTimer)
 })
 
 const feedStore = useFeedStore()
@@ -74,6 +75,7 @@ const reportComment = ref('')
 const reportError = ref('')
 const reportStatus = ref('')
 const reportTarget = ref<any | null>(null)
+let reportStatusTimer: ReturnType<typeof setTimeout> | null = null
 
 const reportReasonOptions = [
   { value: 'contenido_inapropiado', label: 'Contenido inapropiado' },
@@ -854,6 +856,11 @@ const submitContentReport = async () => {
     reportStatus.value = response.status === 'already_reported'
       ? 'Esta publicación ya había sido reportada. Un administrador revisará el caso.'
       : 'Tu reporte fue recibido correctamente. Un administrador analizará la publicación.'
+    if (reportStatusTimer) clearTimeout(reportStatusTimer)
+    reportStatusTimer = setTimeout(() => {
+      reportStatus.value = ''
+      reportStatusTimer = null
+    }, 4000)
     reportTarget.value = null
   } catch (error: any) {
     reportError.value = error?.message || 'No se pudo enviar el reporte.'
@@ -1996,7 +2003,9 @@ watch(
       message="Con tu cuenta puedes guardar tus likes y participar en la comunidad."
       @close="closeLikeLoginPrompt"
     />
-    <p v-if="reportStatus" class="content-report-state">{{ reportStatus }}</p>
+    <div v-if="reportStatus" class="content-report-state" role="status" aria-live="polite">
+      {{ reportStatus }}
+    </div>
     </div>
   </div>
 </template>
@@ -2009,11 +2018,28 @@ watch(
 }
 
 .content-report-state {
-  margin: 0.75rem auto;
-  color: var(--text);
-  font-size: 0.92rem;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 1100;
+  width: min(calc(100% - 2rem), 460px);
+  box-sizing: border-box;
+  padding: 1rem 1.2rem;
+  border: 1px solid rgba(251, 140, 0, 0.7);
+  border-radius: 14px;
+  background: rgba(20, 20, 20, 0.96);
+  color: #fb8c00;
+  font-size: 1rem;
   font-weight: 600;
   text-align: center;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  transform: translate(-50%, -50%);
+  animation: report-toast-in 0.2s ease-out;
+}
+
+@keyframes report-toast-in {
+  from { opacity: 0; transform: translate(-50%, -46%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
 .report-modal-overlay {
