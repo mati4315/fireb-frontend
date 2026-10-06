@@ -914,6 +914,8 @@ const handleAdClick = (item: any) => {
 }
 
 const openUserProfile = async (item: any) => {
+  if (item?.isOficial && item?.module === 'news') return
+
   if (item?.source === 'scraping') {
     const targetUserId = typeof item?.userId === 'string' ? item.userId.trim() : ''
     if (targetUserId) {
