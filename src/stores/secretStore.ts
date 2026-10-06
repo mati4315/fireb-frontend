@@ -356,6 +356,7 @@ type CreateSecretCommentCallableResponse = {
 type ReportSecretCallableInput = {
   secretId: string;
   reason: string;
+  comment?: string;
   clientAnonId: string;
 };
 
@@ -663,7 +664,7 @@ export const useSecretStore = defineStore('secret', () => {
     }
   };
 
-  const reportSecret = async (secretId: string, reason: string) => {
+  const reportSecret = async (secretId: string, reason: string, comment = '') => {
     if (!secretId) return;
     if (reportPendingBySecret.value[secretId]) return;
     setReportPending(secretId, true);
@@ -675,6 +676,7 @@ export const useSecretStore = defineStore('secret', () => {
       const result = await callable({
         secretId,
         reason,
+        comment: comment.trim() || undefined,
         clientAnonId: ensureClientAnonId()
       });
       patchSecretLocal(secretId, (secret) => ({

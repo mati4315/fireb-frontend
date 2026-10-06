@@ -105,6 +105,39 @@
       </p>
     </div>
 
+    <Teleport to="body">
+      <div v-if="reportDialogOpen" class="report-modal-overlay" @click.self="closeReportDialog">
+        <form class="report-modal" @submit.prevent="submitReport">
+          <h3>Reportar secreto</h3>
+          <p class="report-modal-help">Selecciona el motivo del reporte.</p>
+          <label class="report-field">
+            <span>Motivo</span>
+            <select v-model="reportReason">
+              <option v-for="option in reportReasonOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <label v-if="reportReason === 'otros'" class="report-field">
+            <span>Explicación</span>
+            <textarea
+              v-model="reportComment"
+              maxlength="500"
+              rows="4"
+              placeholder="Contanos por qué querés reportarlo"
+            ></textarea>
+          </label>
+          <p v-if="reportError" class="report-form-error">{{ reportError }}</p>
+          <div class="report-modal-actions">
+            <button type="button" class="report-cancel-btn" @click="closeReportDialog">Cancelar</button>
+            <button type="submit" class="report-submit-btn" :disabled="reportSubmitting">
+              {{ reportSubmitting ? 'Enviando...' : 'Enviar reporte' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Teleport>
+
     <section v-if="commentsOpen" class="comments-box">
       <div v-if="secretStore.isCommentsLoading(secret.id)" class="comment-state">
         Cargando comentarios...
@@ -170,6 +203,21 @@ const commentsOpen = ref(false);
 const commentDraft = ref('');
 const commentError = ref<string | null>(null);
 const reportStatus = ref<string | null>(null);
+const reportDialogOpen = ref(false);
+const reportSubmitting = ref(false);
+const reportReason = ref('contenido_inapropiado');
+const reportComment = ref('');
+const reportError = ref('');
+
+const reportReasonOptions = [
+  { value: 'contenido_inapropiado', label: 'Contenido inapropiado' },
+  { value: 'acoso', label: 'Acoso' },
+  { value: 'odio_discriminacion', label: 'Odio o discriminación' },
+  { value: 'violencia_amenazas', label: 'Violencia o amenazas' },
+  { value: 'spam_publicidad', label: 'Spam o publicidad' },
+  { value: 'informacion_personal', label: 'Información personal' },
+  { value: 'otros', label: 'Otros' }
+];
 
 const isAuthorizedToManage = computed(() => {
   const rol = authStore.userProfile?.rol;
@@ -203,13 +251,25 @@ const secretMenuOptions = computed<MenuOption[]>(() => {
 
 const handleSecretMenuAction = async (actionId: string) => {
   if (actionId === 'report') {
-    if (!props.secret.reportedByMe) await handleReport();
+    if (!props.secret.reportedByMe) openReportDialog();
     return;
   }
 
   if (actionId === 'delete') {
     await secretStore.deleteSecret(props.secret.id);
   }
+};
+
+const openReportDialog = () => {
+  reportReason.value = 'contenido_inapropiado';
+  reportComment.value = '';
+  reportError.value = '';
+  reportDialogOpen.value = true;
+};
+
+const closeReportDialog = () => {
+  if (reportSubmitting.value) return;
+  reportDialogOpen.value = false;
 };
 
 const toMillis = (value: any): number => {
@@ -272,13 +332,23 @@ const handleVote = async (vote: 1 | -1) => {
   }
 };
 
-const handleReport = async () => {
+const submitReport = async () => {
+  if (reportReason.value === 'otros' && !reportComment.value.trim()) {
+    reportError.value = 'Escribí una explicación para este motivo.';
+    return;
+  }
+
+  reportSubmitting.value = true;
   reportStatus.value = null;
+  reportError.value = '';
   try {
-    await secretStore.reportSecret(props.secret.id, 'contenido_inapropiado');
+    await secretStore.reportSecret(props.secret.id, reportReason.value, reportComment.value);
+    reportDialogOpen.value = false;
     reportStatus.value = 'Reporte enviado';
   } catch (err: any) {
-    reportStatus.value = err?.message || 'No se pudo reportar';
+    reportError.value = err?.message || 'No se pudo reportar';
+  } finally {
+    reportSubmitting.value = false;
   }
 };
 
@@ -557,6 +627,98 @@ const handleCreateComment = async () => {
   color: var(--text);
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.report-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.report-modal {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  box-shadow: 0 20px 55px rgba(15, 23, 42, 0.25);
+}
+
+.report-modal h3,
+.report-modal-help {
+  margin: 0;
+}
+
+.report-modal-help,
+.report-form-error {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.report-field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.report-field select,
+.report-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+}
+
+.report-field textarea {
+  resize: vertical;
+}
+
+.report-form-error {
+  margin: 0;
+  color: #b42318;
+}
+
+.report-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.report-cancel-btn,
+.report-submit-btn {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.report-cancel-btn {
+  background: transparent;
+  color: var(--text-h);
+}
+
+.report-submit-btn {
+  border-color: #b42318;
+  background: #b42318;
+  color: #fff;
+}
+
+.report-submit-btn:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .comments-box {

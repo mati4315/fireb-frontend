@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import { db } from '@/config/firebase'
+import { functions as firebaseFunctions } from '@/config/firebase'
 import { useAuthStore } from '@/stores/authStore'
 import { useModuleStore } from '@/stores/moduleStore'
-import { isStaffUser } from '@/utils/roles'
+import { isAdminUser, isStaffUser } from '@/utils/roles'
 
 type SecretSettingsForm = {
   maxTextLength: number
@@ -16,6 +18,24 @@ type SecretSettingsForm = {
   autoHideReportsThreshold: number
 }
 
+type SecretReport = {
+  reportId: string
+  secretId: string
+  reason: string
+  comment: string
+  status: 'pending' | 'resolved' | 'dismissed'
+  createdAtMs: number
+  reviewedAtMs: number
+  reviewedBy: string
+  secret: {
+    textPreview: string
+    category: string
+    zone: string
+    moderationStatus: string
+    reportsCount: number
+  }
+}
+
 const authStore = useAuthStore()
 const moduleStore = useModuleStore()
 
@@ -24,6 +44,11 @@ const savingModuleConfig = ref(false)
 const savingSettings = ref(false)
 const feedback = ref('')
 const errorMessage = ref('')
+const activeTab = ref<'settings' | 'reports'>('settings')
+const reportFilter = ref<'all' | 'pending' | 'resolved' | 'dismissed'>('pending')
+const reports = ref<SecretReport[]>([])
+const reportsLoading = ref(false)
+const reportActionPending = ref<string | null>(null)
 const unsubscribeSecretSettings = ref<(() => void) | null>(null)
 
 const settingsForm = reactive<SecretSettingsForm>({
@@ -40,6 +65,13 @@ const isAuthorized = computed(() => {
   const email = authStore.user?.email || authStore.userProfile?.email
   const uid = authStore.user?.uid
   return authStore.isAuthenticated && isStaffUser(rol, email, uid, authStore.tokenClaims)
+})
+
+const isAdminAuthorized = computed(() => {
+  const rol = authStore.userProfile?.rol
+  const email = authStore.user?.email || authStore.userProfile?.email
+  const uid = authStore.user?.uid
+  return authStore.isAuthenticated && isAdminUser(rol, email, uid, authStore.tokenClaims)
 })
 
 const resetFeedback = () => {
@@ -132,6 +164,55 @@ const saveFutureSettings = async () => {
   }
 }
 
+const reportReasonLabels: Record<string, string> = {
+  contenido_inapropiado: 'Contenido inapropiado',
+  acoso: 'Acoso',
+  odio_discriminacion: 'Odio o discriminación',
+  violencia_amenazas: 'Violencia o amenazas',
+  spam_publicidad: 'Spam o publicidad',
+  informacion_personal: 'Información personal',
+  otros: 'Otros'
+}
+
+const formatReportDate = (value: number) => {
+  if (!value) return 'Sin fecha'
+  return new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  }).format(new Date(value))
+}
+
+const getReportReasonLabel = (reason: string) => reportReasonLabels[reason] || reason || 'Sin motivo'
+
+const loadReports = async () => {
+  if (!isAdminAuthorized.value) return
+  reportsLoading.value = true
+  errorMessage.value = ''
+  try {
+    const callable = httpsCallable(firebaseFunctions, 'getSecretReportsCallable')
+    const result = await callable({ status: reportFilter.value, limit: 100 })
+    reports.value = (result.data as { items?: SecretReport[] })?.items || []
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudieron cargar los reportes.'
+  } finally {
+    reportsLoading.value = false
+  }
+}
+
+const updateReportStatus = async (report: SecretReport, action: 'resolve' | 'dismiss' | 'reopen') => {
+  reportActionPending.value = report.reportId
+  errorMessage.value = ''
+  try {
+    const callable = httpsCallable(firebaseFunctions, 'moderateSecretReportCallable')
+    await callable({ secretId: report.secretId, reportId: report.reportId, action })
+    await loadReports()
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo actualizar el reporte.'
+  } finally {
+    reportActionPending.value = null
+  }
+}
+
 watch(
   () => moduleStore.modules.secrets.enabled,
   (enabled) => {
@@ -144,6 +225,7 @@ onMounted(() => {
   if (!isAuthorized.value) return
   moduleStore.initModulesListener()
   loadSecretSettings()
+  loadReports()
 })
 
 onBeforeUnmount(() => {
@@ -171,7 +253,21 @@ onBeforeUnmount(() => {
       <p v-if="feedback" class="msg ok">{{ feedback }}</p>
       <p v-if="errorMessage" class="msg error">{{ errorMessage }}</p>
 
-      <div class="grid">
+      <nav class="admin-tabs" aria-label="Secciones de secretos">
+        <button :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'">
+          Configuración
+        </button>
+        <button
+          v-if="isAdminAuthorized"
+          :class="{ active: activeTab === 'reports' }"
+          @click="activeTab = 'reports'; loadReports()"
+        >
+          Reportes
+          <span v-if="reports.length > 0" class="tab-count">{{ reports.length }}</span>
+        </button>
+      </nav>
+
+      <div v-if="activeTab === 'settings'" class="grid">
         <article class="card">
           <h2>Configuracion del modulo</h2>
           <label class="field inline">
@@ -247,6 +343,71 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </div>
+
+      <section v-else class="reports-panel">
+        <div class="reports-toolbar">
+          <div>
+            <h2>Reportes de secretos</h2>
+            <p class="hint">Revisa los motivos enviados por los usuarios y marca cada reporte.</p>
+          </div>
+          <div class="reports-toolbar-actions">
+            <select v-model="reportFilter" @change="loadReports">
+              <option value="pending">Pendientes</option>
+              <option value="resolved">Resueltos</option>
+              <option value="dismissed">Descartados</option>
+              <option value="all">Todos</option>
+            </select>
+            <button class="secondary" :disabled="reportsLoading" @click="loadReports">
+              {{ reportsLoading ? 'Cargando...' : 'Actualizar' }}
+            </button>
+          </div>
+        </div>
+
+        <p v-if="reportsLoading" class="empty-state">Cargando reportes...</p>
+        <p v-else-if="reports.length === 0" class="empty-state">No hay reportes para este filtro.</p>
+        <div v-else class="reports-list">
+          <article v-for="report in reports" :key="report.reportId" class="report-card">
+            <div class="report-card-head">
+              <div>
+                <strong>{{ getReportReasonLabel(report.reason) }}</strong>
+                <span class="report-date">{{ formatReportDate(report.createdAtMs) }}</span>
+              </div>
+              <span class="status-pill" :class="`status-${report.status}`">{{ report.status }}</span>
+            </div>
+            <p class="report-secret-meta">
+              Secreto {{ report.secretId }} · {{ report.secret.reportsCount }} reporte(s) · Moderación: {{ report.secret.moderationStatus }}
+            </p>
+            <p class="report-secret-text">{{ report.secret.textPreview || 'Sin texto disponible' }}</p>
+            <p v-if="report.comment" class="report-comment"><strong>Comentario:</strong> {{ report.comment }}</p>
+            <div class="report-actions">
+              <button
+                v-if="report.status !== 'resolved'"
+                class="primary"
+                :disabled="reportActionPending === report.reportId"
+                @click="updateReportStatus(report, 'resolve')"
+              >
+                Resolver
+              </button>
+              <button
+                v-if="report.status !== 'dismissed'"
+                class="secondary"
+                :disabled="reportActionPending === report.reportId"
+                @click="updateReportStatus(report, 'dismiss')"
+              >
+                Descartar
+              </button>
+              <button
+                v-if="report.status !== 'pending'"
+                class="secondary"
+                :disabled="reportActionPending === report.reportId"
+                @click="updateReportStatus(report, 'reopen')"
+              >
+                Reabrir
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
     </template>
   </section>
 </template>
@@ -307,6 +468,161 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+.admin-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 0.7rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--text-h);
+}
+
+.tab-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  margin-left: 0.3rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.reports-panel {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 1rem;
+}
+
+.reports-toolbar,
+.report-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reports-toolbar h2 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.reports-toolbar .hint {
+  margin-bottom: 0;
+}
+
+.reports-toolbar-actions,
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reports-toolbar-actions select,
+.secondary {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.reports-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.report-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: var(--bg);
+}
+
+.report-card-head strong {
+  display: block;
+  color: var(--text-h);
+}
+
+.report-date,
+.report-secret-meta,
+.report-secret-text,
+.report-comment {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.report-date {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.report-secret-meta,
+.report-secret-text,
+.report-comment {
+  margin: 0.65rem 0 0;
+}
+
+.report-secret-text {
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.status-pill {
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.status-pending {
+  background: #fff4cc;
+  color: #7a4f01;
+}
+
+.status-resolved {
+  background: #e8f7ee;
+  color: #166534;
+}
+
+.status-dismissed {
+  background: #eef2f6;
+  color: #475467;
+}
+
+.report-actions {
+  margin-top: 0.8rem;
+}
+
+.empty-state {
+  margin: 1rem 0 0;
+  color: var(--text);
 }
 
 .hint {
@@ -376,6 +692,11 @@ onBeforeUnmount(() => {
   .grid,
   .cols-2 {
     grid-template-columns: 1fr;
+  }
+
+  .reports-toolbar,
+  .report-card-head {
+    flex-direction: column;
   }
 }
 </style>
