@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore'
+import { httpsCallable } from 'firebase/functions'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
 import { useAuthStore } from '@/stores/authStore'
@@ -13,7 +14,7 @@ import { useLikesStore } from '@/stores/likesStore'
 import { useProfileStore } from '@/stores/profileStore'
 
 import { mapSecretData } from '@/stores/secretStore'
-import { db } from '@/config/firebase'
+import { db, functions as firebaseFunctions } from '@/config/firebase'
 import {
   buildContentDetailPath,
   buildContentDetailPathByValues,
@@ -65,6 +66,24 @@ const likesStore = useLikesStore()
 const profileStore = useProfileStore()
 const router = useRouter()
 const route = useRoute()
+
+const reportDialogOpen = ref(false)
+const reportSubmitting = ref(false)
+const reportReason = ref('contenido_inapropiado')
+const reportComment = ref('')
+const reportError = ref('')
+const reportStatus = ref('')
+const reportTarget = ref<any | null>(null)
+
+const reportReasonOptions = [
+  { value: 'contenido_inapropiado', label: 'Contenido inapropiado' },
+  { value: 'acoso', label: 'Acoso' },
+  { value: 'odio_discriminacion', label: 'Odio o discriminación' },
+  { value: 'violencia_amenazas', label: 'Violencia o amenazas' },
+  { value: 'spam_publicidad', label: 'Spam o publicidad' },
+  { value: 'informacion_personal', label: 'Información personal' },
+  { value: 'otros', label: 'Otros' }
+]
 
 // Form state
 const newPostTitle = ref('')
@@ -757,6 +776,10 @@ const isAdmin = computed(() => {
 const getPostMenuOptions = (item: any): MenuOption[] => {
   const isOwner = authStore.user?.uid === item.userId
   const options: MenuOption[] = []
+
+  if (resolveContentModule(item)) {
+    options.push({ id: 'report', label: 'Reportar publicación' })
+  }
   
   if (isOwner || isAdmin.value) {
     if (item.type === 'post') {
@@ -776,7 +799,14 @@ const getPostMenuOptions = (item: any): MenuOption[] => {
 }
 
 const handlePostMenuAction = async (actionId: string, item: any) => {
-  if (actionId === 'delete') {
+  if (actionId === 'report') {
+    reportTarget.value = item
+    reportReason.value = 'contenido_inapropiado'
+    reportComment.value = ''
+    reportError.value = ''
+    reportStatus.value = ''
+    reportDialogOpen.value = true
+  } else if (actionId === 'delete') {
     try {
       await feedStore.deletePost(item.id)
     } catch (e: any) {
@@ -792,6 +822,43 @@ const handlePostMenuAction = async (actionId: string, item: any) => {
       uploadProgress: 0,
       error: null
     }
+  }
+}
+
+const closeReportDialog = () => {
+  if (reportSubmitting.value) return
+  reportDialogOpen.value = false
+  reportTarget.value = null
+}
+
+const submitContentReport = async () => {
+  const target = reportTarget.value
+  if (!target || reportSubmitting.value) return
+  if (reportReason.value === 'otros' && !reportComment.value.trim()) {
+    reportError.value = 'Escribí una explicación para este motivo.'
+    return
+  }
+
+  reportSubmitting.value = true
+  reportError.value = ''
+  try {
+    const callable = httpsCallable(firebaseFunctions, 'reportContentCallable')
+    const result = await callable({
+      contentId: target.id,
+      module: resolveContentModule(target),
+      reason: reportReason.value,
+      comment: reportComment.value
+    })
+    const response = result.data as { status?: string }
+    reportDialogOpen.value = false
+    reportStatus.value = response.status === 'already_reported'
+      ? 'Ya habías reportado esta publicación.'
+      : 'Reporte enviado.'
+    reportTarget.value = null
+  } catch (error: any) {
+    reportError.value = error?.message || 'No se pudo enviar el reporte.'
+  } finally {
+    reportSubmitting.value = false
   }
 }
 
@@ -1892,12 +1959,44 @@ watch(
       @close="closeLightbox"
     />
 
+    <div v-if="reportDialogOpen" class="report-modal-overlay" @click.self="closeReportDialog">
+      <form class="report-modal" @submit.prevent="submitContentReport">
+        <h3>Reportar publicación</h3>
+        <p class="report-modal-help">Seleccioná el motivo del reporte.</p>
+        <label class="report-field">
+          <span>Motivo</span>
+          <select v-model="reportReason">
+            <option v-for="option in reportReasonOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <label v-if="reportReason === 'otros'" class="report-field">
+          <span>Comentario</span>
+          <textarea
+            v-model="reportComment"
+            rows="4"
+            maxlength="500"
+            placeholder="Contanos por qué querés reportarla"
+          ></textarea>
+        </label>
+        <p v-if="reportError" class="report-form-error">{{ reportError }}</p>
+        <div class="report-modal-actions">
+          <button type="button" class="report-cancel-btn" @click="closeReportDialog">Cancelar</button>
+          <button type="submit" class="report-submit-btn" :disabled="reportSubmitting">
+            {{ reportSubmitting ? 'Enviando...' : 'Enviar reporte' }}
+          </button>
+        </div>
+      </form>
+    </div>
+
     <AuthPromptModal
       :open="showLikeLoginPrompt"
       title="Inicia sesion para dar me gusta"
       message="Con tu cuenta puedes guardar tus likes y participar en la comunidad."
       @close="closeLikeLoginPrompt"
     />
+    <p v-if="reportStatus" class="content-report-state">{{ reportStatus }}</p>
     </div>
   </div>
 </template>
@@ -1907,6 +2006,100 @@ watch(
   max-width: 680px;
   margin: 0 auto;
   padding: 2rem 1rem;
+}
+
+.content-report-state {
+  margin: 0.75rem auto;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.report-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.report-modal {
+  width: min(100%, 420px);
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card-bg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
+}
+
+.report-modal h3 {
+  margin: 0;
+  color: var(--text-h);
+}
+
+.report-modal-help {
+  margin: 0.4rem 0 1rem;
+  color: var(--text);
+}
+
+.report-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.report-field select,
+.report-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: var(--input-bg, var(--bg));
+  color: var(--text-h);
+  font: inherit;
+}
+
+.report-form-error {
+  margin: 0 0 0.85rem;
+  color: #b42318;
+}
+
+.report-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.report-cancel-btn,
+.report-submit-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.report-cancel-btn {
+  background: var(--social-bg);
+  color: var(--text-h);
+}
+
+.report-submit-btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.report-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 /* Feed Tabs Sticky & Unified Refined */
