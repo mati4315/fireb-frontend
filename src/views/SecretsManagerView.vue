@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db } from '@/config/firebase'
@@ -38,6 +38,7 @@ type SecretReport = {
 
 const authStore = useAuthStore()
 const moduleStore = useModuleStore()
+const router = useRouter()
 
 const moduleEnabled = ref(true)
 const savingModuleConfig = ref(false)
@@ -213,6 +214,42 @@ const updateReportStatus = async (report: SecretReport, action: 'resolve' | 'dis
   }
 }
 
+const slugifySecret = (value: string): string => {
+  const normalized = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return normalized || 'secreto'
+}
+
+const openReportedSecret = async (report: SecretReport) => {
+  const slug = slugifySecret(report.secret.textPreview.slice(0, 64))
+  await router.push(`/s/${encodeURIComponent(report.secretId)}/${encodeURIComponent(slug)}#secret-${report.secretId}`)
+}
+
+const deleteReportedSecret = async (report: SecretReport) => {
+  if (reportActionPending.value === report.reportId) return
+  const confirmed = window.confirm(
+    'Esta acción eliminará el secreto y sus comentarios y reportes. ¿Deseas continuar?'
+  )
+  if (!confirmed) return
+
+  reportActionPending.value = report.reportId
+  errorMessage.value = ''
+  try {
+    const callable = httpsCallable(firebaseFunctions, 'deleteSecretAdminCallable')
+    await callable({ secretId: report.secretId })
+    reports.value = reports.value.filter((item) => item.secretId !== report.secretId)
+    feedback.value = 'Secreto eliminado correctamente.'
+  } catch (error: any) {
+    errorMessage.value = error?.message || 'No se pudo eliminar el secreto.'
+  } finally {
+    reportActionPending.value = null
+  }
+}
+
 watch(
   () => moduleStore.modules.secrets.enabled,
   (enabled) => {
@@ -381,6 +418,20 @@ onBeforeUnmount(() => {
             <p v-if="report.comment" class="report-comment"><strong>Comentario:</strong> {{ report.comment }}</p>
             <div class="report-actions">
               <button
+                class="secondary"
+                :disabled="reportActionPending === report.reportId"
+                @click="openReportedSecret(report)"
+              >
+                Ver secreto
+              </button>
+              <button
+                class="danger"
+                :disabled="reportActionPending === report.reportId"
+                @click="deleteReportedSecret(report)"
+              >
+                Eliminar secreto
+              </button>
+              <button
                 v-if="report.status !== 'resolved'"
                 class="primary"
                 :disabled="reportActionPending === report.reportId"
@@ -540,7 +591,8 @@ onBeforeUnmount(() => {
 }
 
 .reports-toolbar-actions select,
-.secondary {
+.secondary,
+.danger {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg);
@@ -549,6 +601,12 @@ onBeforeUnmount(() => {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+}
+
+.danger {
+  border: 1px solid #d92d20;
+  background: #fff1f0;
+  color: #b42318;
 }
 
 .reports-list {
