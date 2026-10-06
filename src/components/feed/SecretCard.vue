@@ -40,7 +40,6 @@
           <span class="header-emoji">🙂</span>
         </div>
         <OptionsMenu
-          v-if="isAuthorizedToManage"
           :options="secretMenuOptions"
           @action="handleSecretMenuAction"
         />
@@ -98,14 +97,6 @@
         </button>
         <button class="open-btn" type="button" @click="openSecretDetail">
           Abrir
-        </button>
-        <button
-          class="report-btn"
-          type="button"
-          :disabled="secretStore.isReportPending(secret.id) || secret.reportedByMe"
-          @click="handleReport"
-        >
-          {{ secret.reportedByMe ? 'Reportado' : 'Reportar' }}
         </button>
       </footer>
 
@@ -187,19 +178,35 @@ const isAuthorizedToManage = computed(() => {
   return authStore.isAuthenticated && isStaffUser(rol, email, uid, authStore.tokenClaims);
 });
 
-const secretMenuOptions: MenuOption[] = [
-  {
-    id: 'delete',
-    label: 'Borrar secreto',
-    danger: true,
-    requiresConfirm: true,
-    confirmTitle: 'Borrar secreto',
-    confirmMsg: '¿Estás seguro de que deseas borrar este secreto de forma permanente?',
-    confirmButtonText: 'Sí, borrar'
+const secretMenuOptions = computed<MenuOption[]>(() => {
+  const options: MenuOption[] = [
+    {
+      id: 'report',
+      label: props.secret.reportedByMe ? 'Reportado' : 'Reportar'
+    }
+  ];
+
+  if (isAuthorizedToManage.value) {
+    options.push({
+      id: 'delete',
+      label: 'Borrar secreto',
+      danger: true,
+      requiresConfirm: true,
+      confirmTitle: 'Borrar secreto',
+      confirmMsg: '¿Estás seguro de que deseas borrar este secreto de forma permanente?',
+      confirmButtonText: 'Sí, borrar'
+    });
   }
-];
+
+  return options;
+});
 
 const handleSecretMenuAction = async (actionId: string) => {
+  if (actionId === 'report') {
+    if (!props.secret.reportedByMe) await handleReport();
+    return;
+  }
+
   if (actionId === 'delete') {
     await secretStore.deleteSecret(props.secret.id);
   }
