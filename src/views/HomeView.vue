@@ -852,8 +852,8 @@ const submitContentReport = async () => {
     const response = result.data as { status?: string }
     reportDialogOpen.value = false
     reportStatus.value = response.status === 'already_reported'
-      ? 'Ya habías reportado esta publicación.'
-      : 'Reporte enviado.'
+      ? 'Esta publicación ya había sido reportada. Un administrador revisará el caso.'
+      : 'Tu reporte fue recibido correctamente. Un administrador analizará la publicación.'
     reportTarget.value = null
   } catch (error: any) {
     reportError.value = error?.message || 'No se pudo enviar el reporte.'
