@@ -155,10 +155,13 @@ onBeforeUnmount(() => {
           v-if="radioLiveUrl"
           class="radio-dock__button radio-dock__button--link"
           :href="radioLiveUrl"
+          :aria-label="radioCtaLabel"
+          :title="radioCtaLabel"
           target="_blank"
           rel="noopener noreferrer"
         >
-          {{ radioCtaLabel }}
+          <span class="radio-dock__link-label">{{ radioCtaLabel }}</span>
+          <svg class="radio-dock__link-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" /></svg>
         </a>
       </div>
 
@@ -503,6 +506,10 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.radio-dock__link-icon {
+  display: none;
+}
+
 .radio-audio {
   display: none;
 }
@@ -513,10 +520,11 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock__inner {
-    padding: 0.65rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: 16px;
     flex-direction: row;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.3rem;
   }
 
   .radio-dock__info {
@@ -538,20 +546,44 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock__button--link {
-    display: none;
+    display: inline-flex;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    color: var(--text-h);
+    background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
   }
 
+  .radio-dock__link-label { display: none; }
+  .radio-dock__link-icon { display: block; }
+
   .radio-dock__wave {
+    display: none;
     width: 1.8rem;
     margin: 0 0 0 0.05rem;
   }
 
   .radio-dock__title {
-    font-size: 0.84rem;
+    font-size: 0.8rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .radio-dock__headline {
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+  }
+
+  .radio-dock__badge {
+    font-size: 0.55rem;
+    padding: 0.18rem 0.3rem;
+    letter-spacing: 0.02em;
   }
 
   .radio-dock__description {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
+    -webkit-line-clamp: 1;
   }
 
   .radio-dock__play-icon {
