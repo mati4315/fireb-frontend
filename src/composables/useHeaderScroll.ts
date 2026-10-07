@@ -1,40 +1,46 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, readonly, onMounted, onUnmounted } from 'vue'
 
-export function useHeaderScroll() {
-  const isVisible = ref(true)
-  const lastScrollY = ref(window.scrollY)
-  const scrollThreshold = 5 // Ajuste de sensibilidad
+const isVisible = ref(true)
+const isNearTop = ref(true)
+let consumers = 0
+let lastScrollY = 0
+let frame: number | null = null
 
-  const handleScroll = () => {
-    const currentScrollY = window.scrollY
-    
-    // Si estamos al principio de la página, siempre mostrar
-    if (currentScrollY < 10) {
-      isVisible.value = true
-      lastScrollY.value = currentScrollY
-      return
-    }
-
-    // Detectar dirección del scroll solo si superamos el umbral
-    if (Math.abs(currentScrollY - lastScrollY.value) > scrollThreshold) {
-      if (currentScrollY > lastScrollY.value) {
-        // Scrolling DOWN
-        isVisible.value = false
-      } else {
-        // Scrolling UP
-        isVisible.value = true
-      }
-      lastScrollY.value = currentScrollY
-    }
+const updateScroll = () => {
+  frame = null
+  const currentY = window.scrollY
+  isNearTop.value = currentY <= 64
+  if (currentY < 10) {
+    isVisible.value = true
+    lastScrollY = currentY
+  } else if (Math.abs(currentY - lastScrollY) > 5) {
+    isVisible.value = currentY < lastScrollY
+    lastScrollY = currentY
   }
+}
 
+const handleScroll = () => {
+  if (frame === null) frame = window.requestAnimationFrame(updateScroll)
+}
+
+// App and Home share one listener; reactive state changes only at UI thresholds.
+export function useHeaderScroll() {
   onMounted(() => {
-    window.addEventListener('scroll', handleScroll, { passive: true })
+    if (consumers++ === 0) {
+      lastScrollY = window.scrollY
+      isNearTop.value = lastScrollY <= 64
+      isVisible.value = true
+      window.addEventListener('scroll', handleScroll, { passive: true })
+    }
   })
 
   onUnmounted(() => {
-    window.removeEventListener('scroll', handleScroll)
+    if (--consumers === 0) {
+      window.removeEventListener('scroll', handleScroll)
+      if (frame !== null) window.cancelAnimationFrame(frame)
+      frame = null
+    }
   })
 
-  return { isVisible }
+  return { isVisible: readonly(isVisible), isNearTop: readonly(isNearTop) }
 }

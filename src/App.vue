@@ -13,20 +13,13 @@ import { useHeaderScroll } from '@/composables/useHeaderScroll'
 
 const RadioDock = defineAsyncComponent(() => import('@/components/radio/RadioDock.vue'))
 
-const { isVisible: isHeaderVisible } = useHeaderScroll()
-const scrollY = ref(0)
-const handleScrollY = () => { scrollY.value = window.scrollY }
+const { isVisible: isHeaderVisible, isNearTop } = useHeaderScroll()
 
 onMounted(() => {
-  window.addEventListener('scroll', handleScrollY, { passive: true })
   moduleStore.initModulesListener()
 })
 
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', handleScrollY)
-})
-
-const shouldHideHeader = computed(() => !isHeaderVisible.value && scrollY.value > 64)
+const shouldHideHeader = computed(() => !isHeaderVisible.value && !isNearTop.value)
 
 const authStore = useAuthStore()
 const moduleStore = useModuleStore()

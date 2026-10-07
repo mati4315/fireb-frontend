@@ -45,19 +45,15 @@ const FeedAdItem = defineAsyncComponent(() => import('@/components/feed/FeedAdIt
 const SecretCard = defineAsyncComponent(() => import('@/components/feed/SecretCard.vue'))
 const DismissibleNoticeCard = defineAsyncComponent(() => import('@/components/common/DismissibleNoticeCard.vue'))
 
-const { isVisible: isHeaderVisible } = useHeaderScroll()
-const scrollY = ref(window.scrollY)
-const handleScrollY = () => { scrollY.value = window.scrollY }
+const { isVisible: isHeaderVisible, isNearTop } = useHeaderScroll()
 let homeNoticeUnsubscribers: Unsubscribe[] = []
+let episodeNoticeUnsubscribe: Unsubscribe | null = null
 let homeNoticeClock: ReturnType<typeof setInterval> | null = null
 
-onMounted(() => {
-  window.addEventListener('scroll', handleScrollY, { passive: true })
-})
-
 onBeforeUnmount(() => {
-  window.removeEventListener('scroll', handleScrollY)
   if (reportStatusTimer) clearTimeout(reportStatusTimer)
+  episodeNoticeUnsubscribe?.()
+  episodeNoticeUnsubscribe = null
   homeNoticeUnsubscribers.forEach((unsubscribe) => unsubscribe())
   homeNoticeUnsubscribers = []
   if (homeNoticeClock) clearInterval(homeNoticeClock)
@@ -196,10 +192,23 @@ const initHomeNotices = () => {
       duration: Math.max(1, Math.min(30, Math.floor(Number(data.episodeDuration) || 7))),
       unit: data.episodeDurationUnit === 'hours' ? 'hours' : 'days'
     }
+    syncEpisodeNoticeSubscription()
     refreshEpisodeNotice(episodeNoticeDocs.value)
   }, (error) => console.warn('No se pudo cargar la configuración de avisos automáticos:', error)))
 
-  homeNoticeUnsubscribers.push(onSnapshot(
+  homeNoticeClock = setInterval(() => { homeNoticeNow.value = Date.now() }, 60_000)
+}
+
+const syncEpisodeNoticeSubscription = () => {
+  if (!autoEpisodeNoticeSettings.value.enabled) {
+    episodeNoticeUnsubscribe?.()
+    episodeNoticeUnsubscribe = null
+    episodeNoticeDocs.value = []
+    newestEpisodeNotice.value = null
+    return
+  }
+  if (episodeNoticeUnsubscribe) return
+  episodeNoticeUnsubscribe = onSnapshot(
     query(
       collection(db, 'anormalia22_episodes'),
       where('announceOnHome', '==', true),
@@ -212,8 +221,7 @@ const initHomeNotices = () => {
       refreshEpisodeNotice(episodeNoticeDocs.value)
     },
     (error) => console.warn('No se pudo revisar el estreno de episodios:', error)
-  ))
-  homeNoticeClock = setInterval(() => { homeNoticeNow.value = Date.now() }, 60_000)
+  )
 }
 
 onMounted(() => initHomeNotices())
@@ -1742,9 +1750,9 @@ watch(
         ref="feedTabsRef"
         class="feed-tabs"
         :class="{ 
-          'tabs-at-top': scrollY <= 64,
-          'tabs-fixed-top': !isHeaderVisible && scrollY > 64,
-          'tabs-hidden-up': isHeaderVisible && scrollY > 64
+          'tabs-at-top': isNearTop,
+          'tabs-fixed-top': !isHeaderVisible && !isNearTop,
+          'tabs-hidden-up': isHeaderVisible && !isNearTop
         }"
       >
         <button
@@ -1983,6 +1991,8 @@ watch(
                   :src="item.userProfilePicUrl"
                   :alt="`Avatar de ${item.userName || 'usuario'}`"
                   class="mini-avatar"
+                  :loading="itemIndex === 0 ? 'eager' : 'lazy'"
+                  decoding="async"
                 />
                 <div
                   v-else-if="!shouldHideSecretUserMeta(item)"

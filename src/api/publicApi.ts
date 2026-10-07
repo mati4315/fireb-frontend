@@ -1,3 +1,5 @@
+import { createInFlightRequestPool } from '@/utils/inFlightRequests'
+
 export interface PublicNews {
   id: string
   type: 'news'
@@ -30,7 +32,9 @@ const API_BASE_URL = (
   'https://us-central1-cdeluar-ddefc.cloudfunctions.net/publicApi/api/v1'
 ).replace(/\/$/, '')
 
-const fetchJson = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
+const shareRequest = createInFlightRequestPool()
+
+const requestJson = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'GET',
     headers: { Accept: 'application/json' },
@@ -40,6 +44,12 @@ const fetchJson = async <T>(path: string, signal?: AbortSignal): Promise<T> => {
     throw new Error(`Public API error: ${response.status}`)
   }
   return response.json() as Promise<T>
+}
+
+const fetchJson = <T>(path: string, signal?: AbortSignal): Promise<T> => {
+  // A caller with cancellation owns its request; aborting must not affect others.
+  if (signal) return requestJson<T>(path, signal)
+  return shareRequest(path, () => requestJson<T>(path))
 }
 
 const encodeQuery = (params: Record<string, string | number | undefined>): string => {
