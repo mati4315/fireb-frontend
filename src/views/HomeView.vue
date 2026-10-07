@@ -151,6 +151,8 @@ const refreshEpisodeNotice = (docs: Array<{ id: string; data: () => Record<strin
 }
 
 const initHomeNotices = () => {
+  if (homeNoticeUnsubscribers.length > 0) return;
+
   try {
     const storedIds = JSON.parse(window.localStorage.getItem(`cdelu_home_notice_dismissed:${authStore.user?.uid || 'guest'}`) || '[]')
     if (Array.isArray(storedIds)) dismissedHomeNoticeIds.value = new Set(storedIds.filter((id) => typeof id === 'string'))
@@ -224,7 +226,17 @@ const syncEpisodeNoticeSubscription = () => {
   )
 }
 
-onMounted(() => initHomeNotices())
+const cleanupHomeNotices = () => {
+  episodeNoticeUnsubscribe?.()
+  episodeNoticeUnsubscribe = null
+  homeNoticeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  homeNoticeUnsubscribers = []
+  if (homeNoticeClock) clearInterval(homeNoticeClock)
+  homeNoticeClock = null
+  manualHomeNotices.value = []
+  episodeNoticeDocs.value = []
+  newestEpisodeNotice.value = null
+}
 
 const reportDialogOpen = ref(false)
 const reportSubmitting = ref(false)
@@ -356,6 +368,14 @@ const detailModuleFromRoute = computed<ContentModuleKey | null>(() => {
 })
 
 const isDetailRoute = computed(() => detailModuleFromRoute.value !== null)
+
+watch(isDetailRoute, (isDetail) => {
+  if (isDetail) {
+    cleanupHomeNotices()
+  } else {
+    initHomeNotices()
+  }
+}, { immediate: true })
 const detailRef = computed(() =>
   typeof route.params.ref === 'string' ? route.params.ref.trim() : ''
 )

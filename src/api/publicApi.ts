@@ -29,7 +29,9 @@ interface PublicNewsDetailResponse {
 
 const API_BASE_URL = (
   import.meta.env.VITE_PUBLIC_API_BASE_URL ||
-  'https://us-central1-cdeluar-ddefc.cloudfunctions.net/publicApi/api/v1'
+  (import.meta.env.DEV
+    ? '/__public_api'
+    : 'https://us-central1-cdeluar-ddefc.cloudfunctions.net/publicApi/api/v1')
 ).replace(/\/$/, '')
 
 const shareRequest = createInFlightRequestPool()

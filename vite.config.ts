@@ -28,6 +28,14 @@ export default defineConfig({
     }
   },
   server: {
+    proxy: {
+      '/__public_api': {
+        target: 'https://us-central1-cdeluar-ddefc.cloudfunctions.net',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/__public_api/, '/publicApi/api/v1'),
+      },
+    },
     headers: {
       'Cross-Origin-Opener-Policy': 'unsafe-none',
       'Cross-Origin-Embedder-Policy': 'unsafe-none',

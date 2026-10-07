@@ -6,7 +6,7 @@ import { useProfileStore, type PublicProfile } from '@/stores/profileStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { useFeedStore } from '@/stores/feedStore';
 import { db, functions } from '@/config/firebase';
-import { collection, collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, collectionGroup, documentId, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
@@ -61,7 +61,12 @@ const linkProviderSuccess = ref<string | null>(null);
 
 const lotteriesParticipated = ref<number | null>(null);
 const lotteriesWon = ref<number | null>(null);
-const loadingStats = ref(false);
+const loadingParticipations = ref(false);
+const loadingWins = ref(false);
+const participationsError = ref('');
+const winsError = ref('');
+const participationsLoadedFor = ref('');
+const winsLoadedFor = ref('');
 const availableLotteryTickets = ref<number | null>(null);
 const loadingAvailableLotteryTickets = ref(false);
 const welcomeCardDismissed = ref(false);
@@ -180,113 +185,131 @@ const userWins = ref<Array<{
 const showParticipatedModal = ref(false);
 const showWinsModal = ref(false);
 
-const loadLotteryStats = async (uid: string) => {
-  if (!uid) return;
-  loadingStats.value = true;
+const loadLotteryParticipations = async (uid: string) => {
+  if (!uid || participationsLoadedFor.value === uid || loadingParticipations.value) return;
+  loadingParticipations.value = true;
+  participationsError.value = '';
   try {
     const participatedQuery = query(
       collectionGroup(db, 'entries'),
       where('userId', '==', uid)
     );
     const participatedSnap = await getDocs(participatedQuery);
-    
+
     const uniqueLotteryIds = new Set<string>();
-    participatedSnap.docs.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data?.lotteryId) {
-        uniqueLotteryIds.add(data.lotteryId);
+    const groupedNumbers = new Map<string, number[]>();
+    participatedSnap.docs.forEach((entryDoc) => {
+      const data = entryDoc.data();
+      if (typeof data?.lotteryId !== 'string' || !data.lotteryId) return;
+      uniqueLotteryIds.add(data.lotteryId);
+      if (typeof data.selectedNumber === 'number') {
+        const numbers = groupedNumbers.get(data.lotteryId) || [];
+        numbers.push(data.selectedNumber);
+        groupedNumbers.set(data.lotteryId, numbers);
       }
+    });
+
+    const lotteryIds = Array.from(uniqueLotteryIds);
+    const chunks = Array.from(
+      { length: Math.ceil(lotteryIds.length / 30) },
+      (_, index) => lotteryIds.slice(index * 30, (index + 1) * 30)
+    );
+    const snapshots = await Promise.all(chunks.map((ids) => getDocs(
+      query(collection(db, 'lotteries'), where(documentId(), 'in', ids))
+    )));
+    if (viewedUserId.value !== uid) return;
+
+    const lotteriesById = new Map<string, Record<string, any>>();
+    snapshots.forEach((snapshot) => snapshot.docs.forEach((lotteryDoc) => {
+      lotteriesById.set(lotteryDoc.id, lotteryDoc.data());
+    }));
+
+    userParticipations.value = Array.from(groupedNumbers, ([lotteryId, numbers]) => {
+      const lottery = lotteriesById.get(lotteryId) || {};
+      const winningNumber = lottery.winner?.selectedNumber;
+      let description = '';
+      if (lottery.hasPremio !== false) {
+        description = lottery.premioType === 'dinero'
+          ? (typeof lottery.premioDinero === 'number' ? `Premio: $${lottery.premioDinero}` : 'Premio en Dinero')
+          : (lottery.premioOtros ? `Premio: ${lottery.premioOtros}` : 'Premio Especial');
+      } else {
+        description = lottery.description || '';
+      }
+
+      return {
+        lotteryId,
+        title: lottery.title || lottery.nombre || `Lotería #${lotteryId.slice(0, 6)}`,
+        numbers: numbers.sort((a, b) => a - b),
+        isWinner: lottery.winner?.userId === uid && typeof winningNumber === 'number' && numbers.includes(winningNumber),
+        winningNumber: typeof winningNumber === 'number' ? winningNumber : null,
+        status: lottery.status || 'active',
+        imageUrl: lottery.imageUrl || '',
+        description
+      };
     });
     lotteriesParticipated.value = uniqueLotteryIds.size;
+    participationsLoadedFor.value = uid;
+  } catch (error) {
+    console.error('Error fetching lottery participations:', error);
+    participationsError.value = 'No pudimos cargar las participaciones. Comprueba tu conexión e inténtalo nuevamente.';
+    lotteriesParticipated.value = null;
+    userParticipations.value = [];
+  } finally {
+    loadingParticipations.value = false;
+  }
+};
 
-    const lotterySnaps = await Promise.all(
-      Array.from(uniqueLotteryIds).map(id => getDoc(doc(db, 'lotteries', id)))
-    );
-    const lotteriesMap = new Map<string, any>();
-    lotterySnaps.forEach(snap => {
-      if (snap.exists()) {
-        lotteriesMap.set(snap.id, snap.data());
-      }
-    });
-
-    const groupedNumbers = new Map<string, number[]>();
-    participatedSnap.docs.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data?.lotteryId && typeof data?.selectedNumber === 'number') {
-        const nums = groupedNumbers.get(data.lotteryId) || [];
-        nums.push(data.selectedNumber);
-        groupedNumbers.set(data.lotteryId, nums);
-      }
-    });
-
-    const tempParticipations: any[] = [];
-    groupedNumbers.forEach((numbers, lotteryId) => {
-      const lotteryData = lotteriesMap.get(lotteryId) || {};
-      const winnerUserId = lotteryData.winner?.userId;
-      const winnerNumber = lotteryData.winner?.selectedNumber;
-      const isWinner = winnerUserId === uid && typeof winnerNumber === 'number' && numbers.includes(winnerNumber);
-
-      let premioText = '';
-      if (lotteryData.hasPremio !== false) {
-        if (lotteryData.premioType === 'dinero') {
-          premioText = typeof lotteryData.premioDinero === 'number' ? `Premio: $${lotteryData.premioDinero}` : 'Premio en Dinero';
-        } else {
-          premioText = lotteryData.premioOtros ? `Premio: ${lotteryData.premioOtros}` : 'Premio Especial';
-        }
-      } else {
-        premioText = lotteryData.description || '';
-      }
-
-      tempParticipations.push({
-        lotteryId,
-        title: lotteryData.title || lotteryData.nombre || `Lotería #${lotteryId.slice(0, 6)}`,
-        numbers: numbers.sort((a, b) => a - b),
-        isWinner,
-        winningNumber: typeof winnerNumber === 'number' ? winnerNumber : null,
-        status: lotteryData.status || 'active',
-        imageUrl: lotteryData.imageUrl || '',
-        description: premioText
-      });
-    });
-    userParticipations.value = tempParticipations;
-
+const loadLotteryWins = async (uid: string) => {
+  if (!uid || winsLoadedFor.value === uid || loadingWins.value) return;
+  loadingWins.value = true;
+  winsError.value = '';
+  try {
     const winsQuery = query(
       collection(db, 'lotteries'),
       where('winner.userId', '==', uid)
     );
     const winsSnap = await getDocs(winsQuery);
-    lotteriesWon.value = winsSnap.size;
+    if (viewedUserId.value !== uid) return;
 
-    userWins.value = winsSnap.docs.map(docSnap => {
-      const lotteryData = docSnap.data();
-      let premioText = '';
-      if (lotteryData.hasPremio !== false) {
-        if (lotteryData.premioType === 'dinero') {
-          premioText = typeof lotteryData.premioDinero === 'number' ? `Premio: $${lotteryData.premioDinero}` : 'Premio en Dinero';
-        } else {
-          premioText = lotteryData.premioOtros ? `Premio: ${lotteryData.premioOtros}` : 'Premio Especial';
-        }
+    userWins.value = winsSnap.docs.map((winDoc) => {
+      const lottery = winDoc.data();
+      let description = '';
+      if (lottery.hasPremio !== false) {
+        description = lottery.premioType === 'dinero'
+          ? (typeof lottery.premioDinero === 'number' ? `Premio: $${lottery.premioDinero}` : 'Premio en Dinero')
+          : (lottery.premioOtros ? `Premio: ${lottery.premioOtros}` : 'Premio Especial');
       } else {
-        premioText = lotteryData.description || '';
+        description = lottery.description || '';
       }
 
       return {
-        lotteryId: docSnap.id,
-        title: lotteryData.title || lotteryData.nombre || `Lotería #${docSnap.id.slice(0, 6)}`,
-        winningNumber: lotteryData.winner?.selectedNumber || null,
-        status: lotteryData.status || 'completed',
-        imageUrl: lotteryData.imageUrl || '',
-        description: premioText
+        lotteryId: winDoc.id,
+        title: lottery.title || lottery.nombre || `Lotería #${winDoc.id.slice(0, 6)}`,
+        winningNumber: lottery.winner?.selectedNumber || null,
+        status: lottery.status || 'completed',
+        imageUrl: lottery.imageUrl || '',
+        description
       };
     });
-  } catch (e) {
-    console.error('Error fetching lottery stats:', e);
-    lotteriesParticipated.value = 0;
-    lotteriesWon.value = 0;
-    userParticipations.value = [];
+    lotteriesWon.value = winsSnap.size;
+    winsLoadedFor.value = uid;
+  } catch (error) {
+    console.error('Error fetching lottery wins:', error);
+    winsError.value = 'No pudimos cargar los premios. Comprueba tu conexión e inténtalo nuevamente.';
+    lotteriesWon.value = null;
     userWins.value = [];
   } finally {
-    loadingStats.value = false;
+    loadingWins.value = false;
+  }
+};
+
+const openLotteryStats = (type: 'participated' | 'wins') => {
+  showParticipatedModal.value = type === 'participated';
+  showWinsModal.value = type === 'wins';
+  if (type === 'participated') {
+    void loadLotteryParticipations(viewedUserId.value);
+  } else {
+    void loadLotteryWins(viewedUserId.value);
   }
 };
 
@@ -694,6 +717,8 @@ const loadProfileContext = async () => {
   loadingProfile.value = true;
   profileError.value = null;
   followError.value = null;
+  showParticipatedModal.value = false;
+  showWinsModal.value = false;
 
   try {
     const usernameParam = typeof route.params.username === 'string'
@@ -723,6 +748,14 @@ const loadProfileContext = async () => {
 
     currentProfile.value = profile;
     viewedUserId.value = profile.userId;
+    lotteriesParticipated.value = null;
+    lotteriesWon.value = null;
+    participationsLoadedFor.value = '';
+    winsLoadedFor.value = '';
+    participationsError.value = '';
+    winsError.value = '';
+    userParticipations.value = [];
+    userWins.value = [];
     welcomeBonusTickets.value = 0;
     welcomePromotionEndsAt.value = '';
     if (profile.userId === authStore.user?.uid) {
@@ -730,7 +763,6 @@ const loadProfileContext = async () => {
     } else {
       welcomeCardDismissed.value = true;
     }
-    void loadLotteryStats(profile.userId);
     if (isOwnProfile.value) {
       void loadAvailableLotteryTickets(profile.userId);
     } else {
@@ -1064,22 +1096,22 @@ onBeforeUnmount(() => {
             <button
               class="lottery-stat-badge participated clickable"
               title="Ver loterías participadas"
-              @click="showParticipatedModal = true"
+              @click="openLotteryStats('participated')"
             >
               <span class="stat-icon">🎟️</span>
               <div class="stat-info">
-                <span class="stat-value">{{ lotteriesParticipated !== null ? lotteriesParticipated : '...' }}</span>
+                <span class="stat-value">{{ lotteriesParticipated !== null ? lotteriesParticipated : 'Ver' }}</span>
                 <span class="stat-label">Loterías Participadas</span>
               </div>
             </button>
             <button
               class="lottery-stat-badge won clickable"
               title="Ver loterías ganadas"
-              @click="showWinsModal = true"
+              @click="openLotteryStats('wins')"
             >
               <span class="stat-icon">🏆</span>
               <div class="stat-info">
-                <span class="stat-value">{{ lotteriesWon !== null ? lotteriesWon : '...' }}</span>
+                <span class="stat-value">{{ lotteriesWon !== null ? lotteriesWon : 'Ver' }}</span>
                 <span class="stat-label">Loterías Ganadas</span>
               </div>
             </button>
@@ -1383,37 +1415,56 @@ onBeforeUnmount(() => {
   <div v-if="showParticipatedModal" class="custom-modal-overlay" @click.self="showParticipatedModal = false">
     <div class="custom-modal-content card premium-modal">
       <div class="modal-header">
-        <h2>Loterías Participadas 🎟️</h2>
-        <button class="close-modal-btn" @click="showParticipatedModal = false">×</button>
+        <div class="modal-header-title">
+          <h2>Loterías Participadas</h2>
+          <span class="modal-header-emoji" aria-hidden="true">🎟️</span>
+          <span v-if="!loadingParticipations && userParticipations.length > 0" class="modal-badge-count">
+            {{ userParticipations.length }}
+          </span>
+        </div>
+        <button class="close-modal-btn" aria-label="Cerrar modal" @click="showParticipatedModal = false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       
       <div class="modal-scroll-area">
-        <div v-if="loadingStats" class="modal-loading">
-          Cargando participaciones...
+        <div v-if="loadingParticipations" class="modal-loading">
+          <div class="modal-spinner"></div>
+          <span>Cargando participaciones...</span>
+        </div>
+        <div v-else-if="participationsError" class="modal-empty-state">
+          <p>{{ participationsError }}</p>
+          <button class="primary-btn" type="button" @click="openLotteryStats('participated')">Reintentar</button>
         </div>
         <div v-else-if="userParticipations.length === 0" class="modal-empty-state">
           <span class="empty-icon">🎟️</span>
-          <p>Aún no has participado en ninguna lotería.</p>
+          <p class="empty-title">Aún no tienes participaciones</p>
+          <p class="empty-sub">Cuando te anotes en una lotería, tus boletos y números aparecerán aquí.</p>
         </div>
         <div v-else class="participations-list">
           <div v-for="part in userParticipations" :key="part.lotteryId" class="participation-card">
             <div class="part-main-info">
-              <img v-if="part.imageUrl" :src="part.imageUrl" class="part-img" />
+              <img v-if="part.imageUrl" :src="part.imageUrl" class="part-img" alt="Lotería" />
               <div class="part-text">
                 <h4 class="part-title">{{ part.title }}</h4>
                 <p class="part-desc" v-if="part.description">{{ part.description }}</p>
                 <div class="part-numbers">
                   <span class="numbers-label">Tus números:</span>
-                  <span v-for="num in part.numbers" :key="num" class="number-tag">
-                    #{{ num }}
-                  </span>
+                  <div class="numbers-wrap">
+                    <span v-for="num in part.numbers" :key="num" class="number-tag">
+                      #{{ num }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div class="part-status-badge" :class="part.status">
+            <div class="part-status-badge" :class="part.isWinner ? 'won' : part.status">
               <span v-if="part.isWinner" class="winner-label">🏆 ¡Ganaste!</span>
               <span v-else-if="part.status === 'completed'" class="ended-label">Finalizada</span>
-              <span v-else class="active-label">Activa</span>
+              <span v-else class="active-label">● Activa</span>
             </div>
           </div>
         </div>
@@ -1425,33 +1476,50 @@ onBeforeUnmount(() => {
   <div v-if="showWinsModal" class="custom-modal-overlay" @click.self="showWinsModal = false">
     <div class="custom-modal-content card premium-modal wins-modal">
       <div class="modal-header">
-        <h2>Loterías Ganadas 🏆</h2>
-        <button class="close-modal-btn" @click="showWinsModal = false">×</button>
+        <div class="modal-header-title">
+          <h2>Loterías Ganadas</h2>
+          <span class="modal-header-emoji" aria-hidden="true">🏆</span>
+          <span v-if="!loadingWins && userWins.length > 0" class="modal-badge-count gold">
+            {{ userWins.length }}
+          </span>
+        </div>
+        <button class="close-modal-btn" aria-label="Cerrar modal" @click="showWinsModal = false">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       
       <div class="modal-scroll-area">
-        <div v-if="loadingStats" class="modal-loading">
-          Cargando victorias...
+        <div v-if="loadingWins" class="modal-loading">
+          <div class="modal-spinner"></div>
+          <span>Cargando victorias...</span>
+        </div>
+        <div v-else-if="winsError" class="modal-empty-state">
+          <p>{{ winsError }}</p>
+          <button class="primary-btn" type="button" @click="openLotteryStats('wins')">Reintentar</button>
         </div>
         <div v-else-if="userWins.length === 0" class="modal-empty-state">
           <span class="empty-icon">🏆</span>
-          <p>Aún no has ganado ninguna lotería. ¡Sigue participando para tener más oportunidades! 🍀</p>
+          <p class="empty-title">Aún no has ganado ninguna lotería</p>
+          <p class="empty-sub">¡Sigue participando para tener más oportunidades! 🍀</p>
         </div>
         <div v-else class="participations-list">
           <div v-for="win in userWins" :key="win.lotteryId" class="participation-card win-card">
             <div class="part-main-info">
-              <img v-if="win.imageUrl" :src="win.imageUrl" class="part-img" />
+              <img v-if="win.imageUrl" :src="win.imageUrl" class="part-img" alt="Lotería ganada" />
               <div class="part-text">
                 <h4 class="part-title">{{ win.title }}</h4>
                 <p class="part-desc" v-if="win.description">{{ win.description }}</p>
                 <div class="win-number-row">
-                  <span class="win-label">Número ganador:</span>
+                  <span class="win-label">Número premiado:</span>
                   <span class="win-number-tag">#{{ win.winningNumber }}</span>
                 </div>
               </div>
             </div>
             <div class="part-status-badge won">
-              <span class="winner-label">🏆 Premio</span>
+              <span class="winner-label">🏆 Premio obtenido</span>
             </div>
           </div>
         </div>
@@ -2154,30 +2222,36 @@ label small {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(10, 15, 30, 0.75);
-  backdrop-filter: blur(12px);
+  background: rgba(10, 15, 29, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10000;
   padding: 1rem;
-  animation: fadeIn 0.25s ease-out;
+  animation: fadeIn 0.2s ease-out;
 }
 
 .premium-modal {
   width: 100%;
-  max-width: 580px;
-  background: linear-gradient(135deg, var(--card-bg), color-mix(in srgb, var(--card-bg) 92%, #111827 8%));
+  max-width: 540px;
+  background: var(--card-bg);
   border: 1px solid var(--border);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
-  border-radius: 24px;
+  box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-radius: 20px;
   overflow: hidden;
-  padding: 1.5rem !important;
+  padding: 1.15rem 1.25rem !important;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  max-height: 80vh;
-  animation: scaleUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  gap: 0.75rem;
+  max-height: 84vh;
+  animation: scaleUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.premium-modal.wins-modal {
+  border-color: color-mix(in srgb, #f59e0b 45%, var(--border));
+  box-shadow: 0 20px 45px -10px rgba(245, 158, 11, 0.18), 0 0 0 1px rgba(245, 158, 11, 0.25);
 }
 
 .modal-header {
@@ -2185,37 +2259,77 @@ label small {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.85rem;
+  padding-bottom: 0.75rem;
 }
 
-.modal-header h2 {
-  font-size: 1.35rem;
+.modal-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.modal-header-title h2 {
+  font-size: 1.18rem;
   font-weight: 800;
   color: var(--text-h);
   margin: 0;
+  line-height: 1.2;
+}
+
+.modal-header-emoji {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.modal-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.12rem 0.5rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.modal-badge-count.gold {
+  background: rgba(245, 158, 11, 0.16);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.35);
 }
 
 .close-modal-btn {
-  background: transparent;
-  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
   color: var(--text);
-  font-size: 1.8rem;
   cursor: pointer;
-  line-height: 1;
-  transition: color 0.2s;
-  padding: 0 0.5rem;
+  transition: all 0.18s ease;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 .close-modal-btn:hover {
-  color: var(--accent);
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  color: var(--text-h);
+  transform: scale(1.05);
 }
 
 .modal-scroll-area {
   overflow-y: auto;
   max-height: 60vh;
-  padding-right: 0.4rem;
+  padding-right: 0.25rem;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  overscroll-behavior: contain;
 }
 
 .modal-scroll-area::-webkit-scrollbar {
@@ -2224,14 +2338,28 @@ label small {
 
 .modal-scroll-area::-webkit-scrollbar-thumb {
   background-color: var(--border);
-  border-radius: 99px;
+  border-radius: 9999px;
 }
 
 .modal-loading {
-  text-align: center;
-  padding: 2.5rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.4rem 1rem;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  gap: 0.65rem;
+}
+
+.modal-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .modal-empty-state {
@@ -2239,159 +2367,239 @@ label small {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 3rem 1.5rem;
+  padding: 2.4rem 1.25rem;
   text-align: center;
-  color: var(--text);
-  gap: 0.75rem;
+  gap: 0.45rem;
 }
 
 .empty-icon {
-  font-size: 2.8rem;
+  font-size: 2.5rem;
+  margin-bottom: 0.15rem;
 }
 
-.modal-empty-state p {
+.empty-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-h);
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 500;
-  opacity: 0.85;
+}
+
+.empty-sub {
+  font-size: 0.82rem;
+  color: var(--text);
+  opacity: 0.75;
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.4;
 }
 
 .participations-list {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding-bottom: 0.5rem;
+  gap: 0.6rem;
+  padding-bottom: 0.2rem;
 }
 
 .participation-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.95rem 1.1rem;
-  background: rgba(255, 255, 255, 0.015);
+  gap: 0.8rem;
+  padding: 0.75rem 0.95rem;
+  background: color-mix(in srgb, var(--text) 2.5%, var(--card-bg));
   border: 1px solid var(--border);
-  border-radius: 18px;
-  transition: all 0.22s ease;
+  border-radius: 14px;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  contain: layout paint;
 }
 
 .participation-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border) 70%);
-  background: rgba(255, 255, 255, 0.03);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+}
+
+.participation-card.win-card {
+  background: linear-gradient(135deg, color-mix(in srgb, #f59e0b 6%, var(--card-bg)), color-mix(in srgb, #10b981 6%, var(--card-bg)));
+  border-color: color-mix(in srgb, #f59e0b 35%, var(--border));
+}
+
+.participation-card.win-card:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.15);
 }
 
 .part-main-info {
   display: flex;
   align-items: center;
-  gap: 0.95rem;
+  gap: 0.75rem;
   flex: 1;
+  min-width: 0;
 }
 
 .part-img {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   object-fit: cover;
   border: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .part-text {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
 }
 
 .part-title {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 800;
+  font-size: 0.92rem;
+  font-weight: 700;
   color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .part-desc {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   color: var(--text);
-  opacity: 0.8;
-  max-width: 320px;
+  opacity: 0.75;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .part-numbers {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
   margin-top: 0.15rem;
 }
 
 .numbers-label {
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   color: var(--text);
   opacity: 0.7;
   font-weight: 500;
 }
 
-.number-tag {
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  padding: 0.1rem 0.4rem;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+.numbers-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: center;
 }
 
+.number-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  padding: 0.08rem 0.4rem;
+  border-radius: 9999px;
+}
+
+/* Badges de estado con diseño puramente circular/píldora */
 .part-status-badge {
   flex-shrink: 0;
-  padding: 0.25rem 0.65rem;
-  border-radius: 99px;
-  font-size: 0.75rem;
+  padding: 0.26rem 0.72rem;
+  border-radius: 9999px;
+  font-size: 0.72rem;
   font-weight: 700;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .part-status-badge.active {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .part-status-badge.completed {
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
   color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
   opacity: 0.8;
 }
 
-.part-status-badge.won,
-.winner-label {
-  background: rgba(16, 185, 129, 0.12);
+.part-status-badge.won {
+  background: rgba(16, 185, 129, 0.14);
   color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+/* Evitar bordes o fondos cuadrados dentro del badge */
+.winner-label,
+.ended-label,
+.active-label {
+  background: transparent !important;
+  border: none !important;
+  color: inherit !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: inherit !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
 }
 
 .win-number-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   margin-top: 0.15rem;
+  flex-wrap: wrap;
 }
 
 .win-label {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   color: #10b981;
   font-weight: 600;
 }
 
 .win-number-tag {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 800;
   color: #fff;
-  background: #10b981;
+  background: linear-gradient(135deg, #10b981, #059669);
   padding: 0.1rem 0.5rem;
-  border-radius: 6px;
+  border-radius: 9999px;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 600px) {
+  .premium-modal {
+    padding: 0.95rem 1rem !important;
+    border-radius: 16px;
+    max-height: 88vh;
+  }
+
+  .participation-card {
+    gap: 0.65rem;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .part-img {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 .lottery-stat-badge.clickable {

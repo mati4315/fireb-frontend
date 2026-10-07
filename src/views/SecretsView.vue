@@ -150,7 +150,17 @@ const handleTouchEnd = (e: TouchEvent) => {
 const selectedFilter = ref<SecretFilterKey>('recentes');
 const selectedZone = ref<string>('all');
 const selectedSex = ref<SecretSex | 'all'>('all');
+const selectedCategory = ref<string>('all');
 const showHighlights = ref(false);
+const hasActiveSecretFilters = computed(() =>
+  selectedZone.value !== 'all' || selectedSex.value !== 'all' || selectedCategory.value !== 'all'
+);
+
+const clearSecretFilters = () => {
+  selectedZone.value = 'all';
+  selectedSex.value = 'all';
+  selectedCategory.value = 'all';
+};
 
 const newSecretText = ref('');
 const newSecretSex = ref<SecretSex>('no_responder');
@@ -169,6 +179,7 @@ const secretCategoryOptions: Array<{ value: SecretCategory; label: string }> = [
   { value: 'denuncia_light', label: 'Denuncias light' },
   { value: 'random_divertido', label: 'Random / divertido' }
 ];
+const filterCategoryOptions = secretCategoryOptions.filter((option) => option.value);
 
 const secretSexOptions: Array<{ value: SecretSex; label: string }> = [
   { value: 'no_responder', label: 'No responder' },
@@ -234,6 +245,10 @@ const filteredSecrets = computed(() => {
 
   if (selectedSex.value !== 'all') {
     items = items.filter((secret) => secret.sex === selectedSex.value);
+  }
+
+  if (selectedCategory.value !== 'all') {
+    items = items.filter((secret) => secret.category === selectedCategory.value);
   }
 
   if (selectedFilter.value === 'populares') {
@@ -402,7 +417,6 @@ watch(
   (enabled) => {
     if (enabled) {
       secretStore.initSecretsListener();
-      secretStore.initRankingsListener();
       secretStore.initSettingsListener();
       return;
     }
@@ -410,6 +424,10 @@ watch(
   },
   { immediate: true }
 );
+
+watch(showHighlights, (visible) => {
+  if (visible) void secretStore.initRankingsListener();
+});
 
 watch(
   () => [activeTabKey.value, visibleTabs.value.map((tab) => tab.key).join('|')],
@@ -589,73 +607,176 @@ onUnmounted(() => {
     </section>
 
     <section v-if="moduleStore.modules.secrets.enabled" class="filters">
+      <div class="filters-heading">
+        <div class="filters-heading-main">
+          <div class="filters-eyebrow">
+            <svg class="eyebrow-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span>EL MURO ANÓNIMO</span>
+          </div>
+          <h2 class="filters-title">Explora los secretos</h2>
+        </div>
+
+        <div class="filters-heading-side">
+          <span class="results-count">
+            <strong class="count-num">{{ filteredSecrets.length }}</strong>
+            <span class="count-label">{{ filteredSecrets.length === 1 ? 'secreto' : 'secretos' }}</span>
+          </span>
+          <button
+            class="toggle-highlights-btn"
+            type="button"
+            :class="{ active: showHighlights }"
+            :aria-expanded="showHighlights"
+            @click="showHighlights = !showHighlights"
+          >
+            <svg class="star-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span>{{ showHighlights ? 'Ocultar destacados' : 'Destacados' }}</span>
+          </button>
+        </div>
+      </div>
+
       <div class="filter-top">
         <div class="filter-group">
-          <div class="filter-tabs scroll-x">
+          <span class="filter-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m3 16 4 4 4-4"/><path d="M7 20V4"/><path d="m21 8-4-4-4 4"/><path d="M17 4v16"/>
+            </svg>
+            Ordenar por
+          </span>
+          <div class="filter-segmented" role="group" aria-label="Orden de los secretos">
             <button
               type="button"
-              class="filter-btn"
-              :class="{ active: selectedSex === 'all' }"
-              @click="selectedSex = 'all'"
-            >
-              Todos
-            </button>
-            <button
-              type="button"
-              class="filter-btn"
+              class="segmented-btn"
               :class="{ active: selectedFilter === 'recentes' }"
+              :aria-pressed="selectedFilter === 'recentes'"
               @click="selectedFilter = 'recentes'"
             >
-              Recientes
-            </button>
-
-              <button
-              type="button"
-              class="filter-btn male"
-              :class="{ active: selectedSex === 'hombre' }"
-              @click="selectedSex = 'hombre'"
-            >
-              Hombres
+              <svg class="seg-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <span>Recientes</span>
             </button>
             <button
               type="button"
-              class="filter-btn female"
-              :class="{ active: selectedSex === 'mujer' }"
-              @click="selectedSex = 'mujer'"
-            >
-              Mujeres
-            </button>
-            <button
-              type="button"
-              class="filter-btn"
+              class="segmented-btn"
               :class="{ active: selectedFilter === 'populares' }"
+              :aria-pressed="selectedFilter === 'populares'"
               @click="selectedFilter = 'populares'"
             >
-              Populares
+              <svg class="seg-icon fire" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 23c-4.97 0-9-3.92-9-8.75 0-3.8 2.5-6.62 4.54-8.91.73-.82 1.46-1.63 2.13-2.52.48-.64 1.15-.99 1.9-.99s1.42.35 1.9.99c.67.89 1.4 1.7 2.13 2.52C17.5 7.63 20 10.45 20 14.25c0 4.83-4.03 8.75-9 8.75z"/>
+              </svg>
+              <span>Populares</span>
             </button>
             <button
               type="button"
-              class="filter-btn"
+              class="segmented-btn"
               :class="{ active: selectedFilter === 'polemicos' }"
+              :aria-pressed="selectedFilter === 'polemicos'"
               @click="selectedFilter = 'polemicos'"
             >
-              Polemicos
+              <svg class="seg-icon zap" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+              <span>Polémicos</span>
             </button>
           </div>
         </div>
 
-        <div class="filter-actions">
-          <label class="zone-filter">
-            Zona:
-            <select v-model="selectedZone">
+        <div class="filter-group demographic-group">
+          <span class="filter-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            Publicado por
+          </span>
+          <div class="filter-segmented" role="group" aria-label="Filtrar por género">
+            <button
+              type="button"
+              class="segmented-btn"
+              :class="{ active: selectedSex === 'all' }"
+              :aria-pressed="selectedSex === 'all'"
+              @click="selectedSex = 'all'"
+            >
+              <span>Todos</span>
+            </button>
+            <button
+              type="button"
+              class="segmented-btn male"
+              :class="{ active: selectedSex === 'hombre' }"
+              :aria-pressed="selectedSex === 'hombre'"
+              @click="selectedSex = 'hombre'"
+            >
+              <span class="sex-dot male"></span>
+              <span>Hombres</span>
+            </button>
+            <button
+              type="button"
+              class="segmented-btn female"
+              :class="{ active: selectedSex === 'mujer' }"
+              :aria-pressed="selectedSex === 'mujer'"
+              @click="selectedSex = 'mujer'"
+            >
+              <span class="sex-dot female"></span>
+              <span>Mujeres</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-actions-bar">
+        <div class="filter-chips">
+          <div class="filter-select-pill" :class="{ 'has-value': selectedCategory !== 'all' }">
+            <svg class="pill-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+            </svg>
+            <span class="pill-title">Categoría:</span>
+            <select v-model="selectedCategory" aria-label="Filtrar por categoría">
+              <option value="all">Todas</option>
+              <option
+                v-for="category in filterCategoryOptions"
+                :key="category.value"
+                :value="category.value"
+              >
+                {{ category.label }}
+              </option>
+            </select>
+            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+
+          <div class="filter-select-pill" :class="{ 'has-value': selectedZone !== 'all' }">
+            <svg class="pill-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+            <span class="pill-title">Zona:</span>
+            <select v-model="selectedZone" aria-label="Filtrar por zona">
               <option value="all">Todas</option>
               <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
             </select>
-          </label>
-          <button class="toggle-highlights-btn" @click="showHighlights = !showHighlights">
-            {{ showHighlights ? 'Ocultar destacados' : 'Ver destacados 🌟' }}
-          </button>
+            <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
         </div>
+
+        <button
+          v-if="hasActiveSecretFilters"
+          class="clear-filters-btn"
+          type="button"
+          @click="clearSecretFilters"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          <span>Limpiar filtros</span>
+        </button>
       </div>
 
       <div v-show="showHighlights" class="highlights-wrapper">
@@ -734,6 +855,16 @@ onUnmounted(() => {
         :key="secret.id"
         :secret="secret"
       />
+
+      <button
+        v-if="secretStore.hasMoreSecrets && !secretStore.loading"
+        class="load-more-secrets"
+        type="button"
+        :disabled="secretStore.loadingMoreSecrets"
+        @click="secretStore.loadMoreSecrets()"
+      >
+        {{ secretStore.loadingMoreSecrets ? 'Cargando secretos…' : 'Cargar más secretos' }}
+      </button>
     </section>
 
     <section v-else class="state-card">
@@ -919,8 +1050,24 @@ onUnmounted(() => {
 }
 
 .composer-grid.is-male label,
-.composer-grid.is-male .toggle-extras-btn {
+.composer-grid.is-female label,
+.composer-grid.is-neutral label {
   color: #fff;
+}
+
+.composer-grid.is-male .toggle-extras-btn,
+.composer-grid.is-female .toggle-extras-btn,
+.composer-grid.is-neutral .toggle-extras-btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.composer-grid.is-male .toggle-extras-btn:hover,
+.composer-grid.is-female .toggle-extras-btn:hover,
+.composer-grid.is-neutral .toggle-extras-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: #fff;
 }
 
 .composer-grid input,
@@ -931,6 +1078,35 @@ onUnmounted(() => {
   color: var(--text-h);
   padding: 0.45rem 0.55rem;
   font-size: 0.9rem;
+}
+
+.composer-grid.is-male input,
+.composer-grid.is-female input,
+.composer-grid.is-neutral input,
+.composer-grid.is-male select,
+.composer-grid.is-female select,
+.composer-grid.is-neutral select {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  font-weight: 700;
+}
+
+.composer-grid.is-male input:focus,
+.composer-grid.is-female input:focus,
+.composer-grid.is-neutral input:focus,
+.composer-grid.is-male select:focus,
+.composer-grid.is-female select:focus,
+.composer-grid.is-neutral select:focus {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: #ffffff;
+  outline: none;
+}
+
+.composer-grid select option {
+  background: var(--card-bg);
+  color: var(--text-h);
+  font-weight: 600;
 }
 
 .toggle-extras-btn {
@@ -969,16 +1145,20 @@ onUnmounted(() => {
   opacity: 0;
   transform: translateX(-10px);
 }
+
 .composer-grid input::placeholder,
 .composer-grid select::placeholder,
-.composer-grid.is-male select,
-.composer-grid.is-female select,
-.composer-grid.is-neutral select,
 .field-hint {
   color: var(--text);
   opacity: 0.65;
   font-size: 0.8rem;
   font-weight: 500;
+}
+
+.composer-grid.is-male input::placeholder,
+.composer-grid.is-female input::placeholder,
+.composer-grid.is-neutral input::placeholder {
+  color: rgba(255, 255, 255, 0.75);
 }
 .composer-footer {
   display: flex;
@@ -1115,146 +1295,378 @@ onUnmounted(() => {
 .filters {
   border: 1px solid var(--border);
   background: var(--card-bg);
-  border-radius: 14px;
-  padding: 0.75rem;
+  border-radius: 16px;
+  padding: 1.1rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 1rem;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
 }
 
-.filter-top {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-}
-
-@media (min-width: 768px) {
-  .filter-top {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-}
-
-.filter-actions {
+.filters-heading {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  justify-content: space-between;
+  gap: 0.85rem;
   flex-wrap: wrap;
 }
 
+.filters-heading-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.filters-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: var(--accent);
+  font-size: 0.67rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.eyebrow-icon {
+  opacity: 0.85;
+}
+
+.filters-title {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.filters-heading-side {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.results-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  color: var(--text);
+  padding: 0.32rem 0.68rem;
+  font-size: 0.76rem;
+}
+
+.count-num {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.count-label {
+  font-weight: 600;
+}
+
 .toggle-highlights-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg);
   color: var(--text-h);
   font-weight: 700;
-  font-size: 0.82rem;
-  padding: 0.35rem 0.65rem;
+  font-size: 0.77rem;
+  padding: 0.32rem 0.75rem;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.2s;
+  transition: all 0.2s ease;
+}
+
+.toggle-highlights-btn .star-icon {
+  color: #f59e0b;
+  transition: transform 0.2s ease;
 }
 
 .toggle-highlights-btn:hover {
-  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
 }
 
-.highlights-wrapper {
-  margin-top: 0.5rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed var(--border);
+.toggle-highlights-btn:hover .star-icon {
+  transform: rotate(18deg) scale(1.1);
+}
+
+.toggle-highlights-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.toggle-highlights-btn.active .star-icon {
+  color: #fff;
+}
+
+.filter-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 0.9rem 1.1rem;
 }
 
 .filter-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-  min-width: 0;
-  max-width: 100%;
-  align-items: flex-start;
-}
-
-@media (min-width: 768px) {
-  .filter-group {
-    flex-direction: row;
-    align-items: center;
-  }
-}
-
-.filter-tabs {
-  display: flex;
   gap: 0.45rem;
+  min-width: 0;
+}
+
+.filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+  font-size: 0.73rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.filter-segmented {
+  display: flex;
+  background: color-mix(in srgb, var(--text) 7%, var(--bg));
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  gap: 2px;
   width: 100%;
-  max-width: 100%;
-  flex-wrap: nowrap;
+  box-sizing: border-box;
 }
 
-.scroll-x {
-  overflow-x: auto;
+.segmented-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.78rem;
+  min-height: 36px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
   white-space: nowrap;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 0.2rem;
-}
-.scroll-x::-webkit-scrollbar {
-  display: none;
+  transition: all 0.18s cubic-bezier(0.2, 0, 0, 1);
 }
 
-.filter-btn {
-  border: 1px solid var(--border);
+.segmented-btn:hover {
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--card-bg) 60%, transparent);
+}
+
+.segmented-btn.active {
+  background: var(--card-bg);
+  color: var(--accent);
+  font-weight: 750;
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.segmented-btn.male.active {
+  color: #2563eb;
+  border-color: color-mix(in srgb, #2563eb 25%, var(--border));
+}
+
+.segmented-btn.female.active {
+  color: #db2777;
+  border-color: color-mix(in srgb, #db2777 25%, var(--border));
+}
+
+.seg-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+.segmented-btn.active .seg-icon {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.seg-icon.fire {
+  color: #f97316;
+}
+
+.seg-icon.zap {
+  color: #eab308;
+}
+
+.sex-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.sex-dot.male {
+  background: #3b82f6;
+}
+
+.sex-dot.female {
+  background: #ec4899;
+}
+
+.filter-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.85rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.filter-select-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.3rem 1.8rem 0.3rem 0.65rem;
   border-radius: 999px;
   background: var(--bg);
+  border: 1px solid var(--border);
   color: var(--text-h);
-  font-weight: 700;
-  font-size: 0.84rem;
-  padding: 0.45rem 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 600;
   cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
+  min-height: 34px;
+  box-sizing: border-box;
 }
 
-.filter-btn.active {
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+.filter-select-pill:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg));
+}
+
+.filter-select-pill.has-value {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
   color: var(--accent);
 }
 
-.filter-btn.male.active {
-  border-color: #1e5fad;
-  background: color-mix(in srgb, #1e5fad 14%, var(--bg));
-  color: #1e5fad;
-}
-
-.filter-btn.female.active {
-  border-color: #ca2a6e;
-  background: color-mix(in srgb, #ca2a6e 14%, var(--bg));
-  color: #ca2a6e;
-}
-
-.zone-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text-h);
-  font-size: 0.85rem;
+.filter-select-pill select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-weight: 700;
+  cursor: pointer;
+  outline: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pill-icon {
+  color: var(--text);
+  opacity: 0.75;
   flex-shrink: 0;
 }
 
-.zone-filter select {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text-h);
-  padding: 0.35rem 0.5rem;
+.filter-select-pill.has-value .pill-icon {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.pill-title {
+  color: var(--text);
+  font-size: 0.73rem;
+  font-weight: 500;
+}
+
+.filter-select-pill.has-value .pill-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chevron-icon {
+  position: absolute;
+  right: 0.55rem;
+  pointer-events: none;
+  opacity: 0.6;
+  color: inherit;
+}
+
+.clear-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444;
+  border-radius: 999px;
+  padding: 0.34rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 34px;
+}
+
+.clear-filters-btn:hover {
+  background: #ef4444;
+  color: #fff;
+}
+
+.filter-select-pill select:focus-visible,
+.segmented-btn:focus-visible,
+.toggle-highlights-btn:focus-visible,
+.clear-filters-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.highlights-wrapper {
+  margin-top: 0.2rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 .feed {
   display: grid;
   gap: 0.85rem;
+}
+
+.load-more-secrets {
+  justify-self: center;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  color: var(--text-h);
+  padding: 0.65rem 1.2rem;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.load-more-secrets:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, var(--card-bg));
+}
+
+.load-more-secrets:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .state-card {
@@ -1583,6 +1995,50 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
+  .filters {
+    padding: 0.95rem 0.85rem;
+    gap: 0.85rem;
+    border-radius: 14px;
+    margin: 0 0.4rem;
+  }
+
+  .filter-top {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .filters-heading {
+    gap: 0.6rem;
+  }
+
+  .filters-heading-side {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .filter-actions-bar {
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+  }
+
+  .filter-chips {
+    width: 100%;
+    gap: 0.45rem;
+  }
+
+  .filter-select-pill {
+    flex: 1 1 calc(50% - 0.25rem);
+    min-width: 125px;
+    justify-content: space-between;
+  }
+
+  .clear-filters-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 640px) {
   .secretos-view {
     padding: 1rem 0;
   }
@@ -1614,10 +2070,6 @@ onUnmounted(() => {
   .composer-footer.is-female,
   .composer-footer.is-neutral {
     border-radius: 0;
-  }
-
-  .filters {
-    padding: 0 1rem;
   }
 
   .highlights {

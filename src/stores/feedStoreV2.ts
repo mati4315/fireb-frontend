@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   startAfter,
   where,
+  type QueryDocumentSnapshot,
   type QueryConstraint
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -22,7 +23,8 @@ type FeedTab = HomeTabKey;
 
 const PAGE_SIZE = 10;
 const FEED_CACHE_TTL_MS = 2 * 60 * 1000;
-const FEED_CACHE_PREFIX = 'cdeluar.feed.cache.v1';
+// Invalidate v1 caches, which could preserve an empty news feed on web and app.
+const FEED_CACHE_PREFIX = 'cdeluar.feed.cache.v2';
 
 export const useFeedStore = defineStore('feed', () => {
   const authStore = useAuthStore();
@@ -44,6 +46,8 @@ export const useFeedStore = defineStore('feed', () => {
     nextCursor: string | null;
   }
   const tabStates = ref<Record<string, TabState>>({});
+  const firstPageLoads = new Map<FeedTab, Promise<void>>();
+  const firestoreCursors = new Map<FeedTab, QueryDocumentSnapshot>();
 
   const getTabState = (tab: string): TabState => {
     if (!tabStates.value[tab]) {
@@ -66,7 +70,7 @@ export const useFeedStore = defineStore('feed', () => {
       localStorage.setItem(
         buildCacheKey(tab),
         JSON.stringify({
-          contentItems: state.contentItems,
+          contentItems: state.contentItems.slice(0, PAGE_SIZE),
           hasMore: state.hasMore,
           lastFetchedAt: state.lastFetchedAt
         })
@@ -84,7 +88,11 @@ export const useFeedStore = defineStore('feed', () => {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return null;
 
-      const content = Array.isArray(parsed.contentItems) ? parsed.contentItems : [];
+      const content = Array.isArray(parsed.contentItems)
+        ? parsed.contentItems.slice(0, PAGE_SIZE)
+        : [];
+      // An empty news cache is not authoritative; always let the public API refresh it.
+      if (tab === 'news' && content.length === 0) return null;
       const hasMoreValue = parsed.hasMore !== false;
       const lastFetchedAtValue = Number(parsed.lastFetchedAt || 0);
 
@@ -181,7 +189,6 @@ export const useFeedStore = defineStore('feed', () => {
     const state = getTabState(currentTab.value);
     state.allItems = [...allItems.value];
     state.contentItems = [...contentItems.value];
-    writePersistedTabState(currentTab.value, state);
   };
 
   const fetchFirstPage = async (targetTab: FeedTab) => {
@@ -221,6 +228,9 @@ export const useFeedStore = defineStore('feed', () => {
         id: contentDoc.id,
         ...contentDoc.data({ serverTimestamps: 'estimate' })
       }));
+      const cursor = snapshot.docs.at(-1);
+      if (cursor) firestoreCursors.set(targetTab, cursor);
+      else firestoreCursors.delete(targetTab);
       hasMoreForTab = snapshot.size >= PAGE_SIZE;
     }
 
@@ -229,6 +239,7 @@ export const useFeedStore = defineStore('feed', () => {
     state.hasMore = hasMoreForTab;
     state.nextCursor = nextCursor;
     state.lastFetchedAt = Date.now();
+    writePersistedTabState(targetTab, state);
 
     if (currentTab.value === targetTab) {
       contentItems.value = [...items];
@@ -238,9 +249,20 @@ export const useFeedStore = defineStore('feed', () => {
     }
   };
 
+  const fetchFirstPageOnce = (targetTab: FeedTab): Promise<void> => {
+    const pending = firstPageLoads.get(targetTab);
+    if (pending) return pending;
+
+    const request = fetchFirstPage(targetTab).finally(() => {
+      firstPageLoads.delete(targetTab);
+    });
+    firstPageLoads.set(targetTab, request);
+    return request;
+  };
+
   const initFeed = async (tabName: string = 'todo') => {
     await moduleStore.initModules();
-    await adsStore.initAds(moduleStore.modules.ads);
+    void adsStore.initAds(moduleStore.modules.ads);
 
     const safeTab = resolveTab(tabName);
 
@@ -258,9 +280,12 @@ export const useFeedStore = defineStore('feed', () => {
       loading.value = false;
       initialized.value = true;
 
-      void fetchFirstPage(safeTab).catch((error) => {
-        console.error('Error refreshing cached feed:', error);
-      });
+      loading.value = true;
+      void fetchFirstPageOnce(safeTab)
+        .catch((error) => console.error('Error refreshing cached feed:', error))
+        .finally(() => {
+          if (currentTab.value === safeTab) loading.value = false;
+        });
       return;
     }
 
@@ -273,9 +298,12 @@ export const useFeedStore = defineStore('feed', () => {
       initialized.value = true;
 
       if (Date.now() - cached.lastFetchedAt > FEED_CACHE_TTL_MS) {
-        void fetchFirstPage(safeTab).catch((error) => {
-          console.error('Error refreshing stale feed cache:', error);
-        });
+        loading.value = true;
+        void fetchFirstPageOnce(safeTab)
+          .catch((error) => console.error('Error refreshing stale feed cache:', error))
+          .finally(() => {
+            if (currentTab.value === safeTab) loading.value = false;
+          });
       }
       return;
     }
@@ -286,7 +314,7 @@ export const useFeedStore = defineStore('feed', () => {
     hasMore.value = safeTab !== 'secrets' && safeTab !== 'surveys' && safeTab !== 'lottery';
 
     try {
-      await fetchFirstPage(safeTab);
+      await fetchFirstPageOnce(safeTab);
     } catch (error) {
       console.error('Error initializing feed:', error);
       if (currentTab.value === safeTab) {
@@ -335,9 +363,8 @@ export const useFeedStore = defineStore('feed', () => {
       return;
     }
 
-    const lastContentItem = contentItems.value[contentItems.value.length - 1];
-    const cursor = lastContentItem?.createdAt || lastContentItem?.updatedAt;
-    
+    const state = getTabState(tabAtStart);
+    const cursor = firestoreCursors.get(tabAtStart);
     if (!cursor) {
       hasMore.value = false;
       return;
@@ -359,13 +386,13 @@ export const useFeedStore = defineStore('feed', () => {
       }));
 
       // If tab changed while loading, update the target tab state
-      const state = getTabState(tabAtStart);
-      
       const dedupedItems = newItems.filter(
         (newItem) => !state.contentItems.some((existingItem) => existingItem.id === newItem.id)
       );
 
       state.contentItems.push(...dedupedItems);
+      const nextCursor = snapshot.docs.at(-1);
+      if (nextCursor) firestoreCursors.set(tabAtStart, nextCursor);
       state.hasMore = snapshot.size >= PAGE_SIZE;
       state.lastFetchedAt = Date.now();
 

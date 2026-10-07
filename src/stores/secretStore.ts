@@ -8,6 +8,7 @@ import {
   limit,
   orderBy,
   query,
+  startAfter,
   where,
   deleteDoc,
   type DocumentData,
@@ -100,7 +101,7 @@ export interface SecretRuntimeSettings {
   autoHideReportsThreshold: number;
 }
 
-const SECRET_FEED_LIMIT = 120;
+const SECRET_PAGE_SIZE = 30;
 const SECRET_COMMENT_LIMIT = 80;
 const SECRET_ANON_CLIENT_KEY = 'cdelu_secret_anon_id_v1';
 const SECRET_RANKING_LIST_LIMIT = 24;
@@ -374,6 +375,9 @@ export const useSecretStore = defineStore('secret', () => {
   const rankings = ref<SecretRankingsSnapshot>(EMPTY_SECRET_RANKINGS);
   const settings = ref<SecretRuntimeSettings>(DEFAULT_SECRET_RUNTIME_SETTINGS);
   const loading = ref(false);
+  const loadingMoreSecrets = ref(false);
+  const hasMoreSecrets = ref(true);
+  const secretCursor = ref<QueryDocumentSnapshot<DocumentData> | null>(null);
   const rankingsLoading = ref(false);
   const settingsLoading = ref(false);
   const error = ref<string | null>(null);
@@ -423,10 +427,23 @@ export const useSecretStore = defineStore('secret', () => {
     );
   };
 
+  const preserveSecretInteractions = (items: SecretRecord[]): SecretRecord[] => {
+    const previousById = new Map(secrets.value.map((secret) => [secret.id, secret]));
+    return items.map((secret) => {
+      const previous = previousById.get(secret.id);
+      return previous
+        ? { ...secret, myVote: previous.myVote, reportedByMe: previous.reportedByMe }
+        : secret;
+    });
+  };
+
   const initSecretsListener = async (forceRefresh = false) => {
     if (secretsInitialized.value && !forceRefresh) return;
+    if (loading.value && !forceRefresh) return;
     if (!moduleStore.modules.secrets.enabled) {
       secrets.value = [];
+      secretCursor.value = null;
+      hasMoreSecrets.value = false;
       loading.value = false;
       secretsInitialized.value = true;
       return;
@@ -434,6 +451,8 @@ export const useSecretStore = defineStore('secret', () => {
 
     loading.value = true;
     error.value = null;
+    secretCursor.value = null;
+    hasMoreSecrets.value = true;
 
     const secretsQuery = query(
       collection(db, 'content'),
@@ -441,7 +460,7 @@ export const useSecretStore = defineStore('secret', () => {
       where('module', '==', 'secrets'),
       where('moderation.status', '==', 'active'),
       orderBy('createdAt', 'desc'),
-      limit(SECRET_FEED_LIMIT)
+      limit(SECRET_PAGE_SIZE)
     );
 
     try {
@@ -450,22 +469,49 @@ export const useSecretStore = defineStore('secret', () => {
         .map(mapSecretDoc)
         .filter(isSecretVisible);
 
-      const previousById = new Map(secrets.value.map((secret) => [secret.id, secret]));
-      secrets.value = nextSecrets.map((secret) => {
-        const previous = previousById.get(secret.id);
-        if (!previous) return secret;
-        return {
-          ...secret,
-          myVote: previous.myVote,
-          reportedByMe: previous.reportedByMe
-        };
-      });
+      secrets.value = preserveSecretInteractions(nextSecrets);
+      secretCursor.value = snapshot.docs.at(-1) || null;
+      hasMoreSecrets.value = snapshot.size >= SECRET_PAGE_SIZE;
       secretsInitialized.value = true;
       loading.value = false;
     } catch (err) {
       console.error('Error loading secretos:', err);
       error.value = err instanceof Error ? err.message : 'No se pudo cargar secretos.';
+      secretCursor.value = null;
+      hasMoreSecrets.value = false;
       loading.value = false;
+    }
+  };
+
+  const loadMoreSecrets = async () => {
+    if (!hasMoreSecrets.value || loadingMoreSecrets.value || !secretCursor.value) return;
+
+    loadingMoreSecrets.value = true;
+    try {
+      const secretsQuery = query(
+        collection(db, 'content'),
+        where('deletedAt', '==', null),
+        where('module', '==', 'secrets'),
+        where('moderation.status', '==', 'active'),
+        orderBy('createdAt', 'desc'),
+        startAfter(secretCursor.value),
+        limit(SECRET_PAGE_SIZE)
+      );
+      const snapshot = await getDocs(secretsQuery);
+      const existingIds = new Set(secrets.value.map((secret) => secret.id));
+      const nextSecrets = snapshot.docs
+        .map(mapSecretDoc)
+        .filter(isSecretVisible)
+        .filter((secret) => !existingIds.has(secret.id));
+
+      secrets.value = [...secrets.value, ...preserveSecretInteractions(nextSecrets)];
+      secretCursor.value = snapshot.docs.at(-1) || secretCursor.value;
+      hasMoreSecrets.value = snapshot.size >= SECRET_PAGE_SIZE;
+    } catch (err) {
+      console.error('Error loading more secretos:', err);
+      error.value = err instanceof Error ? err.message : 'No se pudieron cargar más secretos.';
+    } finally {
+      loadingMoreSecrets.value = false;
     }
   };
 
@@ -529,6 +575,7 @@ export const useSecretStore = defineStore('secret', () => {
 
   const cleanup = () => {
     secretsInitialized.value = false;
+    loadingMoreSecrets.value = false;
     rankingsInitialized.value = false;
     settingsInitialized.value = false;
   };
@@ -773,10 +820,13 @@ export const useSecretStore = defineStore('secret', () => {
     rankings,
     settings,
     loading,
+    loadingMoreSecrets,
+    hasMoreSecrets,
     rankingsLoading,
     settingsLoading,
     error,
     initSecretsListener,
+    loadMoreSecrets,
     initRankingsListener,
     initSettingsListener,
     cleanup,

@@ -50,6 +50,7 @@ const canManageComments = computed(() => {
 const showRadioDock = computed(() => moduleStore.modules.radio.enabled && moduleStore.modules.radio.active)
 
 const toggleUserMenu = () => {
+  closeNotifications()
   isUserMenuOpen.value = !isUserMenuOpen.value
 }
 
@@ -58,6 +59,7 @@ const closeUserMenu = () => {
 }
 
 const toggleNotifications = async () => {
+  closeUserMenu()
   isNotificationsOpen.value = !isNotificationsOpen.value
   if (isNotificationsOpen.value) {
     await notificationStore.init()
