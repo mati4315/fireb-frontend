@@ -19,6 +19,10 @@ if not exist "..\android\gradlew.bat" (
   exit /b 1
 )
 
+if exist "C:\Users\Admin\.jdks\jdk-21.0.12.1+1" (
+  set "JAVA_HOME=C:\Users\Admin\.jdks\jdk-21.0.12.1+1"
+)
+
 call npm run android:build >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
   echo.
@@ -29,11 +33,11 @@ if errorlevel 1 (
 )
 
 pushd ..\android
-call .\gradlew.bat assembleRelease >> "%LOG_FILE%" 2>&1
+call .\gradlew.bat assembleRelease bundleRelease >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
   echo.
-  echo ERROR: Fallo la generacion del APK release.
-  echo [%date% %time%] ERROR: Fallo gradlew assembleRelease.>> "%LOG_FILE%"
+  echo ERROR: Fallo la generacion del APK/AAB release.
+  echo [%date% %time%] ERROR: Fallo gradlew assembleRelease bundleRelease.>> "%LOG_FILE%"
   popd
   pause
   exit /b 1
@@ -41,8 +45,15 @@ if errorlevel 1 (
 popd
 
 echo.
-echo APK generado en:
-echo %~dp0..\android\app\build\outputs\apk\release\app-release.apk
-echo [%date% %time%] OK: APK release generado correctamente.>> "%LOG_FILE%"
+echo ==========================================
+echo   GENERACION EXITOSA:
+echo ==========================================
+echo [1] APK (Instalacion directa / Celular):
+echo     %~dp0..\android\app\build\outputs\apk\release\app-release.apk
+echo.
+echo [2] AAB (Google Play Console / Play Store):
+echo     %~dp0..\android\app\build\outputs\bundle\release\app-release.aab
+echo ==========================================
+echo [%date% %time%] OK: APK y AAB release generados correctamente.>> "%LOG_FILE%"
 echo.
 pause

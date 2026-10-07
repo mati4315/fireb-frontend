@@ -692,7 +692,7 @@ const dismissPushBanner = () => {
 }
 
 .content-wrapper--with-radio {
-  padding-bottom: 8.5rem;
+  padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 .push-banner {

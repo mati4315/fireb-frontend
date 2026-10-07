@@ -4,6 +4,7 @@ backup_copia_de_seguridad
 # Logs
 logs
 *.log
+log_*.txt
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -33,3 +34,8 @@ dist-ssr
 
 # Play store checklist (contains keystore password)
 android_playstore_checklist.md
+
+# Release outputs
+release/
+*.apk
+*.aab
