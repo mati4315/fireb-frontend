@@ -433,15 +433,20 @@ const dismissPushBanner = () => {
 .login-btn {
   text-decoration: none;
   background: var(--accent);
-  color: white;
+  color: #241300;
   padding: 0.5rem 1.25rem;
   border-radius: 99px;
-  transition: opacity 0.2s;
+  transition: background-color 0.2s, color 0.2s, opacity 0.2s;
 }
 
 .login-btn:hover {
-  color: white;
+  color: #241300;
   opacity: 0.9;
+}
+
+.login-btn:focus-visible {
+  outline: 3px solid var(--text-h);
+  outline-offset: 3px;
 }
 
 .user-menu {

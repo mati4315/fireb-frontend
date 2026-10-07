@@ -2748,7 +2748,7 @@ watch(
 
 .tag.news {
   background: #fff0f0;
-  color: #ff4d4d;
+  color: #a32118;
 }
 
 .post-content {

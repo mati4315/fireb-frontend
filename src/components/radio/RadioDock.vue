@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useModuleStore } from '@/stores/moduleStore'
 
 const moduleStore = useModuleStore()
@@ -79,17 +79,11 @@ const handleCollapseAction = () => {
 
 watch(
   [isVisible, hasAudio],
-  async ([visible, available]) => {
-    if (!visible) {
+  ([visible, available]) => {
+    if (!visible || !available) {
       pauseAudio()
       isPlaying.value = false
       autoplayBlocked.value = false
-      return
-    }
-
-    await nextTick()
-    if (available) {
-      void tryPlay()
     }
   },
   { immediate: true }
