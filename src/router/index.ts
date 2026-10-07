@@ -36,6 +36,11 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/anormalia-22',
+      name: 'anormalia-22',
+      component: () => import('@/views/Anormalia22View.vue'),
+    },
+    {
       path: '/noticia',
       name: 'home-news',
       component: HomeView,

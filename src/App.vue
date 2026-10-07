@@ -117,6 +117,16 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => authStore.userProfile?.settings?.themePreference,
+  (preference) => {
+    if (preference === 'light' || preference === 'dark') {
+      themeStore.setTheme(preference === 'dark')
+    }
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
   window.addEventListener('click', handleClickOutside)
 })
@@ -236,6 +246,13 @@ const dismissPushBanner = () => {
                 @click="closeUserMenu"
               >
                 Mi Perfil
+              </RouterLink>
+              <RouterLink
+                to="/anormalia-22"
+                class="dropdown-item"
+                @click="closeUserMenu"
+              >
+                Anormalia 22
               </RouterLink>
               <RouterLink
                 to="/config"

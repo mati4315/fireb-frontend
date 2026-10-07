@@ -918,6 +918,11 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.composer-grid.is-male label,
+.composer-grid.is-male .toggle-extras-btn {
+  color: #fff;
+}
+
 .composer-grid input,
 .composer-grid select {
   border: 1px solid var(--border);

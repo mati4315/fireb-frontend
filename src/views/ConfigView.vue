@@ -2,16 +2,20 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/authStore'
 import { useModuleStore } from '@/stores/moduleStore'
+import { useThemeStore } from '@/stores/themeStore'
 
 type DefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery'
+type ThemePreference = 'light' | 'dark'
 
 const authStore = useAuthStore()
 const moduleStore = useModuleStore()
+const themeStore = useThemeStore()
 
 const saving = ref(false)
 const successMsg = ref('')
 const errorMsg = ref('')
 const selectedTab = ref<DefaultFeedTab>('todo')
+const selectedTheme = ref<ThemePreference>(themeStore.isDark ? 'dark' : 'light')
 
 const feedOptions: Array<{
   key: DefaultFeedTab
@@ -36,7 +40,15 @@ const currentSavedTab = computed<DefaultFeedTab>(() =>
   normalizeDefaultFeedTab(authStore.userProfile?.settings?.defaultFeedTab)
 )
 
-const hasChanges = computed(() => selectedTab.value !== currentSavedTab.value)
+const currentSavedTheme = computed<ThemePreference>(() => {
+  const preference = authStore.userProfile?.settings?.themePreference
+  if (preference === 'light' || preference === 'dark') return preference
+  return themeStore.isDark ? 'dark' : 'light'
+})
+
+const hasChanges = computed(() =>
+  selectedTab.value !== currentSavedTab.value || selectedTheme.value !== currentSavedTheme.value
+)
 
 const isOptionCurrentlyEnabled = (tab: DefaultFeedTab): boolean => {
   if (tab === 'todo') return true
@@ -51,7 +63,8 @@ const saveSettings = async () => {
   errorMsg.value = ''
   saving.value = true
   try {
-    await authStore.updateDefaultFeedTabPreference(selectedTab.value)
+    await authStore.updateDefaultFeedTabPreference(selectedTab.value, selectedTheme.value)
+    themeStore.setTheme(selectedTheme.value === 'dark')
     successMsg.value = 'Configuracion guardada correctamente.'
   } catch (error: any) {
     errorMsg.value = error?.message || 'No se pudo guardar la configuracion.'
@@ -64,6 +77,14 @@ watch(
   () => currentSavedTab.value,
   (nextValue) => {
     selectedTab.value = nextValue
+  },
+  { immediate: true }
+)
+
+watch(
+  () => currentSavedTheme.value,
+  (nextValue) => {
+    selectedTheme.value = nextValue
   },
   { immediate: true }
 )
@@ -100,6 +121,28 @@ onMounted(() => {
               </small>
             </span>
             <span class="option-description">{{ option.description }}</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="preference-divider">
+        <h2>Tema de la aplicacion</h2>
+        <p class="hint">Elige si prefieres usar CDELU en tema claro u oscuro.</p>
+      </div>
+
+      <div class="options-list">
+        <label class="option-item">
+          <input v-model="selectedTheme" type="radio" name="theme-preference" value="light">
+          <span class="option-content">
+            <span class="option-title">Claro</span>
+            <span class="option-description">Fondo claro y texto oscuro.</span>
+          </span>
+        </label>
+        <label class="option-item">
+          <input v-model="selectedTheme" type="radio" name="theme-preference" value="dark">
+          <span class="option-content">
+            <span class="option-title">Oscuro</span>
+            <span class="option-description">Fondo oscuro y texto claro.</span>
           </span>
         </label>
       </div>
@@ -151,6 +194,17 @@ onMounted(() => {
   margin: 0.4rem 0 0.9rem;
   color: var(--text);
   font-size: 0.92rem;
+}
+
+.preference-divider {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.preference-divider h2 {
+  margin: 0;
+  font-size: 1.05rem;
 }
 
 .options-list {

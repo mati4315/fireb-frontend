@@ -22,6 +22,7 @@ import { auth, db, functions } from '@/config/firebase';
 import { isNativePlatform } from '@/platform/capacitor';
 
 type DefaultFeedTab = 'todo' | 'news' | 'post' | 'surveys' | 'lottery';
+type ThemePreference = 'light' | 'dark';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null);
@@ -524,12 +525,15 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  const updateDefaultFeedTabPreference = async (defaultFeedTab: DefaultFeedTab) => {
+  const updateDefaultFeedTabPreference = async (
+    defaultFeedTab: DefaultFeedTab,
+    themePreference?: ThemePreference
+  ) => {
     if (!user.value?.uid) {
       throw new Error('Debes iniciar sesion para configurar el feed.');
     }
 
-    const response = await updateHomeFeedPreferenceCallable({ defaultFeedTab });
+    const response = await updateHomeFeedPreferenceCallable({ defaultFeedTab, themePreference });
     const result = (response.data || {}) as Record<string, unknown>;
     if (result.settings) {
       setUserProfile({
