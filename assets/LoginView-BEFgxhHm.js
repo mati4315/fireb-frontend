@@ -1,1 +1,0 @@
-import{C as e,E as t,N as n,O as r,o as i}from"./vendor-vue-DM1S77ap.js";import{t as a}from"./index-BART2lji.js";import{t as o}from"./LoginCard-B6BIQmZ7.js";var s={class:`login-page`},c=a(r({__name:`LoginView`,setup(r){let a=i(),c=(e=!1)=>{a.push(e?`/perfil`:`/`)};return(r,i)=>(n(),e(`main`,s,[t(o,{onSuccess:c})]))}}),[[`__scopeId`,`data-v-1dd03924`]]);export{c as default};
