@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, Timestamp, where, type Unsubscribe } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
 import { useFeedStore } from '@/stores/feedStore'
@@ -43,10 +43,13 @@ const CommentPreviewList = defineAsyncComponent(() => import('@/components/comme
 const OptionsMenu = defineAsyncComponent(() => import('@/components/common/OptionsMenu.vue'))
 const FeedAdItem = defineAsyncComponent(() => import('@/components/feed/FeedAdItem.vue'))
 const SecretCard = defineAsyncComponent(() => import('@/components/feed/SecretCard.vue'))
+const DismissibleNoticeCard = defineAsyncComponent(() => import('@/components/common/DismissibleNoticeCard.vue'))
 
 const { isVisible: isHeaderVisible } = useHeaderScroll()
 const scrollY = ref(window.scrollY)
 const handleScrollY = () => { scrollY.value = window.scrollY }
+let homeNoticeUnsubscribers: Unsubscribe[] = []
+let homeNoticeClock: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   window.addEventListener('scroll', handleScrollY, { passive: true })
@@ -55,6 +58,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', handleScrollY)
   if (reportStatusTimer) clearTimeout(reportStatusTimer)
+  homeNoticeUnsubscribers.forEach((unsubscribe) => unsubscribe())
+  homeNoticeUnsubscribers = []
+  if (homeNoticeClock) clearInterval(homeNoticeClock)
 })
 
 const feedStore = useFeedStore()
@@ -67,6 +73,150 @@ const likesStore = useLikesStore()
 const profileStore = useProfileStore()
 const router = useRouter()
 const route = useRoute()
+
+type HomeNotice = {
+  id: string
+  title: string
+  message: string
+  icon: string
+  startsAt: Date
+  endsAt: Date
+  actionTo: string
+}
+
+const manualHomeNotices = ref<HomeNotice[]>([])
+const newestEpisodeNotice = ref<HomeNotice | null>(null)
+const autoEpisodeNoticeSettings = ref({ enabled: true, duration: 7, unit: 'days' as 'hours' | 'days' })
+const homeNoticeNow = ref(Date.now())
+const dismissedHomeNoticeIds = ref(new Set<string>())
+const episodeNoticeDocs = ref<Array<{ id: string; data: () => Record<string, any> }>>([])
+
+const toNoticeDate = (value: any): Date | null => {
+  if (value instanceof Date) return value
+  if (value instanceof Timestamp) return value.toDate()
+  if (typeof value === 'string' || typeof value === 'number') {
+    const result = new Date(value)
+    return Number.isNaN(result.getTime()) ? null : result
+  }
+  return null
+}
+
+const activeHomeNotices = computed(() => {
+  const now = homeNoticeNow.value
+  const all = [...manualHomeNotices.value, ...(newestEpisodeNotice.value ? [newestEpisodeNotice.value] : [])]
+  return all
+    .filter((notice) => notice.startsAt.getTime() <= now && notice.endsAt.getTime() > now)
+    .filter((notice) => !dismissedHomeNoticeIds.value.has(notice.id))
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+})
+
+const dismissHomeNotice = (noticeId: string) => {
+  const next = new Set(dismissedHomeNoticeIds.value)
+  next.add(noticeId)
+  dismissedHomeNoticeIds.value = next
+  try {
+    window.localStorage.setItem(`cdelu_home_notice_dismissed:${authStore.user?.uid || 'guest'}`, JSON.stringify([...next]))
+  } catch {
+    // The notice still closes for this page session when browser storage is unavailable.
+  }
+}
+
+const refreshEpisodeNotice = (docs: Array<{ id: string; data: () => Record<string, any> }>) => {
+  if (!autoEpisodeNoticeSettings.value.enabled) {
+    newestEpisodeNotice.value = null
+    return
+  }
+  const latest = docs
+    .map((snapshot) => ({ id: snapshot.id, data: snapshot.data() }))
+    .find(({ data }) => data.announceOnHome === true && data.published !== false && typeof data.title === 'string')
+  const createdAt = latest ? toNoticeDate(latest.data.createdAt) : null
+  if (!latest || !createdAt) {
+    newestEpisodeNotice.value = null
+    return
+  }
+  const durationMs = autoEpisodeNoticeSettings.value.duration
+    * (autoEpisodeNoticeSettings.value.unit === 'hours' ? 1 : 24)
+    * 60 * 60 * 1000
+  const endsAt = new Date(createdAt.getTime() + durationMs)
+  if (endsAt.getTime() <= Date.now()) {
+    newestEpisodeNotice.value = null
+    return
+  }
+  const season = typeof latest.data.season === 'string' ? latest.data.season : ''
+  newestEpisodeNotice.value = {
+    id: `episode-${latest.id}`,
+    title: 'Nuevo episodio de Anormalia 22',
+    message: `${season ? `${season} · ` : ''}${latest.data.title} ya está disponible.`,
+    icon: '🎙️',
+    startsAt: createdAt,
+    endsAt,
+    actionTo: '/anormalia22'
+  }
+}
+
+const initHomeNotices = () => {
+  try {
+    const storedIds = JSON.parse(window.localStorage.getItem(`cdelu_home_notice_dismissed:${authStore.user?.uid || 'guest'}`) || '[]')
+    if (Array.isArray(storedIds)) dismissedHomeNoticeIds.value = new Set(storedIds.filter((id) => typeof id === 'string'))
+  } catch {
+    dismissedHomeNoticeIds.value = new Set()
+  }
+
+  homeNoticeUnsubscribers.push(onSnapshot(
+    query(
+      collection(db, 'home_notices'),
+      where('endsAt', '>', Timestamp.now()),
+      orderBy('endsAt', 'asc'),
+      limit(25)
+    ),
+    (snapshot) => {
+      manualHomeNotices.value = snapshot.docs.flatMap((noticeDoc) => {
+        const data = noticeDoc.data()
+        const startsAt = toNoticeDate(data.startsAt)
+        const endsAt = toNoticeDate(data.endsAt)
+        if (!startsAt || !endsAt || typeof data.title !== 'string' || typeof data.message !== 'string') return []
+        return [{
+          id: `manual-${noticeDoc.id}`,
+          title: data.title,
+          message: data.message,
+          icon: typeof data.icon === 'string' ? data.icon : '📣',
+          startsAt,
+          endsAt,
+          actionTo: ''
+        }]
+      })
+    },
+    (error) => console.warn('No se pudieron cargar los avisos del Home:', error)
+  ))
+
+  homeNoticeUnsubscribers.push(onSnapshot(doc(db, '_config', 'home_notice_settings'), (snapshot) => {
+    const data = snapshot.exists() ? snapshot.data() : {}
+    autoEpisodeNoticeSettings.value = {
+      enabled: data.episodeEnabled !== false,
+      duration: Math.max(1, Math.min(30, Math.floor(Number(data.episodeDuration) || 7))),
+      unit: data.episodeDurationUnit === 'hours' ? 'hours' : 'days'
+    }
+    refreshEpisodeNotice(episodeNoticeDocs.value)
+  }, (error) => console.warn('No se pudo cargar la configuración de avisos automáticos:', error)))
+
+  homeNoticeUnsubscribers.push(onSnapshot(
+    query(
+      collection(db, 'anormalia22_episodes'),
+      where('announceOnHome', '==', true),
+      where('published', '==', true),
+      orderBy('createdAt', 'desc'),
+      limit(1)
+    ),
+    (snapshot) => {
+      episodeNoticeDocs.value = snapshot.docs
+      refreshEpisodeNotice(episodeNoticeDocs.value)
+    },
+    (error) => console.warn('No se pudo revisar el estreno de episodios:', error)
+  ))
+  homeNoticeClock = setInterval(() => { homeNoticeNow.value = Date.now() }, 60_000)
+}
+
+onMounted(() => initHomeNotices())
 
 const reportDialogOpen = ref(false)
 const reportSubmitting = ref(false)
@@ -1614,6 +1764,22 @@ watch(
       mode="featured"
     />
 
+    <div v-if="activeHomeNotices.length" class="home-notices" aria-label="Avisos importantes">
+      <DismissibleNoticeCard
+        v-for="notice in activeHomeNotices"
+        :key="notice.id"
+        :eyebrow="notice.id.startsWith('episode-') ? 'ESTRENO' : 'AVISO'"
+        :title="notice.title"
+        :icon="notice.icon"
+        :close-label="`Cerrar aviso: ${notice.title}`"
+        :action-label="notice.actionTo ? 'Ver ahora' : ''"
+        :action-to="notice.actionTo"
+        @close="dismissHomeNotice(notice.id)"
+      >
+        <p>{{ notice.message }}</p>
+      </DismissibleNoticeCard>
+    </div>
+
     <!-- Create Post Section -->
     <section
       v-if="
@@ -2015,6 +2181,12 @@ watch(
   max-width: 680px;
   margin: 0 auto;
   padding: 2rem 1rem;
+}
+
+.home-notices {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
 }
 
 .content-report-state {

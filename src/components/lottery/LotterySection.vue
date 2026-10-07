@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
+import { isStaffUser } from '@/utils/roles';
 import {
   useLotteryStore,
   type Lottery,
@@ -31,6 +32,9 @@ const numbersTouchStartY = ref(0);
 const numbersTouchStartTime = ref(0);
 const numbersSwipeDetected = ref(false);
 const suppressOpenModalUntilByLottery = ref<Record<string, number>>({});
+const openAdminMenuLotteryId = ref<string | null>(null);
+const adminActionError = ref('');
+const deletingLotteryId = ref<string | null>(null);
 
 const AVAILABLE_TILT_CLASSES = [
   'tilt-neg8',
@@ -60,6 +64,32 @@ const successTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const lotteries = computed(() => lotteryStore.publicLotteries);
 const loading = computed(() => lotteryStore.publicLoading);
+const canManageLotteries = computed(() => isStaffUser(
+  authStore.userProfile?.rol,
+  authStore.user?.email || authStore.userProfile?.email,
+  authStore.user?.uid,
+  authStore.tokenClaims
+));
+
+const editLottery = (lottery: Lottery) => {
+  openAdminMenuLotteryId.value = null;
+  void router.push({ name: 'lottery-manager', query: { edit: lottery.id } });
+};
+
+const removeLottery = async (lottery: Lottery) => {
+  openAdminMenuLotteryId.value = null;
+  if (!window.confirm(`¿Quieres eliminar la lotería «${lottery.title}»?`)) return;
+
+  adminActionError.value = '';
+  deletingLotteryId.value = lottery.id;
+  try {
+    await lotteryStore.softDeleteLottery(lottery.id);
+  } catch (error: any) {
+    adminActionError.value = error?.message || 'No se pudo eliminar la lotería.';
+  } finally {
+    deletingLotteryId.value = null;
+  }
+};
 
 const isExpanded = (lotteryId: string): boolean => Boolean(expandedByLottery.value[lotteryId]);
 
@@ -136,7 +166,8 @@ const getUserTicketLimit = (lottery: Lottery): number => {
   return lotteryStore.getEffectiveTicketLimit(
     lottery.id,
     lottery.maxTicketsPerUser,
-    lottery.maxNumber
+    lottery.maxNumber,
+    lottery.isFree
   );
 };
 
@@ -471,6 +502,7 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 
 <template>
   <section class="lottery-section">
+    <p v-if="adminActionError" class="lottery-admin-error" role="alert">{{ adminActionError }}</p>
     <div v-if="loading" class="lottery-loading">
       <div class="spinner"></div>
       <p>Cargando loterias...</p>
@@ -487,6 +519,28 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
         :key="lottery.id"
         class="lottery-card"
       >
+        <div v-if="canManageLotteries" class="lottery-admin-menu" @click.stop>
+          <button
+            class="lottery-admin-menu-trigger"
+            type="button"
+            :aria-label="`Opciones de administración para ${lottery.title}`"
+            :aria-expanded="openAdminMenuLotteryId === lottery.id"
+            @click="openAdminMenuLotteryId = openAdminMenuLotteryId === lottery.id ? null : lottery.id"
+          >
+            ⋮
+          </button>
+          <div v-if="openAdminMenuLotteryId === lottery.id" class="lottery-admin-menu-popover">
+            <button type="button" @click="editLottery(lottery)">Editar</button>
+            <button
+              type="button"
+              class="is-danger"
+              :disabled="deletingLotteryId === lottery.id"
+              @click="removeLottery(lottery)"
+            >
+              {{ deletingLotteryId === lottery.id ? 'Eliminando...' : 'Eliminar' }}
+            </button>
+          </div>
+        </div>
         <div v-if="lottery.imageUrl" class="lottery-cover-wrap">
           <img
             :src="deriveLotteryThumbnail(lottery.imageUrl)"
@@ -494,20 +548,28 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
             class="lottery-cover"
             loading="lazy"
           />
+          <div class="lottery-cover-shade" aria-hidden="true"></div>
+          <span class="lottery-cover-label">SORTEO CDELU</span>
         </div>
 
         <header class="lottery-head">
-          <div>
-            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
+          <div class="lottery-heading-content">
+            <div class="lottery-badges">
               <span :class="['lottery-type-badge', lottery.isFree ? 'is-free' : 'is-paid']">
                 {{ lottery.isFree ? 'Gratuita 🎁' : 'De Pago 💳' }}
               </span>
               <span :class="['lottery-status', getStatusClass(lottery)]">
                 {{ getStatusLabel(lottery) }}
               </span>
-              <span v-if="lottery.hasPremio !== false" class="lottery-prize-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: bold; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.25rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);">
+              <span v-if="lottery.hasPremio !== false" class="lottery-prize-badge">
                 <span v-if="lottery.premioType === 'dinero'">💵 Premio: ${{ lottery.premioDinero }}</span>
                 <span v-else>🎁 Premio: {{ lottery.premioOtros }}</span>
+              </span>
+              <span
+                v-if="lottery.isFree && lotteryStore.getNewUserPromotionExtraTickets(true) > 0"
+                class="new-user-bonus-badge"
+              >
+                🎉 Bono nuevo usuario +{{ lotteryStore.getNewUserPromotionExtraTickets(true) }}
               </span>
             </div>
             <h3>{{ lottery.title }}</h3>
@@ -516,9 +578,18 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
         </header>
 
         <div class="lottery-meta">
-          <span>Inicio: <strong>{{ formatDateTime(lottery.startsAt) }}</strong></span>
-          <span>Cierre: <strong>{{ formatDateTime(lottery.endsAt) }}</strong></span>
-          <span>Tus numeros: <strong>{{ getUserNumbersLabel(lottery.id) }}</strong></span>
+          <span class="lottery-meta-item">
+            <small>Inicio</small>
+            <strong>{{ formatDateTime(lottery.startsAt) }}</strong>
+          </span>
+          <span class="lottery-meta-item">
+            <small>Cierre</small>
+            <strong>{{ formatDateTime(lottery.endsAt) }}</strong>
+          </span>
+          <span class="lottery-meta-item user-numbers-meta">
+            <small>Tus números</small>
+            <strong>{{ getUserNumbersLabel(lottery.id) }}</strong>
+          </span>
         </div>
 
         <div class="lottery-progress">
@@ -773,23 +844,142 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 }
 
 .lottery-card {
+  position: relative;
+  isolation: isolate;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--card-bg);
-  padding: 1rem;
+  border-radius: 22px;
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, #e4b84d 10%, transparent) 0%, transparent 34%),
+    linear-gradient(145deg, var(--card-bg), color-mix(in srgb, var(--card-bg) 92%, var(--bg)));
+  padding: 1.15rem;
   overflow: hidden;
+  box-shadow: 0 14px 36px rgba(20, 28, 38, 0.08);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.lottery-card::before {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 1.2rem;
+  left: 1.2rem;
+  height: 3px;
+  border-radius: 0 0 99px 99px;
+  background: linear-gradient(90deg, #d6a932, #7caa57 58%, transparent);
+  content: '';
+}
+
+.lottery-card:hover {
+  border-color: color-mix(in srgb, #d6a932 42%, var(--border));
+  box-shadow: 0 20px 46px rgba(20, 28, 38, 0.13);
+  transform: translateY(-2px);
+}
+
+.lottery-admin-menu {
+  position: absolute;
+  z-index: 5;
+  top: 0.7rem;
+  right: 0.7rem;
+}
+
+.lottery-admin-menu-trigger {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0 0 0.28rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+  color: var(--text-h);
+  font-size: 1.55rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lottery-admin-menu-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: 145px;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--card-bg);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+}
+
+.lottery-admin-menu-popover button {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lottery-admin-menu-popover button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.lottery-admin-menu-popover button.is-danger {
+  color: #b42318;
+}
+
+.lottery-admin-menu-popover button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.lottery-admin-error {
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  background: #feeceb;
+  color: #991b1b;
 }
 
 .lottery-cover-wrap {
-  margin: -1rem -1rem 0.85rem;
-  height: 150px;
-  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+  position: relative;
+  isolation: isolate;
+  margin: -1.15rem -1.15rem 1rem;
+  height: clamp(145px, 24vw, 230px);
+  overflow: hidden;
+  background: linear-gradient(135deg, #344538, #c49e46);
 }
 
 .lottery-cover {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 500ms ease;
+}
+
+.lottery-card:hover .lottery-cover {
+  transform: scale(1.035);
+}
+
+.lottery-cover-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(10, 17, 14, 0.42), transparent 68%),
+    linear-gradient(0deg, rgba(10, 17, 14, 0.25), transparent 62%);
+}
+
+.lottery-cover-label {
+  position: absolute;
+  bottom: 0.9rem;
+  left: 1rem;
+  color: #fff;
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.18em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
 }
 
 .lottery-head {
@@ -798,9 +988,56 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
   gap: 1rem;
 }
 
+.lottery-heading-content {
+  min-width: 0;
+  width: 100%;
+  padding-right: 2.8rem;
+}
+
+.lottery-badges {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.65rem;
+}
+
+.lottery-badges > span {
+  min-height: 29px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.69rem;
+  font-weight: 850;
+  letter-spacing: 0.035em;
+  line-height: 1.15;
+}
+
 .lottery-head h3 {
   margin: 0;
   color: var(--text-h);
+  font-size: clamp(1.28rem, 3vw, 1.75rem);
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 1.12;
+}
+
+.lottery-prize-badge {
+  max-width: 100%;
+  border-color: #dfc577 !important;
+  background: linear-gradient(135deg, #fff8df, #f8edc8);
+  color: #674c08;
+  overflow-wrap: anywhere;
+}
+
+.new-user-bonus-badge {
+  border-color: #65aa79 !important;
+  background: linear-gradient(135deg, #e6f8e8, #ccefd4);
+  color: #15572c;
+  box-shadow: 0 2px 8px rgba(34, 139, 73, 0.12);
 }
 
 .lottery-description {
@@ -809,48 +1046,152 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 }
 
 .lottery-status {
-  font-size: 0.72rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.25rem 0.55rem;
   text-transform: uppercase;
   height: fit-content;
 }
 
+.lottery-status.status-active,
+.lottery-status.status-closed,
+.lottery-status.status-completed,
+.lottery-status.status-draft {
+  border: 1px solid transparent;
+}
+
 .lottery-status.status-active {
-  background: #e8f7ee;
-  color: #166534;
+  background: #e4f5e9;
+  border-color: #b7dfc2;
+  color: #145b31;
 }
 
 .lottery-status.status-closed {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #edf0f4;
+  border-color: #d2d9e2;
+  color: #354253;
 }
 
 .lottery-status.status-completed {
-  background: #eef2ff;
-  color: #3730a3;
+  background: #fff2cc;
+  border-color: #ead28a;
+  color: #684b00;
 }
 
 .lottery-status.status-draft {
-  background: #fff4e5;
-  color: #9a3412;
+  background: #fff0df;
+  border-color: #efc89d;
+  color: #743b0c;
+}
+
+.lottery-type-badge.is-free {
+  border-color: #a9d5b5 !important;
+  background: #e1f3e6;
+  color: #145b31;
+}
+
+.lottery-type-badge.is-paid {
+  border-color: #adc5e8 !important;
+  background: #e7effb;
+  color: #1e467a;
+}
+
+.lottery-status.status-active::before,
+.lottery-status.status-closed::before,
+.lottery-status.status-completed::before,
+.lottery-status.status-draft::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+
+.dark .lottery-type-badge.is-free {
+  border-color: #35764d !important;
+  background: #193b2a;
+  color: #a8e6b8;
+}
+
+.dark .lottery-type-badge.is-paid {
+  border-color: #426590 !important;
+  background: #1d3552;
+  color: #b9d4f8;
+}
+
+.dark .lottery-prize-badge {
+  border-color: #806c32 !important;
+  background: linear-gradient(135deg, #403719, #332c18);
+  color: #f4d77a;
+}
+
+.dark .new-user-bonus-badge {
+  border-color: #438859 !important;
+  background: linear-gradient(135deg, #1e482e, #193b2a);
+  color: #b5efc2;
+}
+
+.dark .lottery-status.status-active {
+  border-color: #35764d;
+  background: #193b2a;
+  color: #a8e6b8;
+}
+
+.dark .lottery-status.status-closed {
+  border-color: #536174;
+  background: #303b4a;
+  color: #d1d9e4;
+}
+
+.dark .lottery-status.status-completed {
+  border-color: #806c32;
+  background: #403719;
+  color: #f4d77a;
+}
+
+.dark .lottery-status.status-draft {
+  border-color: #8c5b31;
+  background: #472d19;
+  color: #ffd0a0;
 }
 
 .lottery-meta {
-  margin-top: 0.75rem;
+  margin-top: 1rem;
   display: grid;
-  gap: 0.35rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
   color: var(--text);
-  font-size: 0.86rem;
+}
+
+.lottery-meta-item {
+  min-width: 0;
+  display: grid;
+  gap: 0.32rem;
+  padding: 0.68rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+}
+
+.lottery-meta-item small {
+  color: var(--text);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.lottery-meta-item strong {
+  color: var(--text-h);
+  font-size: 0.83rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .lottery-progress {
-  margin-top: 0.8rem;
-  padding: 0.55rem 0.65rem;
+  margin-top: 0.75rem;
+  padding: 0.8rem 0.9rem;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg) 70%, white 30%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
 }
 
 .progress-top {
@@ -875,14 +1216,15 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 .progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #16a34a, #15803d);
+  background: linear-gradient(90deg, #c99c26, #5c9a5d);
+  box-shadow: 0 0 12px rgba(92, 154, 93, 0.28);
   transition: width 0.25s ease;
 }
 
 .lottery-time {
-  margin-top: 0.55rem;
+  margin-top: 0.7rem;
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 0.35rem;
   color: var(--text);
@@ -988,14 +1330,17 @@ button {
   padding: 0.72rem 1.2rem;
   font-size: 0.96rem;
   font-weight: 800;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent) 14%, #ffffff 86%) 0%,
-    color-mix(in srgb, var(--accent) 8%, var(--bg) 92%) 100%
-  );
-  box-shadow: 0 6px 14px color-mix(in srgb, var(--accent) 24%, transparent 76%);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #558c55 48%, var(--border) 52%);
+  background: linear-gradient(135deg, #527d4c, #315b3e);
+  color: #fff;
+  box-shadow: 0 7px 16px rgba(49, 91, 62, 0.22);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.lottery-progress-actions .ghost-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(49, 91, 62, 0.28);
 }
 
 .primary-btn {
@@ -1138,24 +1483,7 @@ button:disabled {
 }
 
 .lottery-type-badge {
-  display: inline-block;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  line-height: 1;
-}
-.lottery-type-badge.is-free {
-  background: #f0fdf4;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
-}
-.lottery-type-badge.is-paid {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
 }
 
 .number-btn.state-available.tilt-neg8 { transform: rotate(-8deg); }
@@ -1360,16 +1688,55 @@ button:disabled {
 
 @media (max-width: 640px) {
   .lottery-card {
-    border-radius: 0;
-    border-left: 0;
-    border-right: 0;
-    padding: 1rem;
-    margin-bottom: 0.5rem;
+    border-radius: 17px;
+    padding: 0.9rem;
+    margin: 0 0.2rem 0.55rem;
+    box-shadow: 0 9px 24px rgba(20, 28, 38, 0.08);
   }
 
   .lottery-cover-wrap {
-    margin: -1rem -1rem 0.85rem;
-    height: 140px;
+    margin: -0.9rem -0.9rem 0.85rem;
+    height: clamp(118px, 38vw, 170px);
+  }
+
+  .lottery-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .lottery-meta-item {
+    padding: 0.58rem 0.62rem;
+  }
+
+  .lottery-meta-item strong {
+    font-size: 0.76rem;
+  }
+
+  .user-numbers-meta {
+    grid-column: 1 / -1;
+  }
+
+  .lottery-heading-content {
+    padding-right: 2.35rem;
+  }
+
+  .lottery-badges {
+    gap: 0.35rem;
+  }
+
+  .lottery-prize-badge {
+    font-size: 0.66rem;
+    min-height: 27px;
+    padding: 0.28rem 0.58rem;
+  }
+
+  .lottery-time {
+    font-size: 0.76rem;
+  }
+
+  .lottery-progress-actions .ghost-btn {
+    width: 100%;
+    min-height: 46px;
   }
 
   .lottery-meta {

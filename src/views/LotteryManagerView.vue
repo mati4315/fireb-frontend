@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useModuleStore } from '@/stores/moduleStore';
 import {
@@ -35,6 +35,8 @@ const MAX_MAX_TICKETS_PER_USER = 5;
 const authStore = useAuthStore();
 const moduleStore = useModuleStore();
 const lotteryStore = useLotteryStore();
+const route = useRoute();
+const router = useRouter();
 
 const moduleEnabled = ref(true);
 const savingConfig = ref(false);
@@ -375,6 +377,7 @@ const clearLogoSelection = () => {
 const saveLottery = async () => {
   resetFeedback();
   savingLottery.value = true;
+  const wasEditing = Boolean(editingLotteryId.value);
   try {
     let finalImageUrl = lotteryForm.imageUrl || '';
     let uploadWarning = '';
@@ -423,6 +426,9 @@ const saveLottery = async () => {
       feedback.value = `${feedback.value} ${uploadWarning}`.trim();
     }
     resetForm();
+    if (!wasEditing) {
+      await router.push('/loteria');
+    }
   } catch (error: any) {
     errorMessage.value = error?.message || 'No se pudo guardar la loteria.';
   } finally {
@@ -516,6 +522,20 @@ onMounted(() => {
     countdownNow.value = Date.now();
   }, 1000);
 });
+
+watch(
+  [() => route.query.edit, lotteries],
+  async ([requestedId]) => {
+    const lotteryId = typeof requestedId === 'string' ? requestedId : '';
+    if (!lotteryId || editingLotteryId.value === lotteryId) return;
+    const lottery = lotteries.value.find((item) => item.id === lotteryId);
+    if (!lottery) return;
+
+    setFormFromLottery(lottery);
+    await router.replace({ name: 'lottery-manager', query: {} });
+  },
+  { immediate: true }
+);
 
 onBeforeUnmount(() => {
   if (logoPreviewObjectUrl.value) {

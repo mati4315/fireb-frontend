@@ -4,8 +4,8 @@ import LoginCard from '@/components/common/LoginCard.vue'
 
 const router = useRouter()
 
-const handleSuccess = () => {
-  router.push('/')
+const handleSuccess = (isNewUser = false) => {
+  router.push(isNewUser ? '/perfil' : '/')
 }
 </script>
 

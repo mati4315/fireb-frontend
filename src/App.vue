@@ -248,7 +248,7 @@ const dismissPushBanner = () => {
                 Mi Perfil
               </RouterLink>
               <RouterLink
-                to="/anormalia-22"
+                to="/anormalia22"
                 class="dropdown-item"
                 @click="closeUserMenu"
               >

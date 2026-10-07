@@ -198,20 +198,19 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   z-index: 1100;
-  padding: 0;
+  padding: 0.6rem 1rem calc(0.6rem + env(safe-area-inset-bottom));
   pointer-events: none;
   box-sizing: border-box;
 }
 
 .radio-dock__inner {
-  width: 100%;
+  width: min(100%, 760px);
   box-sizing: border-box;
   margin: 0 auto;
-  padding: 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 0.75rem 0.85rem;
   position: relative;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-radius: 0;
+  border-radius: 20px;
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, var(--card-bg)), var(--card-bg)),
     var(--card-bg);
@@ -232,11 +231,10 @@ onBeforeUnmount(() => {
 .radio-dock--collapsed .radio-dock__inner {
   width: fit-content;
   margin-left: auto;
-  margin-right: 0;
-  padding: 0;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  border-radius: 0;
-  transform: none;
+  margin-right: 0.4rem;
+  padding: 0.4rem 0.45rem 0.36rem 0.52rem;
+  border-radius: 999px;
+  transform: translateY(-2px);
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
 }
 
@@ -518,13 +516,12 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .radio-dock {
-    padding: 0;
+    padding: 0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom));
   }
 
   .radio-dock__inner {
-    padding: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    border-radius: 0;
+    padding: 0.3rem 0.4rem;
+    border-radius: 16px;
     flex-direction: row;
     align-items: center;
     gap: 0.3rem;
@@ -599,10 +596,9 @@ onBeforeUnmount(() => {
   }
 
   .radio-dock--collapsed .radio-dock__inner {
-    margin-right: 0;
-    padding: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    transform: none;
+    margin-right: 0.3rem;
+    padding: 0.34rem 0.38rem 0.3rem 0.46rem;
+    transform: translateY(-1px);
   }
 
   .radio-dock__button--toggle {

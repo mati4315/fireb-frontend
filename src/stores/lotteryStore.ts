@@ -6,6 +6,7 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   limit,
   orderBy,
   query,
@@ -125,6 +126,14 @@ const MAX_MAX_TICKETS_PER_USER = 5;
 const LOTTERY_CACHE_TTL_MS = 5 * 60 * 1000;
 const LOTTERY_PUBLIC_CACHE_KEY = 'cdeluar.lotteries.public.cache.v1';
 const LOTTERY_ADMIN_CACHE_KEY = 'cdeluar.lotteries.admin.cache.v1';
+const LOTTERY_NEW_USER_PROMOTION_DOC = 'lottery_new_user_promotion';
+
+type LotteryNewUserPromotion = {
+  enabled: boolean;
+  extraTickets: number;
+  startsAt: Date | null;
+  endsAt: Date | null;
+};
 
 const toDate = (value: unknown): Date | null => {
   if (!value) return null;
@@ -309,6 +318,12 @@ export const useLotteryStore = defineStore('lottery', () => {
   const userNumbersByLottery = ref<Record<string, number[]>>({});
   const userTicketsCountByLottery = ref<Record<string, number>>({});
   const userExtraTicketsByLottery = ref<Record<string, number>>({});
+  const newUserPromotion = ref<LotteryNewUserPromotion>({
+    enabled: false,
+    extraTickets: 0,
+    startsAt: null,
+    endsAt: null
+  });
   const userEntriesUnsubscribe = ref<Unsubscribe | null>(null);
   const userEntriesInitialized = ref(false);
 
@@ -405,7 +420,22 @@ export const useLotteryStore = defineStore('lottery', () => {
     return Math.max(0, Math.floor(userExtraTicketsByLottery.value[lotteryId] || 0));
   };
 
-  const getEffectiveTicketLimit = (lotteryId: string, baseLimit: number, maxNumber: number): number => {
+  const getNewUserPromotionExtraTickets = (isFreeLottery: boolean): number => {
+    if (!isFreeLottery || !newUserPromotion.value.enabled || !newUserPromotion.value.startsAt || !newUserPromotion.value.endsAt) {
+      return 0;
+    }
+
+    const authUser = authStore.user;
+    const creationDate = toDate(authUser?.metadata?.creationTime)
+      || toDate(authStore.userProfile?.createdAt);
+    if (!creationDate) return 0;
+
+    return creationDate >= newUserPromotion.value.startsAt && creationDate <= newUserPromotion.value.endsAt
+      ? newUserPromotion.value.extraTickets
+      : 0;
+  };
+
+  const getEffectiveTicketLimit = (lotteryId: string, baseLimit: number, maxNumber: number, isFreeLottery = true): number => {
     const safeBase = clampInteger(
       baseLimit,
       MIN_MAX_TICKETS_PER_USER,
@@ -413,8 +443,28 @@ export const useLotteryStore = defineStore('lottery', () => {
       DEFAULT_MAX_TICKETS_PER_USER
     );
     const safeMaxNumber = clampInteger(maxNumber, MIN_MAX_NUMBER, MAX_MAX_NUMBER, DEFAULT_MAX_NUMBER);
-    const extra = getUserExtraTickets(lotteryId);
+    const extra = getUserExtraTickets(lotteryId) + getNewUserPromotionExtraTickets(isFreeLottery);
     return Math.max(1, Math.min(safeMaxNumber, safeBase + extra));
+  };
+
+  const refreshNewUserPromotion = async () => {
+    try {
+      const snapshot = await getDoc(doc(db, '_config', LOTTERY_NEW_USER_PROMOTION_DOC));
+      if (!snapshot.exists()) {
+        newUserPromotion.value = { enabled: false, extraTickets: 0, startsAt: null, endsAt: null };
+        return;
+      }
+      const data = snapshot.data();
+      newUserPromotion.value = {
+        enabled: data.enabled === true,
+        extraTickets: clampInteger(data.extraTickets, 1, 5, 1),
+        startsAt: toDate(data.startsAt),
+        endsAt: toDate(data.endsAt)
+      };
+    } catch (error) {
+      console.warn('Could not load new-user lottery promotion:', error);
+      newUserPromotion.value = { enabled: false, extraTickets: 0, startsAt: null, endsAt: null };
+    }
   };
 
   const hasSelectedNumber = (lotteryId: string, selectedNumber: number): boolean => {
@@ -459,6 +509,7 @@ export const useLotteryStore = defineStore('lottery', () => {
   };
 
   const initPublicLotteriesListener = async (forceRefresh = false) => {
+    await refreshNewUserPromotion();
     if (publicInitialized.value && !forceRefresh) return;
 
     publicLoading.value = true;
@@ -886,7 +937,12 @@ export const useLotteryStore = defineStore('lottery', () => {
     }
 
     const currentTicketsCount = getUserTicketsCount(lotteryId);
-    const effectiveLimit = getEffectiveTicketLimit(lotteryId, lottery.maxTicketsPerUser, lottery.maxNumber);
+    const effectiveLimit = getEffectiveTicketLimit(
+      lotteryId,
+      lottery.maxTicketsPerUser,
+      lottery.maxNumber,
+      lottery.isFree
+    );
     if (currentTicketsCount >= effectiveLimit) {
       throw new Error(`Alcanzaste el maximo de ${effectiveLimit} numeros para esta loteria.`);
     }
@@ -1246,6 +1302,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     getUserNumbers,
     getUserTicketsCount,
     getUserExtraTickets,
+    getNewUserPromotionExtraTickets,
     getEffectiveTicketLimit,
     hasSelectedNumber,
     isSelectingNumber,

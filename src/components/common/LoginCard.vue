@@ -14,7 +14,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'success'): void;
+  (e: 'success', isNewUser: boolean): void;
 }>()
 
 const authStore = useAuthStore()
@@ -34,14 +34,14 @@ const handleForm = async () => {
   }
 
   if (result.success) {
-    emit('success')
+    emit('success', !isLogin.value)
   }
 }
 
 const handleProviderLogin = async (providerId: string) => {
   const result = await authStore.loginWithProvider(providerId)
   if (result.success) {
-    emit('success')
+    emit('success', result.isNewUser === true)
   }
 }
 </script>

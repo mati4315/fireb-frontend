@@ -12,6 +12,7 @@ import {
   signInWithRedirect,
   getRedirectResult,
   signInWithCredential,
+  getAdditionalUserInfo,
   fetchSignInMethodsForEmail,
   linkWithCredential,
   linkWithPopup
@@ -321,7 +322,8 @@ export const useAuthStore = defineStore('auth', () => {
           firebaseCredential = FacebookAuthProvider.credential(facebookToken)
         }
 
-        const { user: firebaseUser } = await signInWithCredential(auth, firebaseCredential)
+        const credentialResult = await signInWithCredential(auth, firebaseCredential)
+        const firebaseUser = credentialResult.user
         user.value = firebaseUser
         await refreshTokenClaims(firebaseUser, true)
         await ensureProfileDocument(firebaseUser, {
@@ -329,7 +331,7 @@ export const useAuthStore = defineStore('auth', () => {
           profilePictureUrl: nativeResult.user?.photoUrl || undefined
         })
         loading.value = false
-        return { success: true }
+        return { success: true, isNewUser: getAdditionalUserInfo(credentialResult)?.isNewUser === true }
       }
 
       let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
@@ -341,12 +343,13 @@ export const useAuthStore = defineStore('auth', () => {
         provider = new OAuthProvider(providerId);
       }
 
-      const { user: firebaseUser } = await signInWithPopup(auth, provider);
+      const credentialResult = await signInWithPopup(auth, provider);
+      const firebaseUser = credentialResult.user;
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
       await ensureProfileDocument(firebaseUser);
       loading.value = false;
-      return { success: true };
+      return { success: true, isNewUser: getAdditionalUserInfo(credentialResult)?.isNewUser === true };
     } catch (err: any) {
       console.error('Login Error:', err);
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/popup-blocked') {

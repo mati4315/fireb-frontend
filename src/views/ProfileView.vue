@@ -5,8 +5,9 @@ import { useAuthStore } from '@/stores/authStore';
 import { useProfileStore, type PublicProfile } from '@/stores/profileStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { useFeedStore } from '@/stores/feedStore';
-import { db } from '@/config/firebase';
+import { db, functions } from '@/config/firebase';
 import { collection, collectionGroup, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 import ImageLightbox from '@/components/common/ImageLightbox.vue';
@@ -14,6 +15,7 @@ import { runWithConcurrency } from '@/utils/concurrency'; // Assuming this exist
 import { buildContentDetailPath } from '@/utils/contentLinks';
 import { isAdminUser } from '@/utils/roles';
 import LotteryTicketsModal from '@/components/admin/LotteryTicketsModal.vue';
+import DismissibleNoticeCard from '@/components/common/DismissibleNoticeCard.vue';
 
 const AVATAR_MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const AVATAR_PUBLIC_BASE_URL = 'https://bot.cdelu.io';
@@ -60,6 +62,77 @@ const linkProviderSuccess = ref<string | null>(null);
 const lotteriesParticipated = ref<number | null>(null);
 const lotteriesWon = ref<number | null>(null);
 const loadingStats = ref(false);
+const availableLotteryTickets = ref<number | null>(null);
+const loadingAvailableLotteryTickets = ref(false);
+const welcomeCardDismissed = ref(false);
+const welcomeBonusTickets = ref(0);
+const welcomePromotionEndsAt = ref('');
+
+const loadWelcomePromotion = async (uid: string) => {
+  if (!uid || uid !== authStore.user?.uid) return;
+
+  try {
+    welcomeCardDismissed.value = window.localStorage.getItem(`cdelu_profile_welcome_dismissed:${uid}`) === '1';
+    const snapshot = await getDoc(doc(db, '_config', 'lottery_new_user_promotion'));
+    if (!snapshot.exists()) return;
+
+    const data = snapshot.data();
+    const asDate = (value: any): Date | null => {
+      if (value instanceof Date) return value;
+      if (typeof value?.toDate === 'function') return value.toDate();
+      if (typeof value === 'string' || typeof value === 'number') {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      return null;
+    };
+    const startsAt = asDate(data.startsAt);
+    const endsAt = asDate(data.endsAt);
+    const accountCreatedAt = asDate(authStore.user?.metadata?.creationTime)
+      || asDate(authStore.userProfile?.createdAt)
+      || asDate(currentProfile.value?.createdAt);
+    const now = new Date();
+
+    if (
+      data.enabled === true && startsAt && endsAt && accountCreatedAt
+      && startsAt <= now && now <= endsAt
+      && startsAt <= accountCreatedAt && accountCreatedAt <= endsAt
+    ) {
+      welcomeBonusTickets.value = Math.max(1, Math.min(5, Math.floor(Number(data.extraTickets) || 1)));
+      welcomePromotionEndsAt.value = new Intl.DateTimeFormat('es-AR', {
+        day: 'numeric', month: 'long'
+      }).format(endsAt);
+    }
+  } catch (error) {
+    console.warn('No se pudo cargar el aviso de bienvenida:', error);
+  }
+};
+
+const dismissWelcomeCard = () => {
+  welcomeCardDismissed.value = true;
+  const uid = authStore.user?.uid;
+  if (uid) window.localStorage.setItem(`cdelu_profile_welcome_dismissed:${uid}`, '1');
+};
+
+const loadAvailableLotteryTickets = async (uid: string) => {
+  if (!uid || uid !== authStore.user?.uid) {
+    availableLotteryTickets.value = null;
+    return;
+  }
+
+  loadingAvailableLotteryTickets.value = true;
+  try {
+    const callable = httpsCallable(functions, 'getMyAvailableLotteryTickets');
+    const response = await callable({});
+    const payload = (response.data || {}) as { availableTickets?: unknown };
+    availableLotteryTickets.value = Math.max(0, Math.floor(Number(payload.availableTickets) || 0));
+  } catch (error) {
+    console.error('Error loading available lottery tickets:', error);
+    availableLotteryTickets.value = 0;
+  } finally {
+    loadingAvailableLotteryTickets.value = false;
+  }
+};
 
 const formatCreationDate = (value: any): string => {
   if (!value) return '-';
@@ -650,7 +723,19 @@ const loadProfileContext = async () => {
 
     currentProfile.value = profile;
     viewedUserId.value = profile.userId;
+    welcomeBonusTickets.value = 0;
+    welcomePromotionEndsAt.value = '';
+    if (profile.userId === authStore.user?.uid) {
+      void loadWelcomePromotion(profile.userId);
+    } else {
+      welcomeCardDismissed.value = true;
+    }
     void loadLotteryStats(profile.userId);
+    if (isOwnProfile.value) {
+      void loadAvailableLotteryTickets(profile.userId);
+    } else {
+      availableLotteryTickets.value = null;
+    }
 
     if (isOwnProfile.value) {
       resetFormFromProfile();
@@ -998,6 +1083,15 @@ onBeforeUnmount(() => {
                 <span class="stat-label">Loterías Ganadas</span>
               </div>
             </button>
+            <div v-if="isOwnProfile" class="lottery-stat-badge available" aria-live="polite">
+              <span class="stat-icon">🎫</span>
+              <div class="stat-info">
+                <span class="stat-value">
+                  {{ loadingAvailableLotteryTickets ? '...' : availableLotteryTickets ?? 0 }}
+                </span>
+                <span class="stat-label">Tickets disponibles en sorteos activos</span>
+              </div>
+            </div>
           </div>
 
           <div v-if="!isOwnProfile" class="actions-row">
@@ -1020,6 +1114,24 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </header>
+
+      <DismissibleNoticeCard
+        v-if="isOwnProfile && !welcomeCardDismissed"
+        eyebrow="TU ESPACIO EN CDELU.AR"
+        :title="`¡Te damos la bienvenida, ${currentProfile.nombre}!`"
+        icon="✦"
+        close-label="Cerrar bienvenida"
+        action-label="Volver al inicio"
+        action-to="/"
+        @close="dismissWelcomeCard"
+      >
+        <p v-if="welcomeBonusTickets > 0">
+            Ya estás participando de la promoción activa: tienes
+            <strong>{{ welcomeBonusTickets }} ticket{{ welcomeBonusTickets === 1 ? '' : 's' }} extra{{ welcomeBonusTickets === 1 ? '' : 's' }}</strong>
+            en cada lotería gratuita hasta el {{ welcomePromotionEndsAt }}.
+        </p>
+        <p v-else>Este es tu perfil. Desde aquí puedes personalizar tus datos y seguir tu actividad en la comunidad.</p>
+      </DismissibleNoticeCard>
 
       <section v-if="isOwnProfile" class="card profile-editor">
         <h2>Mi Perfil</h2>
@@ -1467,7 +1579,7 @@ onBeforeUnmount(() => {
 
 .lottery-stats-container {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr));
   gap: 0.75rem;
   margin-top: 1.1rem;
   width: 100%;
@@ -1514,6 +1626,19 @@ onBeforeUnmount(() => {
 
 .lottery-stat-badge.won:hover {
   border-color: #10b981;
+}
+
+.lottery-stat-badge.available {
+  border-color: color-mix(in srgb, #4b9a60 32%, var(--border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #4b9a60 6%, var(--card-bg)),
+    color-mix(in srgb, #d4ae43 9%, var(--card-bg))
+  );
+}
+
+.lottery-stat-badge.available .stat-icon {
+  color: #367a48;
 }
 
 .stat-icon {
@@ -1895,8 +2020,44 @@ label small {
   }
 
   .lottery-stats-container {
-    grid-template-columns: 1fr;
-    gap: 0.6rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin-top: 0.9rem;
+  }
+
+  .lottery-stat-badge {
+    min-width: 0;
+    align-items: flex-start;
+    gap: 0.45rem;
+    padding: 0.7rem 0.65rem;
+    border-radius: 14px;
+    text-align: left;
+  }
+
+  .lottery-stat-badge .stat-icon {
+    flex: 0 0 auto;
+    font-size: 1.2rem;
+  }
+
+  .lottery-stat-badge .stat-info {
+    min-width: 0;
+    gap: 0.2rem;
+  }
+
+  .lottery-stat-badge .stat-value {
+    font-size: 1.15rem;
+  }
+
+  .lottery-stat-badge .stat-label {
+    font-size: 0.68rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .lottery-stat-badge.available {
+    grid-column: 1 / -1;
+    align-items: center;
+    padding-inline: 0.85rem;
   }
 
   .actions-row {
