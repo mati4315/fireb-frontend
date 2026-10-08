@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { doc, onSnapshot, setDoc } from 'firebase/firestore'
+import { doc, getDocFromServer, onSnapshot, setDoc } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
 import { db } from '@/config/firebase'
 import { functions as firebaseFunctions } from '@/config/firebase'
@@ -89,6 +89,10 @@ const loadSecretSettings = () => {
   unsubscribeSecretSettings.value = onSnapshot(
     doc(db, '_config', 'secret_settings'),
     (snapshot) => {
+      // Do not let a queued listener snapshot replace the values while the
+      // save request is in flight. The form is reconciled with a server read
+      // once the callable confirms the write.
+      if (savingSettings.value) return
       const data = snapshot.data() || {}
       settingsForm.maxTextLength = Number(data.maxTextLength ?? settingsForm.maxTextLength)
       settingsForm.minTextLength = Number(data.minTextLength ?? settingsForm.minTextLength)
@@ -135,8 +139,8 @@ const saveFutureSettings = async () => {
   savingSettings.value = true
   try {
     const callable = httpsCallable(firebaseFunctions, 'saveSecretSettingsCallable')
-    await callable({
-        maxTextLength: Math.max(120, Math.min(500, Number(settingsForm.maxTextLength || 280))),
+    const requestedSettings: SecretSettingsForm = {
+        maxTextLength: Math.max(120, Math.min(500, Number(settingsForm.maxTextLength ?? 280))),
         minTextLength: Math.max(1, Math.min(80, Number(settingsForm.minTextLength || 12))),
         createCooldownMinutes: Math.max(
           1,
@@ -151,8 +155,34 @@ const saveFutureSettings = async () => {
           1,
           Math.min(100, Number(settingsForm.autoHideReportsThreshold || 6))
         )
-    })
-    feedback.value = 'Configuraciones futuras de secretos guardadas.'
+    }
+    await callable(requestedSettings)
+
+    // Read back from the server (not Firestore's local cache) so the displayed
+    // value always reflects what was actually persisted.
+    const savedSnapshot = await getDocFromServer(doc(db, '_config', 'secret_settings'))
+    const saved = savedSnapshot.exists() ? savedSnapshot.data() : undefined
+    if (!saved || Number(saved.maxTextLength) !== requestedSettings.maxTextLength) {
+      const persistedValue = saved?.maxTextLength
+      if (persistedValue != null) settingsForm.maxTextLength = Number(persistedValue)
+      throw new Error(
+        `Firebase no confirmó el máximo solicitado (${requestedSettings.maxTextLength}). Valor guardado: ${persistedValue ?? 'sin dato'}.`
+      )
+    }
+
+    settingsForm.maxTextLength = Number(saved.maxTextLength)
+    settingsForm.minTextLength = Number(saved.minTextLength ?? requestedSettings.minTextLength)
+    settingsForm.createCooldownMinutes = Number(
+      saved.createCooldownMinutes ?? requestedSettings.createCooldownMinutes
+    )
+    settingsForm.commentCooldownSeconds = Number(
+      saved.commentCooldownSeconds ?? requestedSettings.commentCooldownSeconds
+    )
+    settingsForm.dailyLimit = Number(saved.dailyLimit ?? requestedSettings.dailyLimit)
+    settingsForm.autoHideReportsThreshold = Number(
+      saved.autoHideReportsThreshold ?? requestedSettings.autoHideReportsThreshold
+    )
+    feedback.value = `Configuraciones guardadas. Máximo confirmado: ${settingsForm.maxTextLength} caracteres.`
   } catch (error: any) {
     const code = String(error?.code || '')
     if (code.includes('permission-denied') || code.includes('unauthenticated')) {
