@@ -206,6 +206,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { isStaffUser } from '@/utils/roles';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 import ShareDialog from '@/components/common/ShareDialog.vue';
+import { buildShareUrl } from '@/utils/shareUrl';
 
 const props = defineProps<{
   secret: SecretRecord;
@@ -354,7 +355,7 @@ const openSecretDetail = () => {
 const openSecretShare = () => {
   const slug = slugify(props.secret.descripcion.slice(0, 64));
   const path = `/s/${encodeURIComponent(props.secret.id)}/${encodeURIComponent(slug)}#secret-${encodeURIComponent(props.secret.id)}`;
-  secretShareUrl.value = new URL(path, window.location.origin).toString();
+  secretShareUrl.value = buildShareUrl(path);
   shareDialogOpen.value = true;
 };
 

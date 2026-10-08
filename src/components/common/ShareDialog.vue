@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
-import { Browser } from '@capacitor/browser'
+import { Share } from '@capacitor/share'
 import { isNativePlatform } from '@/platform/capacitor'
 
 const props = defineProps<{
@@ -26,7 +26,14 @@ const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
 
   try {
     if (isNativePlatform()) {
-      await Browser.open({ url: targetUrl })
+      // Use Android's native sharesheet so installed apps (Facebook, WhatsApp,
+      // etc.) receive a share intent instead of opening a localhost WebView URL.
+      await Share.share({
+        title: props.title || 'Compartir publicación',
+        text: props.text || undefined,
+        url: props.url,
+        dialogTitle: 'Elegir aplicación para compartir'
+      })
     } else {
       const opened = window.open(targetUrl, '_blank', 'noopener,noreferrer')
       if (!opened) window.location.assign(targetUrl)

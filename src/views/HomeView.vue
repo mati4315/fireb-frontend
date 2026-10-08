@@ -28,6 +28,7 @@ import {
   validateImageFile
 } from '@/utils/imageProcessing'
 import { runWithConcurrency } from '@/utils/concurrency'
+import { buildShareUrl } from '@/utils/shareUrl'
 import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
 import { getPublicNews, publicNewsToFeedItem } from '@/api/publicApi'
@@ -1334,7 +1335,7 @@ const openDetailFromItem = async (item: any, hash: string = '') => {
 const buildDetailAbsoluteUrl = (item: any): string | null => {
   const path = getDetailPath(item)
   if (!path) return null
-  return new URL(path, window.location.origin).toString()
+  return buildShareUrl(path)
 }
 
 const openFacebookPost = (item: any) => {
