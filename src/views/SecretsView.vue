@@ -14,7 +14,7 @@ import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
 const filterSortOptions: Array<{ value: SecretFilterKey; label: string }> = [
-  { value: 'recientes', label: 'Recientes' },
+  { value: 'recentes', label: 'Recientes' },
   { value: 'populares', label: 'Populares' },
   { value: 'polemicos', label: 'Polémicos' }
 ];
