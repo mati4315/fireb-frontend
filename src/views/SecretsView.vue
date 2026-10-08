@@ -13,6 +13,16 @@ import { useSurveyStore } from '@/stores/surveyStore';
 import SecretCard from '@/components/feed/SecretCard.vue';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
+const filterSortOptions: Array<{ value: SecretFilterKey; label: string }> = [
+  { value: 'recientes', label: 'Recientes' },
+  { value: 'populares', label: 'Populares' },
+  { value: 'polemicos', label: 'Polémicos' }
+];
+const filterSexOptions: Array<{ value: SecretSex | 'all'; label: string }> = [
+  { value: 'all', label: 'Todos' },
+  { value: 'hombre', label: 'Hombres' },
+  { value: 'mujer', label: 'Mujeres' }
+];
 
 const route = useRoute();
 const router = useRouter();
@@ -23,10 +33,20 @@ const surveyStore = useSurveyStore();
 const { isVisible: isHeaderVisible } = useHeaderScroll();
 const scrollY = ref(0);
 const feedTabsRef = ref<HTMLElement | null>(null);
+const filtersSectionRef = ref<HTMLElement | null>(null);
+const filtersPassed = ref(false);
+const filtersDialogOpen = ref(false);
+const previousBodyOverflow = ref('');
 const SECRETOS_SCROLL_KEY = 'cdelu_secretos_scroll_y_v1';
 
 const handleScrollY = () => {
   scrollY.value = window.scrollY;
+  const filtersRect = filtersSectionRef.value?.getBoundingClientRect();
+  filtersPassed.value = Boolean(filtersRect && filtersRect.bottom <= 64);
+};
+
+const handleFiltersDialogKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape') filtersDialogOpen.value = false;
 };
 
 const tabPathByKey: Record<HomeTabKey, string> = {
@@ -151,7 +171,12 @@ const selectedFilter = ref<SecretFilterKey>('recentes');
 const selectedZone = ref<string>('all');
 const selectedSex = ref<SecretSex | 'all'>('all');
 const selectedCategory = ref<string>('all');
+const draftFilter = ref<SecretFilterKey>('recentes');
+const draftZone = ref('all');
+const draftSex = ref<SecretSex | 'all'>('all');
+const draftCategory = ref('all');
 const showHighlights = ref(false);
+const filtersExpandedMobile = ref(false);
 const hasActiveSecretFilters = computed(() =>
   selectedZone.value !== 'all' || selectedSex.value !== 'all' || selectedCategory.value !== 'all'
 );
@@ -161,6 +186,39 @@ const clearSecretFilters = () => {
   selectedSex.value = 'all';
   selectedCategory.value = 'all';
 };
+
+const openFiltersDialog = () => {
+  draftFilter.value = selectedFilter.value;
+  draftZone.value = selectedZone.value;
+  draftSex.value = selectedSex.value;
+  draftCategory.value = selectedCategory.value;
+  filtersDialogOpen.value = true;
+};
+
+const applyDraftFilters = () => {
+  selectedFilter.value = draftFilter.value;
+  selectedZone.value = draftZone.value;
+  selectedSex.value = draftSex.value;
+  selectedCategory.value = draftCategory.value;
+  filtersDialogOpen.value = false;
+};
+
+const clearDraftFilters = () => {
+  draftZone.value = 'all';
+  draftSex.value = 'all';
+  draftCategory.value = 'all';
+};
+
+watch(filtersDialogOpen, (isOpen) => {
+  if (isOpen) {
+    previousBodyOverflow.value = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleFiltersDialogKeydown);
+    return;
+  }
+  document.body.style.overflow = previousBodyOverflow.value;
+  window.removeEventListener('keydown', handleFiltersDialogKeydown);
+});
 
 const newSecretText = ref('');
 const newSecretSex = ref<SecretSex>('no_responder');
@@ -355,7 +413,11 @@ const openSecretDetailById = async (secretId: string, textPreview = '') => {
   const loaded = await secretStore.loadSecretById(secretId);
   const sourceText = loaded?.descripcion || textPreview || 'secreto';
   const slug = slugify(sourceText.slice(0, 64));
-  await router.push(`/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}#secret-${secretId}`);
+  await router.push({
+    path: `/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}`,
+    query: { comments: '1' },
+    hash: `#secret-${secretId}`
+  });
 };
 
 const openSecretDetail = async (secret: SecretRecord) =>
@@ -401,7 +463,7 @@ const handleCreateSecret = async () => {
 };
 
 onMounted(() => {
-  scrollY.value = window.scrollY;
+  handleScrollY();
   window.addEventListener('scroll', handleScrollY, { passive: true });
   moduleStore.initModulesListener();
   if (!detailSecretId.value) {
@@ -445,6 +507,14 @@ watch(
     }
     if (!secretId) return;
     await secretStore.loadSecretById(secretId);
+    await nextTick();
+    // En Android el hash puede resolverse antes de que el secreto termine de cargarse.
+    // Volvemos a ubicarlo cuando la tarjeta ya está renderizada.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    document.getElementById(`secret-${secretId}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    });
   },
   { immediate: true }
 );
@@ -452,6 +522,8 @@ watch(
 onUnmounted(() => {
   saveSecretosScrollPosition();
   window.removeEventListener('scroll', handleScrollY);
+  window.removeEventListener('keydown', handleFiltersDialogKeydown);
+  document.body.style.overflow = previousBodyOverflow.value;
   secretStore.cleanup();
 });
 </script>
@@ -482,6 +554,90 @@ onUnmounted(() => {
         {{ tab.label }}
       </button>
     </div>
+
+    <button
+      v-if="filtersPassed && !isHeaderVisible"
+      class="filters-sticky-trigger"
+      type="button"
+      aria-haspopup="dialog"
+      :aria-expanded="filtersDialogOpen"
+      @click="openFiltersDialog"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 7h16M7 12h10m-7 5h4" />
+      </svg>
+      <span>Filtrar</span>
+      <span v-if="hasActiveSecretFilters" class="filters-active-dot" aria-label="Filtros activos"></span>
+    </button>
+
+    <Teleport to="body">
+      <div
+        v-if="filtersDialogOpen"
+        class="filters-dialog-backdrop"
+        @click.self="filtersDialogOpen = false"
+        @touchstart.stop
+        @touchend.stop
+      >
+        <section
+          class="filters-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="filters-dialog-title"
+        >
+          <header class="filters-dialog-header">
+            <div>
+              <span class="filters-dialog-eyebrow">EL MURO ANÓNIMO</span>
+              <h2 id="filters-dialog-title">Filtrar secretos</h2>
+            </div>
+            <button class="filters-dialog-close" type="button" aria-label="Cerrar filtros" @click="filtersDialogOpen = false">×</button>
+          </header>
+
+          <div class="filters-dialog-body">
+            <fieldset class="filters-dialog-group">
+              <legend>Ordenar por</legend>
+              <div class="filters-dialog-options">
+                <button v-for="option in filterSortOptions" :key="option.value" type="button" :class="{ selected: draftFilter === option.value }" @click="draftFilter = option.value">
+                  {{ option.label }}
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset class="filters-dialog-group">
+              <legend>Publicado por</legend>
+              <div class="filters-dialog-options">
+                <button v-for="option in filterSexOptions" :key="option.value" type="button" :class="{ selected: draftSex === option.value }" @click="draftSex = option.value">
+                  {{ option.label }}
+                </button>
+              </div>
+            </fieldset>
+
+            <div class="filters-dialog-select-grid">
+              <label class="filters-dialog-select">
+                <span>Categoría</span>
+                <select v-model="draftCategory">
+                  <option value="all">Todas</option>
+                  <option v-for="category in filterCategoryOptions" :key="category.value" :value="category.value">{{ category.label }}</option>
+                </select>
+              </label>
+
+              <label class="filters-dialog-select">
+                <span>Zona</span>
+                <select v-model="draftZone">
+                  <option value="all">Todas</option>
+                  <option v-for="zone in zoneOptions" :key="zone" :value="zone">{{ zone }}</option>
+                </select>
+              </label>
+            </div>
+
+            <button v-if="draftZone !== 'all' || draftSex !== 'all' || draftCategory !== 'all'" class="filters-dialog-clear" type="button" @click="clearDraftFilters">Limpiar filtros</button>
+          </div>
+
+          <footer class="filters-dialog-footer">
+            <button class="filters-dialog-apply" type="button" @click="applyDraftFilters">Aplicar filtros</button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
 
 
 
@@ -606,7 +762,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="moduleStore.modules.secrets.enabled" class="filters">
+    <section v-if="moduleStore.modules.secrets.enabled" ref="filtersSectionRef" class="filters">
       <div class="filters-heading">
         <div class="filters-heading-main">
           <div class="filters-eyebrow">
@@ -639,6 +795,8 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <div class="filters-reveal" :class="{ 'is-collapsed-mobile': !filtersExpandedMobile }">
+      <div id="secret-filters-content" class="filters-content">
       <div class="filter-top">
         <div class="filter-group">
           <span class="filter-label">
@@ -842,6 +1000,20 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      </div>
+      <button
+        class="filters-expand-btn"
+        type="button"
+        :aria-expanded="filtersExpandedMobile"
+        aria-controls="secret-filters-content"
+        :aria-label="filtersExpandedMobile ? 'Ocultar filtros' : 'Mostrar todos los filtros'"
+        @click="filtersExpandedMobile = !filtersExpandedMobile"
+      >
+        <svg :class="{ expanded: filtersExpandedMobile }" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      </div>
     </section>
 
     <section v-if="moduleStore.modules.secrets.enabled" class="feed">
@@ -854,6 +1026,7 @@ onUnmounted(() => {
         v-for="secret in filteredSecrets"
         :key="secret.id"
         :secret="secret"
+        :open-comments-on-load="detailSecretId === secret.id && route.query.comments === '1'"
       />
 
       <button
@@ -932,6 +1105,202 @@ onUnmounted(() => {
 
 .feed-tabs::-webkit-scrollbar {
   display: none;
+}
+
+.filters-sticky-trigger {
+  position: fixed;
+  z-index: 1001;
+  top: calc(var(--header-height, 3.5rem) + 0.45rem);
+  right: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--card-bg);
+  color: var(--text-h);
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 750;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.filters-sticky-trigger:hover {
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.27);
+  transform: translateY(-1px);
+}
+
+.filters-sticky-trigger:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 3px;
+}
+
+.filters-dialog-backdrop {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding: 1rem 1rem 3.25rem;
+  background: rgba(12, 18, 31, 0.5);
+  backdrop-filter: blur(5px);
+}
+
+.filters-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: min(82dvh, 760px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, white);
+  border-radius: 22px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  animation: filters-dialog-enter 180ms ease-out;
+}
+
+.filters-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.filters-dialog-eyebrow {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.filters-dialog-header h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.2rem;
+}
+
+.filters-dialog-close {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.filters-dialog-body {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: 0.75rem;
+  overflow-y: auto;
+  padding: 0.8rem 1.1rem;
+  overscroll-behavior: contain;
+}
+
+.filters-dialog-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.filters-dialog-group legend,
+.filters-dialog-select span {
+  margin-bottom: 0.35rem;
+  color: var(--text-h);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.filters-dialog-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.filters-dialog-options button,
+.filters-dialog-clear {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.52rem 0.68rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.filters-dialog-options button.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 13%, var(--card-bg));
+  color: var(--accent);
+}
+
+.filters-dialog-select {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.filters-dialog-select-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.filters-dialog-select select {
+  width: 100%;
+  min-height: 2.55rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-h);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.84rem;
+  font: inherit;
+}
+
+.filters-dialog-clear {
+  justify-self: start;
+  color: var(--accent);
+}
+
+.filters-dialog-footer {
+  padding: 0.7rem 1.1rem calc(0.7rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--card-bg);
+}
+
+.filters-dialog-apply {
+  width: 100%;
+  min-height: 2.9rem;
+  border: 0;
+  border-radius: 13px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+@keyframes filters-dialog-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .tab-btn {
@@ -1303,6 +1672,11 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
 }
 
+.filters-reveal,
+.filters-content {
+  display: contents;
+}
+
 .filters-heading {
   display: flex;
   align-items: center;
@@ -1343,6 +1717,18 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+}
+
+.filters-expand-btn {
+  display: none;
+}
+
+.filters-expand-btn svg {
+  transition: transform 180ms ease;
+}
+
+.filters-expand-btn svg.expanded {
+  transform: rotate(180deg);
 }
 
 .results-count {
@@ -2014,6 +2400,85 @@ onUnmounted(() => {
   .filters-heading-side {
     width: 100%;
     justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .filters-expand-btn {
+    display: inline-flex;
+    position: absolute;
+    z-index: 3;
+    left: 50%;
+    bottom: 0.25rem;
+    transform: translateX(-50%);
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, white);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--card-bg) 76%, white 24%);
+    color: var(--accent);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.2), 0 0 0 4px color-mix(in srgb, var(--card-bg) 78%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    cursor: pointer;
+    transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+  }
+
+  .filters-expand-btn:hover {
+    transform: translateX(-50%) translateY(-2px);
+    background: color-mix(in srgb, var(--card-bg) 62%, white 38%);
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.24), 0 0 0 4px color-mix(in srgb, var(--card-bg) 78%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  }
+
+  .filters-expand-btn:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--accent) 55%, white);
+    outline-offset: 4px;
+  }
+
+  .filters-expand-btn:active {
+    transform: translateX(-50%) scale(0.96);
+    background: color-mix(in srgb, var(--card-bg) 55%, white 45%);
+    box-shadow: 0 3px 9px rgba(15, 23, 42, 0.2), 0 0 0 3px color-mix(in srgb, var(--card-bg) 78%, transparent);
+  }
+
+  .filters-expand-btn svg {
+    transition: transform 220ms ease;
+  }
+
+  .filters-expand-btn svg.expanded {
+    transform: rotate(180deg);
+  }
+
+  .filters-reveal {
+    position: relative;
+    display: block;
+  }
+
+  .filters-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .filters-reveal.is-collapsed-mobile {
+    max-height: 4.8rem;
+    overflow: hidden;
+  }
+
+  .filters-reveal.is-collapsed-mobile::after {
+    position: absolute;
+    z-index: 2;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 4.8rem;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--card-bg) 0%, transparent) 0%, color-mix(in srgb, var(--card-bg) 62%, transparent) 48%, var(--card-bg) 100%);
+    content: '';
+    pointer-events: none;
+  }
+
+  .filters-reveal:not(.is-collapsed-mobile) {
+    padding-bottom: 3.2rem;
   }
 
   .filter-actions-bar {
@@ -2047,6 +2512,57 @@ onUnmounted(() => {
     padding: 0 1rem;
     gap: 1.25rem;
     scroll-padding-inline: 1rem;
+  }
+
+  .feed-tabs.tabs-fixed-top {
+    padding-right: 7.5rem;
+  }
+
+  .filters-sticky-trigger {
+    top: calc(var(--header-height, 3.5rem) + env(safe-area-inset-top) + 0.35rem);
+    right: 0.7rem;
+    gap: 0.38rem;
+    min-height: 2.35rem;
+    border-radius: 999px;
+    padding: 0.42rem 0.78rem;
+    font-size: 0.8rem;
+    backdrop-filter: blur(12px);
+  }
+
+  .filters-active-dot {
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  }
+
+  .filters-dialog-backdrop {
+    padding: 0.35rem;
+  }
+
+  .filters-dialog {
+    height: min(94dvh, 820px);
+    max-height: min(94dvh, 820px);
+    border-radius: 20px;
+  }
+
+  .filters-dialog-header {
+    padding: 0.9rem 1rem 0.75rem;
+  }
+
+  .filters-dialog-body {
+    gap: 0.65rem;
+    padding: 0.7rem 1rem;
+  }
+
+  .filters-dialog-select-grid {
+    gap: 0.5rem;
+  }
+
+  .filters-dialog-footer {
+    padding-right: 1rem;
+    padding-left: 1rem;
   }
 
   .composer-card {

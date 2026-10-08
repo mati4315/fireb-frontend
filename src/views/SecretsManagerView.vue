@@ -134,9 +134,8 @@ const saveFutureSettings = async () => {
   resetFeedback()
   savingSettings.value = true
   try {
-    await setDoc(
-      doc(db, '_config', 'secret_settings'),
-      {
+    const callable = httpsCallable(firebaseFunctions, 'saveSecretSettingsCallable')
+    await callable({
         maxTextLength: Math.max(120, Math.min(500, Number(settingsForm.maxTextLength || 280))),
         minTextLength: Math.max(1, Math.min(80, Number(settingsForm.minTextLength || 12))),
         createCooldownMinutes: Math.max(
@@ -151,15 +150,18 @@ const saveFutureSettings = async () => {
         autoHideReportsThreshold: Math.max(
           1,
           Math.min(100, Number(settingsForm.autoHideReportsThreshold || 6))
-        ),
-        updatedAt: serverTimestamp(),
-        updatedBy: authStore.user?.uid || null
-      },
-      { merge: true }
-    )
+        )
+    })
     feedback.value = 'Configuraciones futuras de secretos guardadas.'
   } catch (error: any) {
-    errorMessage.value = error?.message || 'No se pudieron guardar las configuraciones futuras.'
+    const code = String(error?.code || '')
+    if (code.includes('permission-denied') || code.includes('unauthenticated')) {
+      errorMessage.value = 'No se guardó: tu sesión no tiene permisos de personal. Cierra sesión y vuelve a entrar si tu rol ya fue actualizado.'
+    } else if (code.includes('unavailable') || code.includes('deadline-exceeded') || code.includes('network')) {
+      errorMessage.value = 'No se pudo conectar para guardar. Revisa la conexión y permite Firebase/Cloud Functions en el bloqueador del navegador.'
+    } else {
+      errorMessage.value = error?.message || 'No se pudieron guardar las configuraciones futuras.'
+    }
   } finally {
     savingSettings.value = false
   }
@@ -374,7 +376,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="actions">
-            <button class="primary" :disabled="savingSettings" @click="saveFutureSettings">
+            <button type="button" class="primary" :disabled="savingSettings" @click="saveFutureSettings">
               {{ savingSettings ? 'Guardando...' : 'Guardar configuraciones futuras' }}
             </button>
           </div>

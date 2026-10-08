@@ -5,8 +5,10 @@ import { useAuthStore } from '@/stores/authStore'
 import { useModuleStore } from '@/stores/moduleStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { useNotificationStore, type NotificationRecord } from '@/stores/notificationStore'
+import { useLotteryStore } from '@/stores/lotteryStore'
 import { useRoute } from 'vue-router'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
+import { isNativePlatform } from '@/platform/capacitor'
 
 import { defineAsyncComponent } from 'vue'
 import { useHeaderScroll } from '@/composables/useHeaderScroll'
@@ -25,6 +27,7 @@ const authStore = useAuthStore()
 const moduleStore = useModuleStore()
 const themeStore = useThemeStore()
 const notificationStore = useNotificationStore()
+const lotteryStore = useLotteryStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -48,10 +51,19 @@ const canManageComments = computed(() => {
 })
 
 const showRadioDock = computed(() => moduleStore.modules.radio.enabled && moduleStore.modules.radio.active)
+const activeLotteryMenuItem = computed(() => {
+  if (!moduleStore.isModuleEnabled('lottery')) return null
+  return lotteryStore.activePublicLotteries.find((lottery) =>
+    lotteryStore.isLotteryOpenForEntry(lottery)
+  ) || null
+})
 
 const toggleUserMenu = () => {
   closeNotifications()
   isUserMenuOpen.value = !isUserMenuOpen.value
+  if (isUserMenuOpen.value) {
+    void lotteryStore.initPublicLotteriesListener()
+  }
 }
 
 const closeUserMenu = () => {
@@ -124,10 +136,16 @@ watch(
 
 onMounted(() => {
   window.addEventListener('click', handleClickOutside)
+  if (!isNativePlatform() && window.localStorage.getItem(APP_DOWNLOAD_DISMISSED_KEY) !== '1') {
+    appDownloadNudgeTimer = window.setTimeout(() => {
+      showAppDownloadNudge.value = true
+    }, 7000)
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', handleClickOutside)
+  if (appDownloadNudgeTimer) window.clearTimeout(appDownloadNudgeTimer)
   notificationStore.cleanup()
 })
 
@@ -145,6 +163,14 @@ const openNotificationsConfig = async () => {
 }
 
 const showPushBanner = ref(true)
+const showAppDownloadNudge = ref(false)
+const APP_DOWNLOAD_DISMISSED_KEY = 'cdelu_app_download_nudge_dismissed_v1'
+let appDownloadNudgeTimer: ReturnType<typeof setTimeout> | null = null
+
+const dismissAppDownloadNudge = () => {
+  showAppDownloadNudge.value = false
+  window.localStorage.setItem(APP_DOWNLOAD_DISMISSED_KEY, '1')
+}
 
 const activatePushFromBanner = async () => {
   showPushBanner.value = false
@@ -241,6 +267,16 @@ const dismissPushBanner = () => {
                 @click="closeUserMenu"
               >
                 Mi Perfil
+              </RouterLink>
+              <RouterLink
+                v-if="activeLotteryMenuItem"
+                to="/loteria"
+                class="dropdown-item lottery-shortcut"
+                :title="activeLotteryMenuItem.title"
+                @click="closeUserMenu"
+              >
+                <span aria-hidden="true">🎟️</span>
+                <span>Lotería activa</span>
               </RouterLink>
               <RouterLink
                 to="/anormalia22"
@@ -345,6 +381,20 @@ const dismissPushBanner = () => {
           </button>
         </div>
       </section>
+      <aside
+        v-if="showAppDownloadNudge && !(authStore.isAuthenticated && notificationStore.shouldShowPushNudge)"
+        class="app-download-nudge"
+        aria-label="Descargar la aplicación Cdelu.ar"
+      >
+        <span class="app-download-icon" aria-hidden="true">📱</span>
+        <p><strong>Cdelu.ar también está en Android.</strong> Llevá las noticias con vos.</p>
+        <a
+          href="https://play.google.com/store/apps/details?id=cdelu.ar.app&hl=es_ES"
+          target="_blank"
+          rel="noopener noreferrer"
+        >Descargar app</a>
+        <button type="button" aria-label="Cerrar invitación a descargar la app" @click="dismissAppDownloadNudge">×</button>
+      </aside>
       <RouterView />
       <RadioDock v-if="showRadioDock" />
     </main>
@@ -689,6 +739,14 @@ const dismissPushBanner = () => {
   background: var(--social-bg);
 }
 
+.dropdown-item.lottery-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--accent);
+  font-weight: 750;
+}
+
 .dropdown-item.danger {
   color: #b91c1c;
 }
@@ -714,6 +772,59 @@ const dismissPushBanner = () => {
   justify-content: space-between;
   gap: 1rem;
   animation: pushBannerIn 0.35s ease-out forwards;
+}
+
+.app-download-nudge {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0.8rem 1.5rem 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.app-download-icon {
+  flex: 0 0 auto;
+  font-size: 1.15rem;
+}
+
+.app-download-nudge p {
+  flex: 1;
+  margin: 0;
+}
+
+.app-download-nudge strong {
+  color: var(--text-h);
+}
+
+.app-download-nudge a {
+  flex: 0 0 auto;
+  padding: 0.38rem 0.68rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #241300;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.app-download-nudge button {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.app-download-nudge button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
 @keyframes pushBannerIn {
@@ -779,6 +890,18 @@ const dismissPushBanner = () => {
 }
 
 @media (max-width: 768px) {
+  .app-download-nudge {
+    gap: 0.5rem;
+    margin: 0.55rem 0.65rem 0;
+    padding: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .app-download-nudge a {
+    padding: 0.38rem 0.5rem;
+    font-size: 0.72rem;
+  }
+
   .nav-content {
     padding: 0.65rem 0.75rem;
   }

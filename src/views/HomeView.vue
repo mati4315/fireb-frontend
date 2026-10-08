@@ -30,7 +30,6 @@ import {
 import { runWithConcurrency } from '@/utils/concurrency'
 import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
-import { isNativePlatform } from '@/platform/capacitor'
 import { getPublicNews, publicNewsToFeedItem } from '@/api/publicApi'
 
 const ImageLightbox = defineAsyncComponent(() => import('@/components/common/ImageLightbox.vue'))
@@ -44,6 +43,7 @@ const OptionsMenu = defineAsyncComponent(() => import('@/components/common/Optio
 const FeedAdItem = defineAsyncComponent(() => import('@/components/feed/FeedAdItem.vue'))
 const SecretCard = defineAsyncComponent(() => import('@/components/feed/SecretCard.vue'))
 const DismissibleNoticeCard = defineAsyncComponent(() => import('@/components/common/DismissibleNoticeCard.vue'))
+const ShareDialog = defineAsyncComponent(() => import('@/components/common/ShareDialog.vue'))
 
 const { isVisible: isHeaderVisible, isNearTop } = useHeaderScroll()
 let homeNoticeUnsubscribers: Unsubscribe[] = []
@@ -245,6 +245,7 @@ const reportComment = ref('')
 const reportError = ref('')
 const reportStatus = ref('')
 const reportTarget = ref<any | null>(null)
+const shareTarget = ref<any | null>(null)
 let reportStatusTimer: ReturnType<typeof setTimeout> | null = null
 
 const reportReasonOptions = [
@@ -292,7 +293,6 @@ const detailTargetItem = ref<any | null>(null)
 let infiniteObserver: IntersectionObserver | null = null
 let primeLikesTimer: ReturnType<typeof setTimeout> | null = null
 let lastPrimeLikesSignature = ''
-const isNativeApp = isNativePlatform()
 
 const shouldShowSurveysTab = computed(() => {
   if (!feedStore.isModuleEnabled('surveys')) return false
@@ -673,30 +673,6 @@ const appendImageFile = (file: File) => {
   })
 }
 
-const handleNativeImagePick = async () => {
-  if (!isNativeApp) return
-
-  try {
-    const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
-    const photo = await Camera.getPhoto({
-      quality: 85,
-      allowEditing: false,
-      resultType: CameraResultType.Uri,
-      source: CameraSource.Photos
-    })
-    if (!photo.webPath) return
-
-    const response = await fetch(photo.webPath)
-    const blob = await response.blob()
-    const mimeType = blob.type || 'image/jpeg'
-    const extension = mimeType.includes('png') ? 'png' : 'jpg'
-    const file = new File([blob], `mobile_${Date.now()}.${extension}`, { type: mimeType })
-    appendImageFile(file)
-  } catch (err) {
-    console.error('Error selecting native image:', err)
-  }
-}
-
 const removeSelectedImage = (id: string) => {
   const index = selectedImages.value.findIndex((image) => image.id === id)
       if (index < 0) return
@@ -957,6 +933,10 @@ const getPostMenuOptions = (item: any): MenuOption[] => {
   const isOwner = authStore.user?.uid === item.userId
   const options: MenuOption[] = []
 
+  if (getDetailPath(item)) {
+    options.push({ id: 'share', label: 'Compartir publicación' })
+  }
+
   if (resolveContentModule(item)) {
     options.push({ id: 'report', label: 'Reportar publicación' })
   }
@@ -979,7 +959,9 @@ const getPostMenuOptions = (item: any): MenuOption[] => {
 }
 
 const handlePostMenuAction = async (actionId: string, item: any) => {
-  if (actionId === 'report') {
+  if (actionId === 'share') {
+    handleSharePost(item)
+  } else if (actionId === 'report') {
     reportTarget.value = item
     reportReason.value = 'contenido_inapropiado'
     reportComment.value = ''
@@ -1365,25 +1347,7 @@ const openFacebookPost = (item: any) => {
 const handleSharePost = async (item: any) => {
   const url = buildDetailAbsoluteUrl(item)
   if (!url) return
-
-  try {
-    if (navigator.share) {
-      await navigator.share({
-        title: item?.titulo || 'Publicacion',
-        text: item?.descripcion || '',
-        url
-      })
-      return
-    }
-  } catch (error) {
-    console.error('Error sharing post:', error)
-  }
-
-  try {
-    await navigator.clipboard.writeText(url)
-  } catch (error) {
-    console.error('Error copying post URL:', error)
-  }
+  shareTarget.value = item
 }
 
 const clearDetailState = () => {
@@ -1865,15 +1829,6 @@ watch(
 
             <div v-if="isExpanded" class="form-footer">
               <div class="actions">
-                <button
-                  v-if="isNativeApp"
-                  type="button"
-                  class="icon-btn"
-                  :disabled="selectedImages.length >= MAX_POST_IMAGES"
-                  @click="handleNativeImagePick"
-                >
-                  <span>Galeria</span>
-                </button>
                 <label class="icon-btn" :class="{ disabled: selectedImages.length >= MAX_POST_IMAGES }">
                   <input
                     ref="fileInputRef"
@@ -2125,7 +2080,7 @@ watch(
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L10.7 5.23"></path><path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 1 0 7.07 7.07L13.3 18.77"></path></svg>
           </button>
-          <button class="interaction-btn share" aria-label="Compartir publicacion" @click="handleSharePost(item)">
+          <button class="interaction-btn share" :disabled="!getDetailPath(item)" aria-label="Compartir publicacion" @click="handleSharePost(item)">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
           </button>
         </footer>
@@ -2160,6 +2115,15 @@ watch(
       :images="lightboxImages"
       :initial-index="lightboxStartIndex"
       @close="closeLightbox"
+    />
+
+    <ShareDialog
+      v-if="shareTarget"
+      :open="Boolean(shareTarget)"
+      :url="buildDetailAbsoluteUrl(shareTarget) || ''"
+      :title="shareTarget?.titulo || 'Compartir publicación'"
+      :text="shareTarget?.descripcion || ''"
+      @close="shareTarget = null"
     />
 
     <div v-if="reportDialogOpen" class="report-modal-overlay" @click.self="closeReportDialog">

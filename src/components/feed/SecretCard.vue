@@ -95,6 +95,12 @@
         <button class="comment-btn" type="button" @click="toggleComments">
           Comentarios {{ secret.stats.commentsCount }}
         </button>
+        <button class="share-btn" type="button" aria-label="Compartir secreto" @click="openSecretShare">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>
+          </svg>
+        </button>
         <button class="open-btn" type="button" @click="openSecretDetail">
           Abrir
         </button>
@@ -138,6 +144,15 @@
       </div>
     </Teleport>
 
+    <ShareDialog
+      v-if="shareDialogOpen"
+      :open="shareDialogOpen"
+      :url="secretShareUrl"
+      title="Compartir secreto"
+      :text="secret.descripcion"
+      @close="shareDialogOpen = false"
+    />
+
     <section v-if="commentsOpen" class="comments-box">
       <div v-if="secretStore.isCommentsLoading(secret.id)" class="comment-state">
         Cargando comentarios...
@@ -180,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { 
   useSecretStore, 
@@ -190,9 +205,11 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { isStaffUser } from '@/utils/roles';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
+import ShareDialog from '@/components/common/ShareDialog.vue';
 
 const props = defineProps<{
   secret: SecretRecord;
+  openCommentsOnLoad?: boolean;
 }>();
 
 const router = useRouter();
@@ -208,6 +225,18 @@ const reportSubmitting = ref(false);
 const reportReason = ref('contenido_inapropiado');
 const reportComment = ref('');
 const reportError = ref('');
+const shareDialogOpen = ref(false);
+const secretShareUrl = ref('');
+
+watch(
+  () => props.openCommentsOnLoad,
+  async (shouldOpen) => {
+    if (!shouldOpen) return;
+    if (!commentsOpen.value) commentsOpen.value = true;
+    await secretStore.loadComments(props.secret.id);
+  },
+  { immediate: true }
+);
 
 const reportReasonOptions = [
   { value: 'contenido_inapropiado', label: 'Contenido inapropiado' },
@@ -228,6 +257,7 @@ const isAuthorizedToManage = computed(() => {
 
 const secretMenuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
+    { id: 'share', label: 'Compartir secreto' },
     {
       id: 'report',
       label: props.secret.reportedByMe ? 'Reportado' : 'Reportar'
@@ -250,6 +280,11 @@ const secretMenuOptions = computed<MenuOption[]>(() => {
 });
 
 const handleSecretMenuAction = async (actionId: string) => {
+  if (actionId === 'share') {
+    openSecretShare();
+    return;
+  }
+
   if (actionId === 'report') {
     if (!props.secret.reportedByMe) openReportDialog();
     return;
@@ -309,7 +344,18 @@ const slugify = (value: string): string => {
 
 const openSecretDetail = () => {
   const slug = slugify(props.secret.descripcion.slice(0, 64));
-  router.push(`/s/${encodeURIComponent(props.secret.id)}/${encodeURIComponent(slug)}#secret-${props.secret.id}`);
+  router.push({
+    path: `/s/${encodeURIComponent(props.secret.id)}/${encodeURIComponent(slug)}`,
+    query: { comments: '1' },
+    hash: `#secret-${props.secret.id}`
+  });
+};
+
+const openSecretShare = () => {
+  const slug = slugify(props.secret.descripcion.slice(0, 64));
+  const path = `/s/${encodeURIComponent(props.secret.id)}/${encodeURIComponent(slug)}#secret-${encodeURIComponent(props.secret.id)}`;
+  secretShareUrl.value = new URL(path, window.location.origin).toString();
+  shareDialogOpen.value = true;
 };
 
 const resolveCategoryLabel = (value: SecretCategory): string => {
@@ -427,6 +473,29 @@ const handleCreateComment = async () => {
 
 .secret-card-header.is-neutral {
   background: #6b728065;
+}
+
+.secret-card-header.is-male :deep(.menu-trigger),
+.secret-card-header.is-female :deep(.menu-trigger),
+.secret-card-header.is-neutral :deep(.menu-trigger) {
+  color: #fff;
+}
+
+.secret-card-header.is-male :deep(.menu-trigger:hover),
+.secret-card-header.is-male :deep(.menu-trigger:active),
+.secret-card-header.is-female :deep(.menu-trigger:hover),
+.secret-card-header.is-female :deep(.menu-trigger:active),
+.secret-card-header.is-neutral :deep(.menu-trigger:hover),
+.secret-card-header.is-neutral :deep(.menu-trigger:active) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.secret-card-header.is-male :deep(.menu-trigger:focus-visible),
+.secret-card-header.is-female :deep(.menu-trigger:focus-visible),
+.secret-card-header.is-neutral :deep(.menu-trigger:focus-visible) {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
 }
 
 .secret-card-header:not(.is-male):not(.is-female):not(.is-neutral) {
@@ -556,14 +625,17 @@ const handleCreateComment = async () => {
 .actions.is-male .vote-btn,
 .actions.is-male .comment-btn,
 .actions.is-male .open-btn,
+.actions.is-male .share-btn,
 .actions.is-male .report-btn,
 .actions.is-female .vote-btn,
 .actions.is-female .comment-btn,
 .actions.is-female .open-btn,
+.actions.is-female .share-btn,
 .actions.is-female .report-btn,
 .actions.is-neutral .vote-btn,
 .actions.is-neutral .comment-btn,
 .actions.is-neutral .open-btn,
+.actions.is-neutral .share-btn,
 .actions.is-neutral .report-btn {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
@@ -573,12 +645,15 @@ const handleCreateComment = async () => {
 .actions.is-male .vote-btn:hover,
 .actions.is-male .comment-btn:hover,
 .actions.is-male .open-btn:hover,
+.actions.is-male .share-btn:hover,
 .actions.is-female .vote-btn:hover,
 .actions.is-female .comment-btn:hover,
 .actions.is-female .open-btn:hover,
+.actions.is-female .share-btn:hover,
 .actions.is-neutral .vote-btn:hover,
 .actions.is-neutral .comment-btn:hover,
-.actions.is-neutral .open-btn:hover {
+.actions.is-neutral .open-btn:hover,
+.actions.is-neutral .share-btn:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
@@ -593,6 +668,7 @@ const handleCreateComment = async () => {
 .vote-btn,
 .comment-btn,
 .open-btn,
+.share-btn,
 .report-btn {
   display: flex;
   align-items: center;
