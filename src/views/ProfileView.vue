@@ -1263,17 +1263,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <hr class="editor-divider" />
-
-        <div class="danger-zone">
-          <h3>Eliminar cuenta y datos</h3>
-          <p class="secondary">
-            Si deseas eliminar permanentemente tu cuenta de Cdelu.ar, tu perfil y toda la información asociada, puedes realizar la solicitud correspondiente de acuerdo con las políticas de Google Play Store.
-          </p>
-          <router-link to="/eliminar-datos" class="danger-zone-btn">
-            Solicitar eliminación de cuenta y datos
-          </router-link>
-        </div>
       </section>
 
       <section class="card profile-posts">
@@ -1394,6 +1383,18 @@ onBeforeUnmount(() => {
           {{ loadingPosts ? 'Cargando...' : 'Ver mas publicaciones' }}
         </button>
       </section>
+
+      <details v-if="isOwnProfile" class="danger-zone">
+        <summary>Eliminar cuenta y datos</summary>
+        <div class="danger-zone-content">
+          <p>
+            Si deseas eliminar permanentemente tu cuenta de Cdelu.ar, tu perfil y toda la información asociada, puedes realizar la solicitud correspondiente de acuerdo con las políticas de Google Play Store.
+          </p>
+          <router-link to="/eliminar-datos" class="danger-zone-btn">
+            Solicitar eliminación de cuenta y datos
+          </router-link>
+        </div>
+      </details>
     </template>
   </section>
   
@@ -2620,49 +2621,55 @@ label small {
   to { transform: scale(1); opacity: 1; }
 }
 
-.editor-divider {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 2rem 0 1.5rem;
-}
-
 .danger-zone {
-  background: color-mix(in srgb, var(--card-bg) 95%, #ef4444 5%);
-  border: 1px solid color-mix(in srgb, var(--border) 80%, #ef4444 20%);
-  padding: 1.5rem;
-  border-radius: 14px;
+  margin: 0.25rem 0 1.5rem;
+  padding: 0.7rem 0.9rem;
+  color: var(--text-muted, #8b93a1);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 10px;
+  opacity: 0.68;
+  transition: opacity 0.2s ease, border-color 0.2s ease;
 }
 
-.danger-zone h3 {
-  color: #ef4444;
-  margin: 0 0 0.5rem;
-  font-size: 1.1rem;
-  font-weight: 700;
+.danger-zone:hover,
+.danger-zone[open] {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--border) 55%, #ef4444 45%);
 }
 
-.danger-zone p {
-  margin: 0 0 1.2rem;
-  font-size: 0.88rem;
+.danger-zone summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  list-style-position: inside;
+}
+
+.danger-zone-content {
+  padding: 0.8rem 0 0.15rem 1.1rem;
+}
+
+.danger-zone-content p {
+  margin: 0 0 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.5;
-  opacity: 0.85;
 }
 
 .danger-zone-btn {
   display: inline-block;
-  background: #ef4444;
-  color: #fff;
-  border: none;
-  padding: 0.65rem 1.2rem;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 0.88rem;
+  color: color-mix(in srgb, #ef4444 80%, var(--text-muted, #8b93a1));
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--border));
+  padding: 0.5rem 0.8rem;
+  border-radius: 7px;
+  font-weight: 600;
+  font-size: 0.78rem;
   text-decoration: none;
   text-align: center;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .danger-zone-btn:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
+  color: #fff;
+  background: #ef4444;
 }
 </style>

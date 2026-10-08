@@ -902,11 +902,17 @@ const handleCreatePost = async () => {
       composerError.value = `Algunas imagenes fallaron (${uploadErrors.length}). Se publico con las restantes.`
     }
 
-    await feedStore.createPost(
+    const createdPost = await feedStore.createPost(
       newPostTitle.value.trim(),
       newPostContent.value,
       imagesV2.map((image) => image.url),
       imagesV2
+    )
+
+    const detailPath = buildContentDetailPathByValues(
+      'community',
+      createdPost.id,
+      newPostTitle.value.trim() || newPostContent.value
     )
 
     newPostTitle.value = ''
@@ -914,6 +920,9 @@ const handleCreatePost = async () => {
     clearSelectedImages()
     isExpanded.value = false
     createPostProgress.value = 0
+
+    // Lleva directamente a la publicación nueva y deja su encabezado visible.
+    await router.push(`${detailPath}#titulo`)
   } catch (err) {
     console.error('Error al crear post:', err)
     composerError.value =
@@ -1433,6 +1442,14 @@ const resolveDetailRoute = async () => {
 
     if (route.path !== canonicalPath) {
       await router.replace(canonicalPath)
+    }
+
+    if (route.hash === '#titulo') {
+      await nextTick()
+      document.getElementById('titulo')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      })
     }
   } catch (error) {
     console.error('Error resolving detail route:', error)
