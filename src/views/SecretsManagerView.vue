@@ -140,7 +140,7 @@ const saveFutureSettings = async () => {
   try {
     const callable = httpsCallable(firebaseFunctions, 'saveSecretSettingsCallable')
     const requestedSettings: SecretSettingsForm = {
-        maxTextLength: Math.max(120, Math.min(500, Number(settingsForm.maxTextLength ?? 280))),
+        maxTextLength: Math.max(120, Math.min(2000, Number(settingsForm.maxTextLength ?? 280))),
         minTextLength: Math.max(1, Math.min(80, Number(settingsForm.minTextLength || 12))),
         createCooldownMinutes: Math.max(
           1,
@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
           <div class="cols-2">
             <label class="field">
               <span>Maximo caracteres</span>
-              <input v-model.number="settingsForm.maxTextLength" type="number" min="120" max="500" />
+              <input v-model.number="settingsForm.maxTextLength" type="number" min="120" max="2000" />
             </label>
             <label class="field">
               <span>Minimo caracteres</span>

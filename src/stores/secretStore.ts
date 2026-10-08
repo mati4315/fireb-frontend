@@ -272,7 +272,7 @@ const mapSecretRuntimeSettings = (raw: any): SecretRuntimeSettings => {
   const maxTextLength = clampNumber(
     raw?.maxTextLength,
     120,
-    500,
+    2000,
     DEFAULT_SECRET_RUNTIME_SETTINGS.maxTextLength
   );
   const minTextLength = Math.min(
