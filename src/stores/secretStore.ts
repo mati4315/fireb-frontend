@@ -586,7 +586,7 @@ export const useSecretStore = defineStore('secret', () => {
     age: number | null;
     category: SecretCategory;
     zone: string;
-  }) => {
+  }): Promise<CreateSecretCallableResponse> => {
     const callable = httpsCallable<CreateSecretCallableInput, CreateSecretCallableResponse>(
       firebaseFunctions,
       'createSecretCallable'
@@ -599,7 +599,8 @@ export const useSecretStore = defineStore('secret', () => {
       zone: input.zone.trim() ? input.zone.trim() : null,
       clientAnonId: ensureClientAnonId()
     };
-    await callable(payload);
+    const result = await callable(payload);
+    return result.data;
   };
 
   const loadSecretById = async (secretId: string): Promise<SecretRecord | null> => {

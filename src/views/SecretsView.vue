@@ -442,7 +442,7 @@ const handleCreateSecret = async () => {
 
   creating.value = true;
   try {
-    await secretStore.createSecret({
+    const createdSecret = await secretStore.createSecret({
       text,
       sex: newSecretSex.value,
       age: newSecretAge.value ? Number(newSecretAge.value) : null,
@@ -455,6 +455,12 @@ const handleCreateSecret = async () => {
     newSecretAge.value = '';
     newSecretZone.value = '';
     createError.value = null;
+    const secretId = createdSecret.secretId;
+    const slug = slugify(text.slice(0, 64));
+    await router.push({
+      path: `/s/${encodeURIComponent(secretId)}/${encodeURIComponent(slug)}`,
+      hash: `#secret-${encodeURIComponent(secretId)}`
+    });
   } catch (err: any) {
     createError.value = err?.message || 'No se pudo publicar el secreto.';
   } finally {
