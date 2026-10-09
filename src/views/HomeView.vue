@@ -1344,6 +1344,13 @@ const openDetailFromItem = async (item: any, hash: string = '') => {
 const buildDetailAbsoluteUrl = (item: any): string | null => {
   const path = getDetailPath(item)
   if (!path) return null
+
+  if (resolveContentModule(item) === 'news') {
+    const newsRef = extractNewsRefFromItem(item) || String(item.id || '').trim()
+    if (!newsRef) return null
+    return buildShareUrl(`/noticia/${encodeURIComponent(newsRef)}`)
+  }
+
   return buildShareUrl(path)
 }
 

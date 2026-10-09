@@ -22,6 +22,7 @@ const authStore = useAuthStore()
 const email = ref('')
 const password = ref('')
 const isLogin = ref(true)
+const showEmailForm = ref(false)
 const nombre = ref('')
 const username = ref('')
 
@@ -75,11 +76,20 @@ const handleProviderLogin = async (providerId: string) => {
       {{ `Continuar con ${provider.label}` }}
     </button>
 
-    <div class="divider">
-      <span>o usa tu correo</span>
-    </div>
+    <button
+      class="divider"
+      type="button"
+      :aria-expanded="showEmailForm"
+      aria-controls="email-login-form"
+      @click="showEmailForm = !showEmailForm"
+    >
+      <span>{{ showEmailForm ? 'Ocultar acceso con correo' : 'o usa tu correo' }}</span>
+    </button>
+
+    <p v-if="authStore.error && !showEmailForm" class="error-msg">{{ authStore.error }}</p>
     
-    <form @submit.prevent="handleForm" class="login-form">
+    <Transition name="email-form">
+    <form v-if="showEmailForm" id="email-login-form" @submit.prevent="handleForm" class="login-form">
       <div v-if="!isLogin" class="form-group">
         <label>Nombre Completo</label>
         <input v-model="nombre" :disabled="authStore.loading" type="text" required placeholder="Ej: Juan Pérez" class="styled-input" />
@@ -118,6 +128,7 @@ const handleProviderLogin = async (providerId: string) => {
         </p>
       </footer>
     </form>
+    </Transition>
   </div>
 </template>
 
@@ -208,9 +219,25 @@ const handleProviderLogin = async (providerId: string) => {
 .divider {
   display: flex;
   align-items: center;
+  width: 100%;
   margin: 1.25rem 0;
+  padding: 0;
   color: var(--text);
   font-size: 0.85rem;
+  font-family: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.divider:hover {
+  color: var(--text-h);
+}
+
+.divider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 5px;
+  border-radius: 4px;
 }
 
 .divider::before, .divider::after {
@@ -222,6 +249,17 @@ const handleProviderLogin = async (providerId: string) => {
 
 .divider span {
   padding: 0 1rem;
+}
+
+.email-form-enter-active,
+.email-form-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.email-form-enter-from,
+.email-form-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .form-group {
