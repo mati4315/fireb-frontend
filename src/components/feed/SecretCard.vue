@@ -353,8 +353,7 @@ const openSecretDetail = () => {
 };
 
 const openSecretShare = () => {
-  const slug = slugify(props.secret.descripcion.slice(0, 64));
-  const path = `/s/${encodeURIComponent(props.secret.id)}/${encodeURIComponent(slug)}#secret-${encodeURIComponent(props.secret.id)}`;
+  const path = `/s/${encodeURIComponent(props.secret.id)}/`;
   secretShareUrl.value = buildShareUrl(path);
   shareDialogOpen.value = true;
 };

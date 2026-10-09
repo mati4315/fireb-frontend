@@ -101,7 +101,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
           </button>
           <button type="button" class="share-target copy" @click="copyShareUrl">
             <svg class="share-target-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            <span>{{ copied ? 'Enlace copiado' : 'Copiar enlace' }}</span>
+            <span>{{ copied ? 'Enlace copiado' : 'C. enlace' }}</span>
           </button>
         </div>
       </section>
