@@ -5,7 +5,7 @@
   # Los scrapers sociales no ejecutan Vue: entregales metadatos del contenido.
   RewriteCond %{REQUEST_METHOD} ^GET$
   RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|facebookcatalog|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Pinterest) [NC]
-  RewriteRule ^(noticia|s)/[^/]+(?:/[^/]*)?$ share-preview.php [L,QSA]
+  RewriteRule ^(noticia|s|c)/[^/]+(?:/[^/]*)?$ share-preview.php [L,QSA]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]

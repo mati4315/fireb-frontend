@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
-if (!is_string($requestPath) || !preg_match('~^/(?:noticia|s)/[^/]+(?:/[^/]*)?$~u', $requestPath)) {
+if (!is_string($requestPath) || !preg_match('~^/(?:noticia|s|c)/[^/]+(?:/[^/]*)?$~u', $requestPath)) {
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
     exit('Vista previa no disponible.');
