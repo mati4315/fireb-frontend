@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cdelu.ar.app",
+      "sha256_cert_fingerprints": [
+        "3A:7A:01:CB:5A:86:8D:1E:96:0E:62:EF:55:E1:44:47:D2:BB:68:E6:3E:9A:C3:ED:6C:A2:05:A2:A5:74:2A:C4"
+      ]
+    }
+  }
+]

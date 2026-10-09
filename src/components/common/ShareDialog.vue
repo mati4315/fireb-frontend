@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { Share } from '@capacitor/share'
+import { registerPlugin } from '@capacitor/core'
 import { isNativePlatform } from '@/platform/capacitor'
 import { getShareContentType, trackAppEvent } from '@/utils/analytics'
 
@@ -13,30 +14,32 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 const copied = ref(false)
+const TargetShare = registerPlugin<{ shareTo(options: { target: 'facebook' | 'whatsapp' | 'x'; url: string }): Promise<{ target: string }> }>('TargetShare')
 
 const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
   if (!props.url) return
   const contentType = getShareContentType(props.url)
-  const message = [props.title, props.text].filter(Boolean).join(' — ')
-  const shortMessage = message.length > 220 ? `${message.slice(0, 217)}…` : message
   const encodedUrl = encodeURIComponent(props.url)
   const targetUrl = target === 'facebook'
     ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`
     : target === 'whatsapp'
-      ? `https://wa.me/?text=${encodeURIComponent([message, props.url].filter(Boolean).join(' '))}`
-      : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shortMessage)}&url=${encodedUrl}`
+      ? `https://wa.me/?text=${encodedUrl}`
+      : `https://twitter.com/intent/tweet?url=${encodedUrl}`
 
   try {
     if (isNativePlatform()) {
-      // Use Android's native sharesheet so installed apps (Facebook, WhatsApp,
-      // etc.) receive a share intent instead of opening a localhost WebView URL.
-      await Share.share({
-        title: props.title || 'Compartir publicación',
-        text: props.text || undefined,
-        url: props.url,
-        dialogTitle: 'Elegir aplicación para compartir'
-      })
-      trackAppEvent('share_sheet_opened', { content_type: contentType, target: 'native' })
+      try {
+        // Open the selected social app directly on Android instead of sending
+        // its web share URL to the app's internal browser.
+        await TargetShare.shareTo({ target, url: props.url })
+        trackAppEvent('share_target_opened', { content_type: contentType, target, platform: 'android' })
+      } catch (error) {
+        // If that app is missing or does not handle ACTION_SEND, keep sharing
+        // available through Android's native app chooser (never the WebView).
+        console.warn(`No se pudo abrir ${target}; se mostrará el selector de Android.`, error)
+        await Share.share({ url: props.url, dialogTitle: 'Elegir aplicación para compartir' })
+        trackAppEvent('share_sheet_opened', { content_type: contentType, target })
+      }
     } else {
       // `noopener` can make window.open return null even when the tab opened.
       // Do not fall back to location.assign: that replaces the page being shared.
