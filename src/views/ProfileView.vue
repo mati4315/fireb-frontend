@@ -6,7 +6,7 @@ import { useProfileStore, type PublicProfile } from '@/stores/profileStore';
 import { useStorageStore } from '@/stores/storageStore';
 import { useFeedStore } from '@/stores/feedStore';
 import { db, functions } from '@/config/firebase';
-import { collection, collectionGroup, documentId, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { processImageForPost, validateImageFile } from '@/utils/imageProcessing';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
@@ -190,64 +190,15 @@ const loadLotteryParticipations = async (uid: string) => {
   loadingParticipations.value = true;
   participationsError.value = '';
   try {
-    const participatedQuery = query(
-      collectionGroup(db, 'entries'),
-      where('userId', '==', uid)
-    );
-    const participatedSnap = await getDocs(participatedQuery);
-
-    const uniqueLotteryIds = new Set<string>();
-    const groupedNumbers = new Map<string, number[]>();
-    participatedSnap.docs.forEach((entryDoc) => {
-      const data = entryDoc.data();
-      if (typeof data?.lotteryId !== 'string' || !data.lotteryId) return;
-      uniqueLotteryIds.add(data.lotteryId);
-      if (typeof data.selectedNumber === 'number') {
-        const numbers = groupedNumbers.get(data.lotteryId) || [];
-        numbers.push(data.selectedNumber);
-        groupedNumbers.set(data.lotteryId, numbers);
-      }
-    });
-
-    const lotteryIds = Array.from(uniqueLotteryIds);
-    const chunks = Array.from(
-      { length: Math.ceil(lotteryIds.length / 30) },
-      (_, index) => lotteryIds.slice(index * 30, (index + 1) * 30)
-    );
-    const snapshots = await Promise.all(chunks.map((ids) => getDocs(
-      query(collection(db, 'lotteries'), where(documentId(), 'in', ids))
-    )));
+    const callable = httpsCallable(functions, 'getLotteryParticipationHistory');
+    const response = await callable({ userId: uid });
     if (viewedUserId.value !== uid) return;
-
-    const lotteriesById = new Map<string, Record<string, any>>();
-    snapshots.forEach((snapshot) => snapshot.docs.forEach((lotteryDoc) => {
-      lotteriesById.set(lotteryDoc.id, lotteryDoc.data());
-    }));
-
-    userParticipations.value = Array.from(groupedNumbers, ([lotteryId, numbers]) => {
-      const lottery = lotteriesById.get(lotteryId) || {};
-      const winningNumber = lottery.winner?.selectedNumber;
-      let description = '';
-      if (lottery.hasPremio !== false) {
-        description = lottery.premioType === 'dinero'
-          ? (typeof lottery.premioDinero === 'number' ? `Premio: $${lottery.premioDinero}` : 'Premio en Dinero')
-          : (lottery.premioOtros ? `Premio: ${lottery.premioOtros}` : 'Premio Especial');
-      } else {
-        description = lottery.description || '';
-      }
-
-      return {
-        lotteryId,
-        title: lottery.title || lottery.nombre || `Lotería #${lotteryId.slice(0, 6)}`,
-        numbers: numbers.sort((a, b) => a - b),
-        isWinner: lottery.winner?.userId === uid && typeof winningNumber === 'number' && numbers.includes(winningNumber),
-        winningNumber: typeof winningNumber === 'number' ? winningNumber : null,
-        status: lottery.status || 'active',
-        imageUrl: lottery.imageUrl || '',
-        description
-      };
-    });
-    lotteriesParticipated.value = uniqueLotteryIds.size;
+    const payload = (response.data || {}) as {
+      total?: unknown;
+      participations?: typeof userParticipations.value;
+    };
+    userParticipations.value = Array.isArray(payload.participations) ? payload.participations : [];
+    lotteriesParticipated.value = Math.max(0, Math.floor(Number(payload.total) || 0));
     participationsLoadedFor.value = uid;
   } catch (error) {
     console.error('Error fetching lottery participations:', error);

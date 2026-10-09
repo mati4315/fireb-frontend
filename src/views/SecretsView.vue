@@ -1214,6 +1214,7 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   gap: 0.75rem;
+  align-content: start;
   overflow-y: auto;
   padding: 0.8rem 1.1rem;
   overscroll-behavior: contain;
@@ -2546,29 +2547,45 @@ onUnmounted(() => {
   }
 
   .filters-dialog-backdrop {
-    padding: 0.35rem;
+    align-items: center;
+    padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem max(0.75rem, env(safe-area-inset-bottom));
   }
 
   .filters-dialog {
-    height: min(94dvh, 820px);
-    max-height: min(94dvh, 820px);
-    border-radius: 20px;
+    height: auto;
+    max-height: min(88dvh, 720px);
+    border-radius: 18px;
   }
 
   .filters-dialog-header {
-    padding: 0.9rem 1rem 0.75rem;
+    flex: 0 0 auto;
+    padding: 0.85rem 1rem 0.7rem;
   }
 
   .filters-dialog-body {
-    gap: 0.65rem;
-    padding: 0.7rem 1rem;
+    flex: 0 1 auto;
+    max-height: calc(88dvh - 150px);
+    gap: 1rem;
+    padding: 0.85rem 1rem 1rem;
   }
 
   .filters-dialog-select-grid {
-    gap: 0.5rem;
+    gap: 0.55rem;
+  }
+
+  .filters-dialog-select {
+    min-width: 0;
+    gap: 0.4rem;
+  }
+
+  .filters-dialog-select select {
+    min-height: 3rem;
+    padding: 0.55rem 0.65rem;
+    font-size: 0.9rem;
   }
 
   .filters-dialog-footer {
+    flex: 0 0 auto;
     padding-right: 1rem;
     padding-left: 1rem;
   }
