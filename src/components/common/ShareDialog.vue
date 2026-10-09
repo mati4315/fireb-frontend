@@ -35,8 +35,9 @@ const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
         dialogTitle: 'Elegir aplicación para compartir'
       })
     } else {
-      const opened = window.open(targetUrl, '_blank', 'noopener,noreferrer')
-      if (!opened) window.location.assign(targetUrl)
+      // `noopener` can make window.open return null even when the tab opened.
+      // Do not fall back to location.assign: that replaces the page being shared.
+      window.open(targetUrl, '_blank', 'noopener,noreferrer')
     }
     emit('close')
   } catch (error) {
