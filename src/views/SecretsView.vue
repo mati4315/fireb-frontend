@@ -11,6 +11,7 @@ import {
 import { useModuleStore, type HomeTabKey } from '@/stores/moduleStore';
 import { useSurveyStore } from '@/stores/surveyStore';
 import SecretCard from '@/components/feed/SecretCard.vue';
+import { trackAppEvent } from '@/utils/analytics';
 
 type SecretFilterKey = 'recentes' | 'populares' | 'polemicos';
 const filterSortOptions: Array<{ value: SecretFilterKey; label: string }> = [
@@ -449,6 +450,7 @@ const handleCreateSecret = async () => {
       category: newSecretCategory.value,
       zone: String(newSecretZone.value || '').trim()
     });
+    trackAppEvent('content_published', { content_type: 'secret' });
     newSecretText.value = '';
     newSecretSex.value = 'no_responder';
     newSecretCategory.value = '';

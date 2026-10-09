@@ -207,6 +207,7 @@ import { isStaffUser } from '@/utils/roles';
 import OptionsMenu, { type MenuOption } from '@/components/common/OptionsMenu.vue';
 import ShareDialog from '@/components/common/ShareDialog.vue';
 import { buildShareUrl } from '@/utils/shareUrl';
+import { trackAppEvent } from '@/utils/analytics';
 
 const props = defineProps<{
   secret: SecretRecord;
@@ -419,6 +420,7 @@ const handleCreateComment = async () => {
   commentError.value = null;
   try {
     await secretStore.createComment(props.secret.id, comment);
+    trackAppEvent('comment_created', { content_type: 'secret' });
     commentDraft.value = '';
   } catch (err: any) {
     commentError.value = err?.message || 'No se pudo comentar.';

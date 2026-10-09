@@ -5,6 +5,8 @@ import { getStorage } from "firebase/storage";
 import { getAnalytics, type Analytics } from "firebase/analytics";
 import { getFunctions } from "firebase/functions";
 
+const measurementId = String(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '').trim();
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -12,7 +14,7 @@ const firebaseConfig = {
   storageBucket: "cdeluar-ddefc.firebasestorage.app", // HARDCODED para evitar conflictos con el secret
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-53VQDTEMDW"
+  ...(measurementId ? { measurementId } : {})
 };
 
 // Initialize Firebase
@@ -27,7 +29,7 @@ const functions = getFunctions(app);
 
 // Initialize analytics only if valid ID exists
 let analytics: Analytics | undefined;
-if (import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-53VQDTEMDW") {
+if (/^G-[A-Z0-9]+$/i.test(measurementId)) {
   try {
     analytics = getAnalytics(app);
   } catch (e) {

@@ -6,6 +6,7 @@ import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
 import { useCommentStore, type ContentModule } from '@/stores/commentStore';
 import { useAuthStore } from '@/stores/authStore';
 import { isAdminUser } from '@/utils/roles';
+import { trackAppEvent } from '@/utils/analytics';
 
 const props = defineProps<{
   contentId: string;
@@ -70,6 +71,7 @@ const createComment = async (text: string) => {
   creatingComment.value = true;
   try {
     await commentStore.createComment(props.contentId, props.module, text);
+    trackAppEvent('comment_created', { content_type: props.module });
   } catch (error) {
     console.error('Error creating comment:', error);
   } finally {

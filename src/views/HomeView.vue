@@ -32,6 +32,7 @@ import { buildShareUrl } from '@/utils/shareUrl'
 import type { MenuOption } from '@/components/common/OptionsMenu.vue'
 import { isAdminUser } from '@/utils/roles'
 import { getPublicNews, publicNewsToFeedItem } from '@/api/publicApi'
+import { trackAppEvent } from '@/utils/analytics'
 
 const ImageLightbox = defineAsyncComponent(() => import('@/components/common/ImageLightbox.vue'))
 const AuthPromptModal = defineAsyncComponent(() => import('@/components/common/AuthPromptModal.vue'))
@@ -908,6 +909,7 @@ const handleCreatePost = async () => {
       imagesV2.map((image) => image.url),
       imagesV2
     )
+    trackAppEvent('content_published', { content_type: 'community' })
 
     const detailPath = buildContentDetailPathByValues(
       'community',

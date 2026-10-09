@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { Share } from '@capacitor/share'
 import { isNativePlatform } from '@/platform/capacitor'
+import { getShareContentType, trackAppEvent } from '@/utils/analytics'
 
 const props = defineProps<{
   open: boolean
@@ -15,6 +16,7 @@ const copied = ref(false)
 
 const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
   if (!props.url) return
+  const contentType = getShareContentType(props.url)
   const message = [props.title, props.text].filter(Boolean).join(' — ')
   const shortMessage = message.length > 220 ? `${message.slice(0, 217)}…` : message
   const encodedUrl = encodeURIComponent(props.url)
@@ -34,10 +36,12 @@ const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
         url: props.url,
         dialogTitle: 'Elegir aplicación para compartir'
       })
+      trackAppEvent('share_sheet_opened', { content_type: contentType, target: 'native' })
     } else {
       // `noopener` can make window.open return null even when the tab opened.
       // Do not fall back to location.assign: that replaces the page being shared.
       window.open(targetUrl, '_blank', 'noopener,noreferrer')
+      trackAppEvent('share_target_opened', { content_type: contentType, target })
     }
     emit('close')
   } catch (error) {
@@ -60,6 +64,7 @@ const copyShareUrl = async () => {
     input.remove()
   }
   copied.value = true
+  trackAppEvent('share_link_copied', { content_type: getShareContentType(props.url) })
   window.setTimeout(() => {
     copied.value = false
     emit('close')

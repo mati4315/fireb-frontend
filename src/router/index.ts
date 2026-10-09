@@ -270,10 +270,17 @@ router.afterEach((to) => {
   setMetaTag('twitter:title', nextTitle);
 
   if (analytics) {
+    const analyticsPathByRoute: Record<string, string> = {
+      'secrets-detail': '/s/:ref',
+      'news-detail': '/noticia/:ref',
+      'community-detail': '/c/:ref',
+      'profile-public': '/perfil/:ref'
+    };
+    const analyticsPath = analyticsPathByRoute[routeName] || (to.path || '/');
     logEvent(analytics, 'page_view', {
       page_title: nextTitle,
-      page_location: canonicalUrl,
-      page_path: canonicalPath
+      page_location: `https://cdelu.ar${analyticsPath}`,
+      page_path: analyticsPath
     })
   }
 });
