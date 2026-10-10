@@ -95,6 +95,9 @@
         <button class="comment-btn" type="button" @click="toggleComments">
           Comentarios {{ secret.stats.commentsCount }}
         </button>
+        <button class="open-btn" type="button" @click="openSecretDetail">
+          Abrir
+        </button>
         <button class="share-btn" type="button" aria-label="Compartir secreto" @click="openSecretShare">
           <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
@@ -102,9 +105,6 @@
           </svg>
           <span>Compartir</span>
           <span class="share-count" :aria-label="`${secret.stats.shareCount} veces compartido`">{{ secret.stats.shareCount }}</span>
-        </button>
-        <button class="open-btn" type="button" @click="openSecretDetail">
-          Abrir
         </button>
       </footer>
 
@@ -923,6 +923,10 @@ const handleCreateComment = async () => {
   }
 
   .open-btn {
+    display: none;
+  }
+
+  .share-count {
     display: none;
   }
 }
