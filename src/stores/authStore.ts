@@ -33,6 +33,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isInitialized = ref(false);
   const error = ref<string | null>(null);
   let initPromise: Promise<void> | null = null;
+  // A profile can be created by the auth-state listener before the provider
+  // sign-in promise resolves. Keep the first-creation signal so the login
+  // screen can still route a re-registered account to /perfil.
+  const newlyCreatedProfileUids = new Set<string>();
   const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
   const updateHomeFeedPreferenceCallable = httpsCallable(functions, 'updateHomeFeedPreference');
 
@@ -155,6 +159,8 @@ export const useAuthStore = defineStore('auth', () => {
       }
       return existingProfile;
     }
+
+    newlyCreatedProfileUids.add(firebaseUser.uid);
 
     const nombre = (preferred?.nombre || firebaseUser.displayName || 'Usuario')
       .trim()
@@ -330,8 +336,11 @@ export const useAuthStore = defineStore('auth', () => {
           nombre: nativeResult.user?.displayName || undefined,
           profilePictureUrl: nativeResult.user?.photoUrl || undefined
         })
+        const isNewUser = getAdditionalUserInfo(credentialResult)?.isNewUser === true ||
+          newlyCreatedProfileUids.has(firebaseUser.uid)
+        newlyCreatedProfileUids.delete(firebaseUser.uid)
         loading.value = false
-        return { success: true, isNewUser: getAdditionalUserInfo(credentialResult)?.isNewUser === true }
+        return { success: true, isNewUser }
       }
 
       let provider: GoogleAuthProvider | FacebookAuthProvider | OAuthProvider;
@@ -348,8 +357,11 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
       await ensureProfileDocument(firebaseUser);
+      const isNewUser = getAdditionalUserInfo(credentialResult)?.isNewUser === true ||
+        newlyCreatedProfileUids.has(firebaseUser.uid)
+      newlyCreatedProfileUids.delete(firebaseUser.uid)
       loading.value = false;
-      return { success: true, isNewUser: getAdditionalUserInfo(credentialResult)?.isNewUser === true };
+      return { success: true, isNewUser };
     } catch (err: any) {
       console.error('Login Error:', err);
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/popup-blocked') {
