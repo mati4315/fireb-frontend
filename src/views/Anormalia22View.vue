@@ -14,10 +14,13 @@ import {
   updateDoc,
   type Unsubscribe
 } from 'firebase/firestore'
-import { db } from '@/config/firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions } from '@/config/firebase'
 import { useAuthStore } from '@/stores/authStore'
 import { useModuleStore } from '@/stores/moduleStore'
 import { isAdminUser } from '@/utils/roles'
+import { validateImageFile } from '@/utils/imageProcessing'
+import { useStorageStore } from '@/stores/storageStore'
 
 const facebookPageUrl = 'https://www.facebook.com/anormalia22/'
 const moduleStore = useModuleStore()
@@ -34,6 +37,18 @@ const newEpisodeTitle = ref('')
 const newEpisodeSeason = ref('Temporada 2')
 const newEpisodeUrl = ref('')
 const newEpisodeCover = ref('')
+const selectedCoverFile = ref<File | null>(null)
+const coverInput = ref<HTMLInputElement | null>(null)
+const coverPreviewObjectUrl = ref('')
+const uploadingCover = ref(false)
+const coverUploadProgress = ref(0)
+const coverPreviewUrl = computed(() => coverPreviewObjectUrl.value || newEpisodeCover.value.trim() || defaultEpisode.coverUrl)
+const coverCropX = ref(50)
+const coverCropY = ref(50)
+const coverImageStyle = computed(() => ({ objectPosition: `${coverCropX.value}% ${coverCropY.value}%` }))
+const storageStore = useStorageStore()
+const selectedSeason = ref('all')
+const episodeSortOrder = ref<'newest' | 'oldest' | 'title'>('newest')
 let episodesUnsubscribe: Unsubscribe | null = null
 let seedInProgress = false
 
@@ -45,6 +60,8 @@ type AnormaliaEpisode = {
   coverUrl: string
   published: boolean
   isDefault?: boolean
+  coverPath?: string
+  createdAtMs?: number
 }
 
 const defaultEpisode: AnormaliaEpisode = {
@@ -66,6 +83,16 @@ const isAdmin = computed(() => isAdminUser(
 const visibleEpisodes = computed(() =>
   hasStoredEpisodes.value ? episodes.value : [defaultEpisode]
 )
+const seasonOptions = computed(() => [...new Set(visibleEpisodes.value.map((episode) => episode.season).filter(Boolean))]
+  .sort((a, b) => a.localeCompare(b, 'es', { numeric: true })))
+const filteredEpisodes = computed(() => {
+  const result = visibleEpisodes.value.filter((episode) => selectedSeason.value === 'all' || episode.season === selectedSeason.value)
+  return result.sort((a, b) => {
+    if (episodeSortOrder.value === 'title') return a.title.localeCompare(b.title, 'es', { numeric: true })
+    const createdOrder = (a.createdAtMs || 0) - (b.createdAtMs || 0)
+    return episodeSortOrder.value === 'newest' ? -createdOrder : createdOrder
+  })
+})
 const tabPaths: Record<string, string> = {
   todo: '/todo',
   news: '/noticia',
@@ -119,6 +146,88 @@ const resetEpisodeForm = () => {
   newEpisodeSeason.value = 'Temporada 2'
   newEpisodeUrl.value = ''
   newEpisodeCover.value = ''
+  selectedCoverFile.value = null
+  if (coverPreviewObjectUrl.value) URL.revokeObjectURL(coverPreviewObjectUrl.value)
+  coverPreviewObjectUrl.value = ''
+  if (coverInput.value) coverInput.value.value = ''
+  coverUploadProgress.value = 0
+  coverCropX.value = 50
+  coverCropY.value = 50
+}
+
+const cropCoverToSquare = async (file: File): Promise<File> => {
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image()
+      element.onload = () => resolve(element)
+      element.onerror = () => reject(new Error('No se pudo abrir la imagen para recortarla.'))
+      element.src = objectUrl
+    })
+    const side = Math.min(image.naturalWidth, image.naturalHeight)
+    const sourceX = (image.naturalWidth - side) * (coverCropX.value / 100)
+    const sourceY = (image.naturalHeight - side) * (coverCropY.value / 100)
+    const outputSide = Math.min(1200, side)
+    const canvas = document.createElement('canvas')
+    canvas.width = outputSide
+    canvas.height = outputSide
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('No se pudo preparar el recorte de portada.')
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(image, sourceX, sourceY, side, side, 0, 0, outputSide, outputSide)
+
+    let blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error('No se pudo generar el recorte.')), 'image/webp', 0.88)
+    })
+    if (blob.type !== 'image/webp') {
+      context.fillStyle = '#fff'
+      context.fillRect(0, 0, outputSide, outputSide)
+      context.drawImage(image, sourceX, sourceY, side, side, 0, 0, outputSide, outputSide)
+      blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error('No se pudo generar el recorte.')), 'image/jpeg', 0.88)
+      })
+    }
+    const extension = blob.type === 'image/webp' ? 'webp' : 'jpg'
+    return new File([blob], `anormalia-portada.${extension}`, { type: blob.type, lastModified: Date.now() })
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
+const deleteHostedCover = async (path: string) => {
+  const removeCover = httpsCallable(functions, 'deleteAnormaliaCoverFromHosting')
+  await removeCover({ path })
+}
+
+const selectCoverFile = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  const validationError = validateImageFile(file)
+  if (validationError) {
+    manageError.value = validationError
+    input.value = ''
+    return
+  }
+
+  manageError.value = ''
+  if (coverPreviewObjectUrl.value) URL.revokeObjectURL(coverPreviewObjectUrl.value)
+  selectedCoverFile.value = file
+  coverCropX.value = 50
+  coverCropY.value = 50
+  coverPreviewObjectUrl.value = URL.createObjectURL(file)
+}
+
+const useDefaultCover = () => {
+  selectedCoverFile.value = null
+  if (coverPreviewObjectUrl.value) URL.revokeObjectURL(coverPreviewObjectUrl.value)
+  coverPreviewObjectUrl.value = ''
+  coverCropX.value = 50
+  coverCropY.value = 50
+  newEpisodeCover.value = defaultEpisode.coverUrl
+  if (coverInput.value) coverInput.value.value = ''
 }
 
 const editEpisode = (episode: AnormaliaEpisode) => {
@@ -128,7 +237,7 @@ const editEpisode = (episode: AnormaliaEpisode) => {
   newEpisodeTitle.value = episode.title
   newEpisodeSeason.value = episode.season || 'Temporada 2'
   newEpisodeUrl.value = episode.videoUrl
-  newEpisodeCover.value = episode.coverUrl === defaultEpisode.coverUrl ? '' : episode.coverUrl
+  newEpisodeCover.value = episode.coverUrl || defaultEpisode.coverUrl
   document.querySelector('.admin-episode-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
@@ -144,7 +253,7 @@ const saveEpisode = async () => {
   const title = newEpisodeTitle.value.trim()
   const season = newEpisodeSeason.value.trim()
   const videoUrl = newEpisodeUrl.value.trim()
-  const coverUrl = newEpisodeCover.value.trim() || defaultEpisode.coverUrl
+  let coverUrl = newEpisodeCover.value.trim() || defaultEpisode.coverUrl
 
   if (!title || !season) {
     manageError.value = 'Completa el titulo del programa y la temporada.'
@@ -154,25 +263,46 @@ const saveEpisode = async () => {
     manageError.value = 'El enlace del programa debe ser una URL HTTPS valida.'
     return
   }
-  if (!coverUrl.startsWith('/') && !isHttpsUrl(coverUrl)) {
+  if (!selectedCoverFile.value && !coverUrl.startsWith('/') && !isHttpsUrl(coverUrl)) {
     manageError.value = 'La portada debe ser una URL HTTPS valida.'
     return
   }
 
   savingEpisode.value = true
+  const existingEpisode = episodes.value.find((episode) => episode.id === editingEpisodeId.value)
+  const previousCoverPath = existingEpisode?.coverPath || ''
+  let newUploadedCoverPath = ''
   try {
+    if (selectedCoverFile.value) {
+      const userId = authStore.user?.uid
+      if (!userId) throw new Error('Inicia sesión con una cuenta administradora para subir la portada.')
+      uploadingCover.value = true
+      coverUploadProgress.value = 0
+      const croppedCover = await cropCoverToSquare(selectedCoverFile.value)
+      const extension = croppedCover.type === 'image/webp' ? 'webp' : croppedCover.type === 'image/png' ? 'png' : 'jpg'
+      const path = `posts/${userId}/anormalia22/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_o.${extension}`
+      const uploaded = await storageStore.uploadFileWithProgress(croppedCover, path, (progress) => {
+        coverUploadProgress.value = Math.round(progress)
+      })
+      coverUrl = uploaded.url
+      newUploadedCoverPath = uploaded.path
+    }
+
+    const coverPath = newUploadedCoverPath || (coverUrl === existingEpisode?.coverUrl ? previousCoverPath : '')
+
     const episodeData = {
       title,
       season,
       videoUrl,
       coverUrl,
+      coverPath,
       published: true,
       updatedAt: serverTimestamp(),
       updatedBy: authStore.user?.uid || ''
     }
 
     if (editingEpisodeId.value) {
-      await updateDoc(doc(db, 'anormalia22_episodes', editingEpisodeId.value), episodeData)
+      await setDoc(doc(db, 'anormalia22_episodes', editingEpisodeId.value), episodeData, { merge: true })
       manageSuccess.value = 'Los cambios del programa se guardaron.'
     } else {
       await addDoc(collection(db, 'anormalia22_episodes'), {
@@ -183,12 +313,29 @@ const saveEpisode = async () => {
       })
       manageSuccess.value = 'El programa se agrego al catalogo.'
     }
+
+    if (previousCoverPath && previousCoverPath !== coverPath) {
+      try {
+        await deleteHostedCover(previousCoverPath)
+      } catch (cleanupError) {
+        console.warn('No se pudo limpiar la portada reemplazada de Anormalia 22.', cleanupError)
+        manageSuccess.value += ' La portada anterior no se pudo borrar automáticamente.'
+      }
+    }
     resetEpisodeForm()
   } catch (error: any) {
+    if (newUploadedCoverPath) {
+      try {
+        await deleteHostedCover(newUploadedCoverPath)
+      } catch (cleanupError) {
+        console.warn('No se pudo limpiar la portada que quedó sin guardar.', cleanupError)
+      }
+    }
     manageError.value = error?.message || (editingEpisodeId.value
       ? 'No se pudieron guardar los cambios del programa.'
       : 'No se pudo agregar el programa.')
   } finally {
+    uploadingCover.value = false
     savingEpisode.value = false
   }
 }
@@ -234,6 +381,9 @@ onMounted(() => {
           season: typeof data.season === 'string' ? data.season : '',
           videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : '',
           coverUrl: typeof data.coverUrl === 'string' ? data.coverUrl : defaultEpisode.coverUrl,
+          coverPath: typeof data.coverPath === 'string' ? data.coverPath : '',
+          createdAtMs: typeof data.createdAt?.toMillis === 'function' ? data.createdAt.toMillis() : 0,
+          isDefault: episodeDoc.id === defaultEpisode.id,
           published: data.published !== false
         }
       })
@@ -245,6 +395,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   episodesUnsubscribe?.()
+  if (coverPreviewObjectUrl.value) URL.revokeObjectURL(coverPreviewObjectUrl.value)
 })
 </script>
 
@@ -295,6 +446,24 @@ onBeforeUnmount(() => {
         <span class="episode-count">{{ String(visibleEpisodes.length).padStart(2, '0') }} PROGRAMAS</span>
       </div>
 
+      <div v-if="visibleEpisodes.length > 1" class="episode-filters" aria-label="Filtros de programas">
+        <label>
+          Temporada
+          <select v-model="selectedSeason">
+            <option value="all">Todas las temporadas</option>
+            <option v-for="season in seasonOptions" :key="season" :value="season">{{ season }}</option>
+          </select>
+        </label>
+        <label>
+          Ordenar
+          <select v-model="episodeSortOrder">
+            <option value="newest">Más recientes</option>
+            <option value="oldest">Más antiguos</option>
+            <option value="title">Título A–Z</option>
+          </select>
+        </label>
+      </div>
+
       <form v-if="isAdmin" class="admin-episode-form" @submit.prevent="saveEpisode">
         <div class="admin-form-heading">
           <div>
@@ -316,10 +485,38 @@ onBeforeUnmount(() => {
             Enlace HTTPS del video
             <input v-model="newEpisodeUrl" type="url" required placeholder="https://www.facebook.com/...">
           </label>
-          <label class="form-wide">
-            URL HTTPS de portada (opcional)
-            <input v-model="newEpisodeCover" type="text" inputmode="url" placeholder="Vacío para usar la portada actual">
-          </label>
+          <div class="form-wide cover-editor">
+            <label for="episode-cover-url">URL HTTPS de portada (opcional)</label>
+            <input id="episode-cover-url" v-model="newEpisodeCover" type="url" inputmode="url" placeholder="Deja vacío para usar la portada predeterminada">
+            <label for="episode-cover-file">Subir o reemplazar portada</label>
+            <input
+              id="episode-cover-file"
+              ref="coverInput"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              :disabled="savingEpisode"
+              @change="selectCoverFile"
+            >
+            <button class="use-default-cover-btn" type="button" :disabled="savingEpisode" @click="useDefaultCover">
+              Usar portada predeterminada
+            </button>
+            <div class="cover-preview-row">
+              <img :src="coverPreviewUrl" :style="coverImageStyle" alt="Vista previa de la portada">
+              <span>{{ selectedCoverFile ? selectedCoverFile.name : 'Vista previa de la portada que se guardará' }}</span>
+            </div>
+            <div v-if="selectedCoverFile" class="cover-crop-controls">
+              <label>
+                Encuadre horizontal
+                <input v-model.number="coverCropX" type="range" min="0" max="100" aria-label="Encuadre horizontal de la portada">
+              </label>
+              <label>
+                Encuadre vertical
+                <input v-model.number="coverCropY" type="range" min="0" max="100" aria-label="Encuadre vertical de la portada">
+              </label>
+            </div>
+            <p v-if="uploadingCover" class="cover-upload-progress">Subiendo portada… {{ coverUploadProgress }}%</p>
+            <small>JPG, PNG o WebP · máximo 5 MB. La imagen se optimiza al subirla.</small>
+          </div>
         </div>
         <div class="admin-form-actions">
           <p v-if="manageError" class="form-message error">{{ manageError }}</p>
@@ -329,7 +526,7 @@ onBeforeUnmount(() => {
               Cancelar
             </button>
             <button class="add-episode-btn" type="submit" :disabled="savingEpisode">
-              {{ savingEpisode ? 'Guardando...' : editingEpisodeId ? 'Guardar cambios' : 'Agregar programa' }}
+              {{ savingEpisode ? uploadingCover ? `Subiendo portada… ${coverUploadProgress}%` : 'Guardando...' : editingEpisodeId ? 'Guardar cambios' : 'Agregar programa' }}
             </button>
           </div>
         </div>
@@ -338,7 +535,7 @@ onBeforeUnmount(() => {
       <p v-if="!visibleEpisodes.length" class="empty-episodes">Todavía no hay programas publicados.</p>
 
       <div class="episode-list">
-        <article v-for="episode in visibleEpisodes" :key="episode.id" class="episode-item">
+        <article v-for="episode in filteredEpisodes" :key="episode.id" class="episode-item">
           <a
             class="episode-card"
             :href="episode.videoUrl"
@@ -377,6 +574,7 @@ onBeforeUnmount(() => {
             </button>
             <button
               class="remove-episode-btn"
+              v-if="!episode.isDefault"
               type="button"
               :disabled="removingEpisodeId === episode.id || savingEpisode"
               @click="removeEpisode(episode)"
@@ -386,6 +584,9 @@ onBeforeUnmount(() => {
           </div>
         </article>
       </div>
+      <p v-if="visibleEpisodes.length && !filteredEpisodes.length" class="empty-episodes">
+        No hay programas publicados para esa temporada.
+      </p>
     </section>
   </main>
 </template>
@@ -828,6 +1029,32 @@ onBeforeUnmount(() => {
   outline-offset: 4px;
 }
 
+.episode-filters {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  margin: -0.45rem 0 1rem;
+}
+
+.episode-filters label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.episode-filters select {
+  min-width: 160px;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
 .episode-list {
   width: min(100%, 980px);
   display: grid;
@@ -952,6 +1179,95 @@ onBeforeUnmount(() => {
 .admin-form-grid input:focus {
   border-color: var(--accent);
   outline: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.cover-editor {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.cover-editor > label {
+  display: block;
+}
+
+.cover-editor input[type='file'] {
+  padding: 0.55rem;
+  font-size: 0.74rem;
+}
+
+.cover-editor small {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.use-default-cover-btn {
+  justify-self: start;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.use-default-cover-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.cover-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+}
+
+.cover-preview-row img {
+  width: 88px;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  object-fit: cover;
+}
+
+.cover-crop-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.cover-crop-controls label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.cover-crop-controls input[type='range'] {
+  width: 100%;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.cover-upload-progress {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
 .admin-form-actions {
@@ -1104,6 +1420,24 @@ onBeforeUnmount(() => {
   }
 
   .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .episode-filters {
+    justify-content: stretch;
+  }
+
+  .episode-filters label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .episode-filters select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .cover-crop-controls {
     grid-template-columns: 1fr;
   }
 
