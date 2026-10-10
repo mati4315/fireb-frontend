@@ -10,7 +10,7 @@
   # provoca errores de importación y puede cachear HTML como si fuera JavaScript.
   RewriteCond %{REQUEST_URI} ^/assets/
   RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteRule ^ - [R=404,L]
+  RewriteRule ^ - [E=NO_CACHE_MISSING_ASSET:1,R=404,L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
@@ -38,7 +38,7 @@
   </FilesMatch>
 
   # No conservar respuestas de error (incluidos chunks que ya no existen).
-  Header always set Cache-Control "no-store, no-cache, must-revalidate" "expr=%{REQUEST_STATUS} >= 400"
+  Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0" env=NO_CACHE_MISSING_ASSET
 </IfModule>
 
 <IfModule mod_expires.c>
