@@ -76,11 +76,15 @@ export const useAuthStore = defineStore('auth', () => {
       .replace(/^_+|_+$/g, '')
       .slice(0, 30);
 
-  const buildFallbackUsername = (firebaseUser: any) => {
-    const fromEmail = typeof firebaseUser?.email === 'string'
-      ? firebaseUser.email.split('@')[0]
-      : '';
-    const candidate = normalizeUsername(fromEmail || `user_${firebaseUser?.uid || ''}`);
+  const buildFallbackUsername = (firebaseUser: any, fallbackEmail = '') => {
+    const providerEmail = (firebaseUser?.providerData || [])
+      .find((provider: any) => typeof provider?.email === 'string' && provider.email.trim())?.email || '';
+    const email = typeof firebaseUser?.email === 'string' && firebaseUser.email.trim()
+      ? firebaseUser.email
+      : (fallbackEmail || providerEmail);
+    const fromEmail = typeof email === 'string' ? email.split('@')[0] : '';
+    const fromName = typeof firebaseUser?.displayName === 'string' ? firebaseUser.displayName : '';
+    const candidate = normalizeUsername(fromEmail || fromName || `user_${firebaseUser?.uid || ''}`);
     if (candidate.length >= 3) return candidate;
 
     const fromUid = normalizeUsername(`user_${String(firebaseUser?.uid || '').slice(0, 8)}`);
@@ -134,23 +138,24 @@ export const useAuthStore = defineStore('auth', () => {
 
   const ensureProfileDocument = async (
     firebaseUser: any,
-    preferred?: { nombre?: string; username?: string; profilePictureUrl?: string }
+    preferred?: { nombre?: string; username?: string; profilePictureUrl?: string; email?: string }
   ) => {
     const existingProfile = await refreshUserProfile(firebaseUser.uid);
     const preferredPic = (preferred?.profilePictureUrl || firebaseUser.photoURL || '').toString().trim();
 
     if (existingProfile) {
       const currentPic = (existingProfile.profilePictureUrl || '').toString().trim();
-      // Si el perfil ya existe pero no tiene foto de perfil y ahora sí la tenemos disponible, lo actualizamos.
-      if (!currentPic && preferredPic) {
+      const hasEmail = typeof existingProfile.email === 'string' && existingProfile.email.trim().length > 0;
+      // Completa perfiles antiguos si Firebase/Auth social ahora expone el correo.
+      if ((!currentPic && preferredPic) || !hasEmail) {
         try {
           await updateMyProfileCallable({
             nombre: existingProfile.nombre || preferred?.nombre || firebaseUser.displayName || 'Usuario',
-            username: existingProfile.username,
+            username: existingProfile.username || normalizeUsername(preferred?.username || '') || buildFallbackUsername(firebaseUser, preferred?.email),
             bio: existingProfile.bio || '',
             location: existingProfile.location || '',
             website: existingProfile.website || '',
-            profilePictureUrl: preferredPic
+            profilePictureUrl: currentPic || preferredPic
           });
           return await refreshUserProfile(firebaseUser.uid);
         } catch (err) {
@@ -168,7 +173,7 @@ export const useAuthStore = defineStore('auth', () => {
     const preferredUsername = normalizeUsername(preferred?.username || '');
     const username = /^[a-z0-9_]{3,30}$/.test(preferredUsername)
       ? preferredUsername
-      : buildFallbackUsername(firebaseUser);
+      : buildFallbackUsername(firebaseUser, preferred?.email);
     const profilePictureUrl = preferredPic;
 
     await updateMyProfileCallable({
@@ -334,6 +339,10 @@ export const useAuthStore = defineStore('auth', () => {
         await refreshTokenClaims(firebaseUser, true)
         await ensureProfileDocument(firebaseUser, {
           nombre: nativeResult.user?.displayName || undefined,
+          email: nativeResult.user?.email || undefined,
+          username: typeof nativeResult.user?.email === 'string'
+            ? nativeResult.user.email.split('@')[0]
+            : undefined,
           profilePictureUrl: nativeResult.user?.photoUrl || undefined
         })
         const isNewUser = getAdditionalUserInfo(credentialResult)?.isNewUser === true ||
@@ -348,6 +357,7 @@ export const useAuthStore = defineStore('auth', () => {
         provider = new GoogleAuthProvider();
       } else if (providerId === 'facebook.com') {
         provider = new FacebookAuthProvider();
+        provider.addScope('email');
       } else {
         provider = new OAuthProvider(providerId);
       }
@@ -489,6 +499,7 @@ export const useAuthStore = defineStore('auth', () => {
           provider = new GoogleAuthProvider();
         } else if (providerId === 'facebook.com') {
           provider = new FacebookAuthProvider();
+          provider.addScope('email');
         } else {
           provider = new OAuthProvider(providerId);
         }
