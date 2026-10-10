@@ -15,17 +15,40 @@ import {
   type Unsubscribe
 } from 'firebase/firestore'
 import { httpsCallable } from 'firebase/functions'
+import { registerPlugin } from '@capacitor/core'
+import { Browser } from '@capacitor/browser'
 import { db, functions } from '@/config/firebase'
 import { useAuthStore } from '@/stores/authStore'
 import { useModuleStore } from '@/stores/moduleStore'
 import { isAdminUser } from '@/utils/roles'
 import { validateImageFile } from '@/utils/imageProcessing'
 import { useStorageStore } from '@/stores/storageStore'
+import { isAndroid, isNativePlatform } from '@/platform/capacitor'
 
 const facebookPageUrl = 'https://www.facebook.com/anormalia22/'
+const NativeFacebookLink = registerPlugin<{ openFacebookPage(options: { url: string }): Promise<void> }>('TargetShare')
 const moduleStore = useModuleStore()
 const authStore = useAuthStore()
 const route = useRoute()
+const openFacebookPage = async () => {
+  if (isAndroid()) {
+    try {
+      await NativeFacebookLink.openFacebookPage({ url: facebookPageUrl })
+      return
+    } catch (error) {
+      console.warn('No se pudo abrir la página en la app de Facebook; se abrirá en el navegador.', error)
+      await Browser.open({ url: facebookPageUrl })
+      return
+    }
+  }
+
+  if (isNativePlatform()) {
+    await Browser.open({ url: facebookPageUrl })
+    return
+  }
+
+  window.open(facebookPageUrl, '_blank', 'noopener,noreferrer')
+}
 const episodes = ref<AnormaliaEpisode[]>([])
 const hasStoredEpisodes = ref(false)
 const savingEpisode = ref(false)
@@ -428,7 +451,7 @@ onBeforeUnmount(() => {
             <p>Sumate a la comunidad de Anormalia 22.</p>
           </div>
         </div>
-        <a class="facebook-fallback" :href="facebookPageUrl" target="_blank" rel="noopener noreferrer">
+        <a class="facebook-fallback" :href="facebookPageUrl" target="_blank" rel="noopener noreferrer" @click.prevent="openFacebookPage">
           Seguir página en Facebook <span aria-hidden="true">↗</span>
         </a>
       </div>
