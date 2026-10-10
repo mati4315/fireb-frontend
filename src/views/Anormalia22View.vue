@@ -20,7 +20,6 @@ import { useModuleStore } from '@/stores/moduleStore'
 import { isAdminUser } from '@/utils/roles'
 
 const facebookPageUrl = 'https://www.facebook.com/anormalia22/'
-const facebookPageEmbedUrl = `https://www.facebook.com/plugins/page.php?href=${encodeURIComponent(facebookPageUrl)}&tabs=&width=500&height=130&small_header=false&adapt_container_width=true&hide_cover=true&show_facepile=false&hide_cta=false`
 const moduleStore = useModuleStore()
 const authStore = useAuthStore()
 const route = useRoute()
@@ -278,21 +277,8 @@ onBeforeUnmount(() => {
             <p>Sumate a la comunidad de Anormalia 22.</p>
           </div>
         </div>
-        <div class="facebook-plugin">
-          <iframe
-            :src="facebookPageEmbedUrl"
-            title="Seguir la página de Anormalia 22 en Facebook"
-            width="500"
-            height="130"
-            style="border: none; overflow: hidden"
-            scrolling="no"
-            frameborder="0"
-            allow="encrypted-media"
-            loading="lazy"
-          ></iframe>
-        </div>
         <a class="facebook-fallback" :href="facebookPageUrl" target="_blank" rel="noopener noreferrer">
-          Abrir página de Facebook <span aria-hidden="true">↗</span>
+          Seguir página en Facebook <span aria-hidden="true">↗</span>
         </a>
       </div>
       <span class="hero-orbit orbit-one" aria-hidden="true"></span>
@@ -532,33 +518,24 @@ onBeforeUnmount(() => {
   font-size: 0.74rem;
 }
 
-.facebook-plugin {
-  width: 100%;
-  min-height: 130px;
-  display: flex;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.facebook-plugin iframe {
-  width: 100%;
-  max-width: 500px;
-  height: 130px;
-  border: 0;
-}
-
 .facebook-fallback {
   display: block;
   width: fit-content;
-  margin: 0 auto;
-  color: var(--anormalia-lime);
-  font-size: 0.74rem;
+  margin: 0.85rem auto 0;
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: #1877f2;
+  color: #fff;
+  font-size: 0.82rem;
   font-weight: 700;
   text-decoration: none;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .facebook-fallback:hover {
-  text-decoration: underline;
+  background: #0e67d5;
+  transform: translateY(-1px);
 }
 
 .eyebrow {
@@ -1088,14 +1065,6 @@ onBeforeUnmount(() => {
 
   .facebook-copy p {
     font-size: 0.68rem;
-  }
-
-  .facebook-plugin {
-    min-height: 130px;
-  }
-
-  .facebook-plugin iframe {
-    height: 130px;
   }
 
   .hero-index {
