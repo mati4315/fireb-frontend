@@ -41,6 +41,7 @@ export interface SecretRecord {
     upVotesCount: number;
     downVotesCount: number;
     commentsCount: number;
+    shareCount: number;
     reportsCount: number;
     totalVotesCount: number;
   };
@@ -164,6 +165,7 @@ export const mapSecretData = (secretId: string, data: DocumentData): SecretRecor
       upVotesCount: clampInt(data?.stats?.upVotesCount, 0),
       downVotesCount: clampInt(data?.stats?.downVotesCount, 0),
       commentsCount: clampInt(data?.stats?.commentsCount, 0),
+      shareCount: clampInt(data?.stats?.shareCount, 0),
       reportsCount: clampInt(data?.stats?.reportsCount, 0),
       totalVotesCount: clampInt(
         data?.stats?.totalVotesCount,
@@ -746,6 +748,21 @@ export const useSecretStore = defineStore('secret', () => {
     }
   };
 
+  const trackShare = async (secretId: string) => {
+    if (!secretId) return 0;
+    const callable = httpsCallable<{ secretId: string }, { shareCount: number }>(
+      firebaseFunctions,
+      'trackSecretShareCallable'
+    );
+    const result = await callable({ secretId });
+    const shareCount = clampInt(result.data?.shareCount, 0);
+    patchSecretLocal(secretId, (secret) => ({
+      ...secret,
+      stats: { ...secret.stats, shareCount }
+    }));
+    return shareCount;
+  };
+
   const deleteSecret = async (secretId: string) => {
     if (!secretId) return;
     try {
@@ -836,6 +853,7 @@ export const useSecretStore = defineStore('secret', () => {
     loadSecretById,
     voteSecret,
     reportSecret,
+    trackShare,
     loadComments,
     createComment,
     getComments,

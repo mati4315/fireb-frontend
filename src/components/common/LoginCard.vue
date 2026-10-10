@@ -36,6 +36,8 @@ const handleForm = async () => {
 
   if (result.success) {
     emit('success', !isLogin.value)
+  } else if (isLogin.value && String(result.error || '').includes('auth/user-not-found')) {
+    authStore.error = 'No hay una cuenta activa con ese correo. Si fue eliminada, selecciona “¿No tienes cuenta? Registrate aquí” para crearla nuevamente.'
   }
 }
 

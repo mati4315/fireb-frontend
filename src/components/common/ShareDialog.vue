@@ -12,7 +12,7 @@ const props = defineProps<{
   text?: string
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; shared: [] }>()
 const copied = ref(false)
 const TargetShare = registerPlugin<{ shareTo(options: { target: 'facebook' | 'whatsapp' | 'x'; url: string }): Promise<{ target: string }> }>('TargetShare')
 
@@ -46,6 +46,7 @@ const openShareTarget = async (target: 'facebook' | 'whatsapp' | 'x') => {
       window.open(targetUrl, '_blank', 'noopener,noreferrer')
       trackAppEvent('share_target_opened', { content_type: contentType, target })
     }
+    emit('shared')
     emit('close')
   } catch (error) {
     console.error('No se pudo abrir la opción para compartir:', error)
@@ -68,6 +69,7 @@ const copyShareUrl = async () => {
   }
   copied.value = true
   trackAppEvent('share_link_copied', { content_type: getShareContentType(props.url) })
+  emit('shared')
   window.setTimeout(() => {
     copied.value = false
     emit('close')

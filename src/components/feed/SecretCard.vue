@@ -100,6 +100,8 @@
             <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
             <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>
           </svg>
+          <span>Compartir</span>
+          <span class="share-count" :aria-label="`${secret.stats.shareCount} veces compartido`">{{ secret.stats.shareCount }}</span>
         </button>
         <button class="open-btn" type="button" @click="openSecretDetail">
           Abrir
@@ -150,6 +152,7 @@
       :url="secretShareUrl"
       title="Compartir secreto"
       :text="secret.descripcion"
+      @shared="trackSecretShare"
       @close="shareDialogOpen = false"
     />
 
@@ -260,6 +263,7 @@ const isAuthorizedToManage = computed(() => {
 const secretMenuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
     { id: 'share', label: 'Compartir secreto' },
+    { id: 'open', label: 'Abrir' },
     {
       id: 'report',
       label: props.secret.reportedByMe ? 'Reportado' : 'Reportar'
@@ -284,6 +288,11 @@ const secretMenuOptions = computed<MenuOption[]>(() => {
 const handleSecretMenuAction = async (actionId: string) => {
   if (actionId === 'share') {
     openSecretShare();
+    return;
+  }
+
+  if (actionId === 'open') {
+    openSecretDetail();
     return;
   }
 
@@ -357,6 +366,14 @@ const openSecretShare = () => {
   const path = `/s/${encodeURIComponent(props.secret.id)}/`;
   secretShareUrl.value = buildShareUrl(path);
   shareDialogOpen.value = true;
+};
+
+const trackSecretShare = async () => {
+  try {
+    await secretStore.trackShare(props.secret.id);
+  } catch (error) {
+    console.warn('No se pudo actualizar el contador de compartidos:', error);
+  }
 };
 
 const resolveCategoryLabel = (value: SecretCategory): string => {
@@ -691,6 +708,20 @@ const handleCreateComment = async () => {
   height: 1.1rem;
 }
 
+.share-count {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.22rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.72rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
 .vote-btn.active {
   border-color: var(--accent-border);
   color: var(--accent);
@@ -889,6 +920,10 @@ const handleCreateComment = async () => {
     border-radius: 0;
     border-left: 0;
     border-right: 0;
+  }
+
+  .open-btn {
+    display: none;
   }
 }
 

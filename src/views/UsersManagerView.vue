@@ -2,13 +2,11 @@
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue';
 import {
   collection,
-  doc,
   limit,
   orderBy,
   query,
   startAfter,
   getDocs,
-  deleteDoc,
   getCountFromServer,
   type QueryDocumentSnapshot,
   Timestamp
@@ -63,6 +61,7 @@ const totalUsers = ref(0);
 const loading = ref(false);
 const feedback = ref('');
 const errorMessage = ref('');
+const deletingUserId = ref<string | null>(null);
 
 // Pagination
 const lastVisible = ref<QueryDocumentSnapshot | null>(null);
@@ -257,17 +256,33 @@ const saveUserEdit = async () => {
 };
 
 const deleteUser = async (user: UserItem) => {
-  const confirmed = window.confirm(`¿Estás seguro de que deseas eliminar al usuario ${user.username}? Esta acción no se puede deshacer.`);
-  if (!confirmed) return;
+  const confirmation = window.prompt(
+    `Vas a eliminar la cuenta completa de @${user.username} (${user.email || user.id}).\n\nSe borrarán su acceso, perfil, publicaciones y comentarios/respuestas. El historial de sorteos se anonimizará. Esta acción no se puede deshacer.\n\nEscribe ELIMINAR para continuar.`
+  );
+  if (confirmation?.trim().toUpperCase() !== 'ELIMINAR') return;
 
   resetFeedback();
+  deletingUserId.value = user.id;
   try {
-    await deleteDoc(doc(db, 'users', user.id));
+    const callable = httpsCallable(functions, 'deleteManagedUserAccount');
+    const response = await callable({ userId: user.id });
+    const result = (response.data || {}) as {
+      deletedPosts?: number;
+      deletedComments?: number;
+      deletedReplies?: number;
+      anonymizedLotteryEntries?: number;
+      mediaCleanupFailures?: number;
+    };
     users.value = users.value.filter(u => u.id !== user.id);
-    totalUsers.value--;
-    feedback.value = 'Usuario eliminado de Firestore.';
+    totalUsers.value = Math.max(0, totalUsers.value - 1);
+    feedback.value = `Cuenta eliminada: ${result.deletedPosts || 0} publicaciones, ${result.deletedComments || 0} comentarios y ${result.deletedReplies || 0} respuestas. Se anonimizaron ${result.anonymizedLotteryEntries || 0} participaciones en sorteos.`;
+    if ((result.mediaCleanupFailures || 0) > 0) {
+      feedback.value += ` No se pudieron limpiar los archivos de imagen de ${result.mediaCleanupFailures} publicación(es); revisa la configuración FTP del hosting.`;
+    }
   } catch (error: any) {
     errorMessage.value = `Error al eliminar: ${error.message}`;
+  } finally {
+    deletingUserId.value = null;
   }
 };
 
@@ -296,6 +311,9 @@ onMounted(() => {
     <template v-else>
       <div v-if="feedback" class="msg ok">{{ feedback }}</div>
       <div v-if="errorMessage" class="msg error">{{ errorMessage }}</div>
+      <p class="deletion-note">
+        Eliminar una cuenta borra su acceso de Firebase, perfil, publicaciones y comentarios. Las participaciones históricas en sorteos se conservan anonimizadas. Para volver con el mismo correo, el usuario deberá registrarse otra vez; el inicio con Google o Facebook creará el perfil nuevo automáticamente.
+      </p>
 
       <div class="card table-container">
         <table class="users-table">
@@ -369,8 +387,14 @@ onMounted(() => {
                 <button class="icon-btn edit" title="Editar" @click="openEditModal(user)">
                   ✏️
                 </button>
-                <button class="icon-btn delete" title="Eliminar" @click="deleteUser(user)">
-                  🗑️
+                <button
+                  class="icon-btn delete"
+                  :title="deletingUserId === user.id ? 'Eliminando cuenta…' : 'Eliminar cuenta y publicaciones'"
+                  :aria-label="`Eliminar cuenta de ${user.username}`"
+                  :disabled="deletingUserId === user.id || loading || authStore.user?.uid === user.id"
+                  @click="deleteUser(user)"
+                >
+                  {{ deletingUserId === user.id ? '…' : '🗑️' }}
                 </button>
               </td>
             </tr>
@@ -677,6 +701,7 @@ onMounted(() => {
 }
 
 .icon-btn:hover { background: var(--border); }
+.icon-btn:disabled { opacity: 0.55; cursor: wait; }
 .icon-btn.tickets:hover { border-color: #0ea5e9; color: #0c4a6e; }
 .icon-btn.delete:hover { border-color: #ef4444; color: #ef4444; }
 
@@ -850,6 +875,18 @@ onMounted(() => {
 
 .msg.ok { background: #dcfce7; color: #166534; }
 .msg.error { background: #fee2e2; color: #991b1b; }
+
+.deletion-note {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
 
 button.primary {
   background: var(--accent);

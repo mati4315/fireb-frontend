@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 const HomeView = () => import('@/views/HomeView.vue')
-const PublicationView = () => import('@/views/PublicationView.vue')
 import { useAuthStore } from '@/stores/authStore'
 import { isAdminUser, isStaffUser } from '@/utils/roles'
 import { analytics } from '@/config/firebase'
@@ -24,11 +23,6 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-    },
-    {
-      path: '/c/:category/:slug',
-      name: 'publication-view',
-      component: PublicationView
     },
     {
       path: '/todo',
