@@ -6,6 +6,11 @@
   RewriteCond %{REQUEST_METHOD} ^GET$
   RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|facebookcatalog|WhatsApp|Twitterbot|LinkedInBot|Slackbot|TelegramBot|Discordbot|Pinterest) [NC]
   RewriteRule ^(noticia|s|c)/[^/]+(?:/[^/]*)?$ share-preview.php [L,QSA]
+  # Un chunk inexistente debe devolver 404; entregar index.html con URL .js
+  # provoca errores de importación y puede cachear HTML como si fuera JavaScript.
+  RewriteCond %{REQUEST_URI} ^/assets/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^ - [R=404,L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]

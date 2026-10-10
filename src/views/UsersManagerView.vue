@@ -62,6 +62,9 @@ const loading = ref(false);
 const feedback = ref('');
 const errorMessage = ref('');
 const deletingUserId = ref<string | null>(null);
+const showDeleteConfirm = ref(false);
+const deleteTargetUser = ref<UserItem | null>(null);
+const deleteConfirmationText = ref('');
 
 // Pagination
 const lastVisible = ref<QueryDocumentSnapshot | null>(null);
@@ -255,16 +258,28 @@ const saveUserEdit = async () => {
   }
 };
 
-const deleteUser = async (user: UserItem) => {
-  const confirmation = window.prompt(
-    `Vas a eliminar la cuenta completa de @${user.username} (${user.email || user.id}).\n\nSe borrarán su acceso, perfil, publicaciones y comentarios/respuestas. El historial de sorteos se anonimizará. Esta acción no se puede deshacer.\n\nEscribe ELIMINAR para continuar.`
-  );
-  if (confirmation?.trim().toUpperCase() !== 'ELIMINAR') return;
+const requestDeleteUser = (user: UserItem) => {
+  resetFeedback();
+  deleteTargetUser.value = user;
+  deleteConfirmationText.value = '';
+  showDeleteConfirm.value = true;
+};
+
+const closeDeleteConfirm = () => {
+  if (deletingUserId.value) return;
+  showDeleteConfirm.value = false;
+  deleteTargetUser.value = null;
+  deleteConfirmationText.value = '';
+};
+
+const deleteUser = async () => {
+  const user = deleteTargetUser.value;
+  if (!user || deleteConfirmationText.value.trim().toUpperCase() !== 'ELIMINAR') return;
 
   resetFeedback();
   deletingUserId.value = user.id;
   try {
-    const callable = httpsCallable(functions, 'deleteManagedUserAccount');
+    const callable = httpsCallable(functions, 'deleteManagedUserAccount', { timeout: 540_000 });
     const response = await callable({ userId: user.id });
     const result = (response.data || {}) as {
       deletedPosts?: number;
@@ -279,8 +294,12 @@ const deleteUser = async (user: UserItem) => {
     if ((result.mediaCleanupFailures || 0) > 0) {
       feedback.value += ` No se pudieron limpiar los archivos de imagen de ${result.mediaCleanupFailures} publicación(es); revisa la configuración FTP del hosting.`;
     }
+    showDeleteConfirm.value = false;
+    deleteTargetUser.value = null;
+    deleteConfirmationText.value = '';
   } catch (error: any) {
-    errorMessage.value = `Error al eliminar: ${error.message}`;
+    const message = error?.message || 'No se pudo contactar con Firebase. Comprueba la conexión y vuelve a intentar.';
+    errorMessage.value = `Error al eliminar: ${message}`;
   } finally {
     deletingUserId.value = null;
   }
@@ -392,7 +411,7 @@ onMounted(() => {
                   :title="deletingUserId === user.id ? 'Eliminando cuenta…' : 'Eliminar cuenta y publicaciones'"
                   :aria-label="`Eliminar cuenta de ${user.username}`"
                   :disabled="deletingUserId === user.id || loading || authStore.user?.uid === user.id"
-                  @click="deleteUser(user)"
+                  @click="requestDeleteUser(user)"
                 >
                   {{ deletingUserId === user.id ? '…' : '🗑️' }}
                 </button>
@@ -518,7 +537,52 @@ onMounted(() => {
       </div>
     </Teleport>
 
-    
+    <Teleport to="body">
+      <div
+        v-if="showDeleteConfirm && deleteTargetUser"
+        class="modal-overlay"
+        @click.self="closeDeleteConfirm"
+      >
+        <section class="modal-card delete-confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-user-title">
+          <header class="modal-head">
+            <h3 id="delete-user-title">Eliminar cuenta</h3>
+            <button class="close-btn" type="button" :disabled="Boolean(deletingUserId)" aria-label="Cerrar" @click="closeDeleteConfirm">×</button>
+          </header>
+          <div class="modal-body">
+            <p class="delete-confirm-warning">
+              Se eliminará la cuenta de <strong>@{{ deleteTargetUser.username }}</strong>
+              ({{ deleteTargetUser.email || deleteTargetUser.id }}), sus publicaciones, comentarios y respuestas.
+              Las participaciones en sorteos se conservarán anonimizadas. Esta acción no se puede deshacer.
+            </p>
+            <div class="form-field">
+              <label for="delete-user-confirmation">Escribe ELIMINAR para confirmar</label>
+              <input
+                id="delete-user-confirmation"
+                v-model="deleteConfirmationText"
+                type="text"
+                autocomplete="off"
+                autocapitalize="characters"
+                :disabled="Boolean(deletingUserId)"
+                @keydown.enter="deleteUser"
+              />
+            </div>
+            <p v-if="errorMessage" class="msg error delete-confirm-error">{{ errorMessage }}</p>
+          </div>
+          <footer class="modal-foot">
+            <button
+              class="delete-confirm-submit"
+              type="button"
+              :disabled="deleteConfirmationText.trim().toUpperCase() !== 'ELIMINAR' || Boolean(deletingUserId)"
+              @click="deleteUser"
+            >
+              {{ deletingUserId === deleteTargetUser.id ? 'Eliminando…' : 'Eliminar cuenta' }}
+            </button>
+            <button class="ghost" type="button" :disabled="Boolean(deletingUserId)" @click="closeDeleteConfirm">Cancelar</button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
+
     <LotteryTicketsModal
       :open="showLotteryTicketsModal"
       :user-id="ticketsTargetUser?.id || ''"
@@ -886,6 +950,30 @@ onMounted(() => {
   color: var(--text);
   font-size: 0.88rem;
   line-height: 1.5;
+}
+
+.delete-confirm-card {
+  border: 1px solid rgba(220, 38, 38, 0.28);
+}
+
+.delete-confirm-warning {
+  margin: 0;
+  color: var(--text-h);
+  line-height: 1.55;
+}
+
+.delete-confirm-submit {
+  background: #dc2626;
+  color: #fff;
+  border: 0;
+  padding: 0.7rem 1.2rem;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.delete-confirm-error {
+  margin: 0;
 }
 
 button.primary {
