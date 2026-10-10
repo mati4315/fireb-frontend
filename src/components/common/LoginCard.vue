@@ -50,7 +50,17 @@ const handleProviderLogin = async (providerId: string) => {
 </script>
 
 <template>
-  <div class="login-card" :class="{ 'is-flat': props.flat }">
+  <div
+    class="login-card"
+    :class="{ 'is-flat': props.flat, 'is-loading': authStore.loading }"
+    :aria-busy="authStore.loading"
+  >
+    <div v-if="authStore.loading" class="loading-overlay" role="status" aria-live="polite">
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <strong>Cargando...</strong>
+      <span class="loading-caption">Estamos preparando tu cuenta. Puede tardar unos segundos.</span>
+    </div>
+
     <header v-if="!props.hideHeader" class="card-header">
       <h1 class="title">{{ isLogin ? 'Bienvenido a CdeluAR' : 'Crea tu cuenta' }}</h1>
       <p class="subtitle">{{ isLogin ? 'Ingresa tus credenciales para continuar' : 'Únete a la comunidad de Concepción del Uruguay' }}</p>
@@ -136,6 +146,7 @@ const handleProviderLogin = async (providerId: string) => {
 
 <style scoped>
 .login-card {
+  position: relative;
   width: 100%;
   max-width: 440px;
   background: var(--card-bg);
@@ -145,6 +156,50 @@ const handleProviderLogin = async (providerId: string) => {
   border: 1px solid var(--border);
   animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
+}
+
+.login-card.is-loading > :not(.loading-overlay) {
+  pointer-events: none;
+  user-select: none;
+}
+
+.loading-overlay {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border-radius: inherit;
+  background: rgba(15, 23, 42, 0.82);
+  color: #fff;
+  text-align: center;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  cursor: progress;
+}
+
+.loading-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: login-spin 0.8s linear infinite;
+}
+
+.loading-caption {
+  max-width: 260px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+@keyframes login-spin {
+  to { transform: rotate(360deg); }
 }
 
 .login-card.is-flat {
