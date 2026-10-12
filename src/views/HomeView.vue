@@ -2056,7 +2056,7 @@ watch(
               </div>
 
               <ExpandableText
-                v-if="item.isOficial"
+                v-if="item.isOficial || resolveContentModule(item) === 'news'"
                 :html="item.descripcion || ''"
                 :is-html="true"
                 :max-preview-length="isDetailTarget(item) ? 200000 : 420"
