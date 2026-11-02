@@ -749,21 +749,29 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
       <div class="number-modal" @click.stop>
         <h3>Numero {{ modalCell.number }}</h3>
         <p v-if="modalCell.entry" class="modal-owner">
-          Seleccionado por:
-          <a
-            v-if="modalCell.entry.userUsername"
-            href="#"
-            @click.prevent="router.push('/perfil/' + modalCell.entry.userUsername)"
-            class="modal-owner-link"
-          >
-            {{ modalCell.entry.userName }}
-          </a>
-          <span v-else>
-            {{ modalCell.entry.userName }}
+          <img
+            v-if="modalCell.entry.userProfilePicUrl"
+            :src="modalCell.entry.userProfilePicUrl"
+            :alt="`Foto de ${modalCell.entry.userName}`"
+            class="modal-owner-avatar"
+          />
+          <span>
+            Seleccionado por:
+            <a
+              v-if="modalCell.entry.userUsername"
+              href="#"
+              @click.prevent="router.push('/perfil/' + modalCell.entry.userUsername)"
+              class="modal-owner-link"
+            >
+              {{ modalCell.entry.userName }}
+            </a>
+            <span v-else>
+              {{ modalCell.entry.userName }}
+            </span>
           </span>
         </p>
         <small v-if="modalCell.entry?.participantType === 'facebook_guest'" class="modal-owner-guest">
-          Invitado de Facebook · sin cuenta Cdelu
+          Invitado del Streaming · Numero seleccionado desde Anomalia 22
         </small>
         <p v-if="modalLimitReached" class="modal-warning">
           Ya alcanzaste el limite de numeros para esta loteria. Espera el proximo sorteo.
@@ -1615,9 +1623,20 @@ button:disabled {
 }
 
 .modal-owner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
   color: var(--text-h);
   font-size: 0.9rem;
   margin: 0.5rem 0 0;
+}
+
+.modal-owner-avatar {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 2rem;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .modal-owner-guest {
