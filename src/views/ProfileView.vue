@@ -1264,7 +1264,7 @@ onBeforeUnmount(() => {
 
         <div class="social-connected" style="margin-top:18px;padding:14px;border:1px solid rgba(60,130,246,.22);border-radius:12px;background:rgba(60,130,246,.045);">
           <h3>Vincular mi cuenta del chat con Rulo</h3>
-          <p class="social-subtitle">Vincula de forma segura tu identidad del chat de Facebook con este perfil de Cdelu. Rulo no asignará números basándose solo en el nombre visible.</p>
+          <p class="social-subtitle">Es opcional. Si vinculas tu chat con este perfil, tus boletos quedarán asociados a tu cuenta de Cdelu. Si no, Rulo puede anotarte como invitado usando un identificador seudónimo de Facebook; nunca se guía solo por el nombre visible.</p>
           <button class="social-action-btn" :disabled="ruloChatLinkLoading" @click="createRuloChatLinkCode">
             {{ ruloChatLinkLoading ? 'Procesando...' : (ruloChatLinkStatus === 'linked' ? 'Generar otro código de vínculo' : 'Generar código de vínculo') }}
           </button>

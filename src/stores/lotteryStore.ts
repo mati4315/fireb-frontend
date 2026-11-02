@@ -26,6 +26,7 @@ export type LotteryNumberFilter = 'all' | 'available' | 'sold';
 export type LotteryWinner = {
   userId: string;
   userName: string;
+  participantType?: 'user' | 'facebook_guest';
   userUsername: string;
   userProfilePicUrl: string;
   selectedNumber: number | null;
@@ -62,6 +63,7 @@ export type LotteryEntry = {
   id: string;
   userId: string;
   userName: string;
+  participantType?: 'user' | 'facebook_guest';
   userUsername: string;
   userProfilePicUrl: string;
   lotteryId: string;
@@ -107,6 +109,7 @@ type DrawLotteryWinnerResponse = {
   winner: {
   userId: string;
   userName: string;
+  participantType?: 'user' | 'facebook_guest';
   userUsername: string;
   userProfilePicUrl: string;
     selectedNumber: number | null;
@@ -191,6 +194,7 @@ const normalizeWinner = (value: unknown): LotteryWinner | null => {
   return {
     userId,
     userName,
+    participantType: data.participantType === 'facebook_guest' ? 'facebook_guest' : 'user',
     userUsername: typeof data.userUsername === 'string' ? data.userUsername : '',
     userProfilePicUrl: typeof data.userProfilePicUrl === 'string' ? data.userProfilePicUrl : '',
     selectedNumber: parseSelectedNumber(data.selectedNumber),
@@ -249,6 +253,7 @@ const normalizeEntry = (id: string, data: Record<string, unknown>): LotteryEntry
     id,
     userId: typeof data.userId === 'string' ? data.userId : '',
     userName: typeof data.userName === 'string' ? data.userName : 'Usuario',
+    participantType: data.participantType === 'facebook_guest' ? 'facebook_guest' : 'user',
     userUsername: typeof data.userUsername === 'string' ? data.userUsername : '',
     userProfilePicUrl: typeof data.userProfilePicUrl === 'string' ? data.userProfilePicUrl : '',
     lotteryId: typeof data.lotteryId === 'string' ? data.lotteryId : '',
@@ -1264,6 +1269,7 @@ export const useLotteryStore = defineStore('lottery', () => {
         winner: {
           userId: payload.winner.userId,
           userName: payload.winner.userName,
+          participantType: payload.winner.participantType === 'facebook_guest' ? 'facebook_guest' : 'user',
           userUsername: (payload.winner as any).userUsername || '',
           userProfilePicUrl: payload.winner.userProfilePicUrl || '',
           selectedNumber: parseSelectedNumber(payload.winner.selectedNumber),

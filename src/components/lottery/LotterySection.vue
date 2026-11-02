@@ -620,6 +620,7 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 
         <div v-if="lottery.winner" class="winner-banner">
           Ganador: <strong>{{ lottery.winner.userName }}</strong>
+          <small v-if="lottery.winner.participantType === 'facebook_guest'"> · Invitado de Facebook</small>
           <span v-if="lottery.winner.selectedNumber"> | Participo con el N° {{ lottery.winner.selectedNumber }}</span>
         </div>
 
@@ -761,6 +762,9 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
             {{ modalCell.entry.userName }}
           </span>
         </p>
+        <small v-if="modalCell.entry?.participantType === 'facebook_guest'" class="modal-owner-guest">
+          Invitado de Facebook · sin cuenta Cdelu
+        </small>
         <p v-if="modalLimitReached" class="modal-warning">
           Ya alcanzaste el limite de numeros para esta loteria. Espera el proximo sorteo.
         </p>
@@ -1614,6 +1618,13 @@ button:disabled {
   color: var(--text-h);
   font-size: 0.9rem;
   margin: 0.5rem 0 0;
+}
+
+.modal-owner-guest {
+  display: inline-block;
+  margin: 0.25rem 0 0.5rem;
+  color: var(--text);
+  font-size: 0.78rem;
 }
 
 .modal-owner-link {

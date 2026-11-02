@@ -787,6 +787,7 @@ onBeforeUnmount(() => {
               </div>
               <small v-if="lottery.winner">
                 Ganador: <strong>{{ lottery.winner.userName }}</strong>
+                <span v-if="lottery.winner.participantType === 'facebook_guest'"> · Invitado de Facebook</span>
                 <span v-if="lottery.winner.selectedNumber"> | Participo con el N° {{ lottery.winner.selectedNumber }}</span>
               </small>
             </div>
