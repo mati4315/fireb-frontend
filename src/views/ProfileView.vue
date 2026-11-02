@@ -411,11 +411,20 @@ const confirmRuloChatLink = async () => {
   ruloChatLinkError.value = '';
   ruloChatLinkSuccess.value = '';
   try {
-    await confirmRuloChatLinkCallable({});
+    const response = await confirmRuloChatLinkCallable({});
+    const result = (response.data || {}) as Record<string, unknown>;
+    const migratedEntries = Math.max(0, Math.floor(Number(result.migratedEntries) || 0));
+    const migratedWins = Math.max(0, Math.floor(Number(result.migratedWins) || 0));
     ruloChatLinkStatus.value = 'linked';
     ruloChatLinkCode.value = '';
     ruloChatLinkExpiresAt.value = 0;
-    ruloChatLinkSuccess.value = `Cuenta de chat vinculada${ruloChatLinkRequester.value ? ` con ${ruloChatLinkRequester.value}` : ''}.`;
+    participationsLoadedFor.value = '';
+    winsLoadedFor.value = '';
+    lotteriesParticipated.value = null;
+    lotteriesWon.value = null;
+    userParticipations.value = [];
+    userWins.value = [];
+    ruloChatLinkSuccess.value = `Cuenta de chat vinculada${ruloChatLinkRequester.value ? ` con ${ruloChatLinkRequester.value}` : ''}. Se sincronizaron ${migratedEntries} ${migratedEntries === 1 ? 'número' : 'números'} y ${migratedWins} ${migratedWins === 1 ? 'premio' : 'premios'} anteriores.`;
   } catch (error: any) {
     ruloChatLinkError.value = error?.message || 'No se pudo confirmar el vinculo.';
     await refreshRuloChatLinkStatus();
@@ -1264,7 +1273,7 @@ onBeforeUnmount(() => {
 
         <div class="social-connected" style="margin-top:18px;padding:14px;border:1px solid rgba(60,130,246,.22);border-radius:12px;background:rgba(60,130,246,.045);">
           <h3>Vincular mi cuenta del chat con Rulo</h3>
-          <p class="social-subtitle">Es opcional. Si vinculas tu chat con este perfil, tus boletos quedarán asociados a tu cuenta de Cdelu. Si no, Rulo puede anotarte como invitado usando un identificador seudónimo de Facebook; nunca se guía solo por el nombre visible.</p>
+          <p class="social-subtitle">Es opcional. El vínculo verifica que el perfil del chat sea tuyo, asocia tus números y premios anteriores con Cdelu y deja las próximas reservas vinculadas automáticamente. Si no lo haces, Rulo puede anotarte como invitado usando un identificador seudónimo de Facebook; nunca se guía solo por el nombre visible.</p>
           <button class="social-action-btn" :disabled="ruloChatLinkLoading" @click="createRuloChatLinkCode">
             {{ ruloChatLinkLoading ? 'Procesando...' : (ruloChatLinkStatus === 'linked' ? 'Generar otro código de vínculo' : 'Generar código de vínculo') }}
           </button>
