@@ -39,6 +39,21 @@ export const useAuthStore = defineStore('auth', () => {
   const newlyCreatedProfileUids = new Set<string>();
   const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
   const updateHomeFeedPreferenceCallable = httpsCallable(functions, 'updateHomeFeedPreference');
+  const syncRuloChatFacebookIdentityCallable = httpsCallable(functions, 'syncRuloChatFacebookIdentity');
+
+  const syncRuloChatFacebookIdentity = async (firebaseUser: any) => {
+    const hasFacebookProvider = (firebaseUser?.providerData || [])
+      .some((provider: any) => provider?.providerId === 'facebook.com');
+    if (!hasFacebookProvider) return;
+
+    try {
+      await syncRuloChatFacebookIdentityCallable({});
+    } catch (err) {
+      // This is an optional chat identity index; never block Cdelu sign-in if
+      // the callable is temporarily unavailable.
+      console.warn('No se pudo sincronizar la identidad de Facebook con Rulo:', err);
+    }
+  };
 
   const isAuthenticated = computed(() => !!user.value);
   const socialProviders = computed(() => {
@@ -221,6 +236,7 @@ export const useAuthStore = defineStore('auth', () => {
           } catch (err) {
             console.error('Error initializing user profile:', err);
           }
+          await syncRuloChatFacebookIdentity(firebaseUser);
         } else {
           user.value = null;
           userProfile.value = null;
@@ -512,11 +528,13 @@ export const useAuthStore = defineStore('auth', () => {
       await currentUser.reload();
       user.value = auth.currentUser;
       await refreshTokenClaims(currentUser, true);
+      await syncRuloChatFacebookIdentity(currentUser);
 
       loading.value = false;
       return { success: true };
     } catch (err: any) {
       if (err?.code === 'auth/provider-already-linked') {
+        await syncRuloChatFacebookIdentity(auth.currentUser);
         loading.value = false;
         return { success: true };
       }

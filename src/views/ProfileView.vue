@@ -58,6 +58,17 @@ const avatarUploadProgress = ref(0);
 const linkingProviderId = ref<string | null>(null);
 const linkProviderError = ref<string | null>(null);
 const linkProviderSuccess = ref<string | null>(null);
+const ruloChatLinkCode = ref('');
+const ruloChatLinkStatus = ref<'none' | 'waiting_for_chat' | 'pending_confirmation' | 'expired' | 'linked'>('none');
+const ruloChatLinkRequester = ref('');
+const ruloChatLinkExpiresAt = ref(0);
+const ruloChatLinkLoading = ref(false);
+const ruloChatLinkError = ref('');
+const ruloChatLinkSuccess = ref('');
+const createRuloChatLinkCodeCallable = httpsCallable(functions, 'createRuloChatFacebookLinkCode');
+const getRuloChatLinkStatusCallable = httpsCallable(functions, 'getMyRuloChatFacebookLinkStatus');
+const confirmRuloChatLinkCallable = httpsCallable(functions, 'confirmRuloChatFacebookLink');
+let ruloChatLinkPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const lotteriesParticipated = ref<number | null>(null);
 const lotteriesWon = ref<number | null>(null);
@@ -351,6 +362,76 @@ const linkSocialProvider = async (providerId: string) => {
     linkProviderError.value = err?.message || 'No se pudo vincular la cuenta social.';
   } finally {
     linkingProviderId.value = null;
+  }
+};
+
+const refreshRuloChatLinkStatus = async () => {
+  if (!authStore.user?.uid || !isOwnProfile.value) return;
+  try {
+    const response = await getRuloChatLinkStatusCallable({});
+    const data = (response.data || {}) as Record<string, unknown>;
+    const status = String(data.status || 'none');
+    if (status === 'waiting_for_chat' || status === 'pending_confirmation' || status === 'expired' || status === 'linked') {
+      ruloChatLinkStatus.value = status;
+      ruloChatLinkRequester.value = String(data.requester || '').slice(0, 80);
+      ruloChatLinkExpiresAt.value = Number(data.expiresAtMs) || 0;
+      if (status !== 'waiting_for_chat') ruloChatLinkCode.value = '';
+    } else if (ruloChatLinkStatus.value !== 'linked') {
+      ruloChatLinkStatus.value = 'none';
+      ruloChatLinkRequester.value = '';
+      ruloChatLinkExpiresAt.value = 0;
+    }
+  } catch (error: any) {
+    ruloChatLinkError.value = error?.message || 'No se pudo consultar el estado del vinculo.';
+  }
+};
+
+const createRuloChatLinkCode = async () => {
+  if (!isOwnProfile.value || ruloChatLinkLoading.value) return;
+  ruloChatLinkLoading.value = true;
+  ruloChatLinkError.value = '';
+  ruloChatLinkSuccess.value = '';
+  try {
+    const response = await createRuloChatLinkCodeCallable({});
+    const data = (response.data || {}) as Record<string, unknown>;
+    ruloChatLinkCode.value = String(data.code || '');
+    ruloChatLinkExpiresAt.value = Number(data.expiresAtMs) || 0;
+    ruloChatLinkStatus.value = 'waiting_for_chat';
+    ruloChatLinkRequester.value = '';
+  } catch (error: any) {
+    ruloChatLinkError.value = error?.message || 'No se pudo generar el codigo de vinculo.';
+  } finally {
+    ruloChatLinkLoading.value = false;
+  }
+};
+
+const confirmRuloChatLink = async () => {
+  if (!isOwnProfile.value || ruloChatLinkLoading.value || ruloChatLinkStatus.value !== 'pending_confirmation') return;
+  ruloChatLinkLoading.value = true;
+  ruloChatLinkError.value = '';
+  ruloChatLinkSuccess.value = '';
+  try {
+    await confirmRuloChatLinkCallable({});
+    ruloChatLinkStatus.value = 'linked';
+    ruloChatLinkCode.value = '';
+    ruloChatLinkExpiresAt.value = 0;
+    ruloChatLinkSuccess.value = `Cuenta de chat vinculada${ruloChatLinkRequester.value ? ` con ${ruloChatLinkRequester.value}` : ''}.`;
+  } catch (error: any) {
+    ruloChatLinkError.value = error?.message || 'No se pudo confirmar el vinculo.';
+    await refreshRuloChatLinkStatus();
+  } finally {
+    ruloChatLinkLoading.value = false;
+  }
+};
+
+const copyRuloChatLinkCommand = async () => {
+  if (!ruloChatLinkCode.value) return;
+  const command = `Rulo vincular ${ruloChatLinkCode.value}`;
+  try {
+    await navigator.clipboard.writeText(command);
+    ruloChatLinkSuccess.value = 'Comando copiado. Pegalo en el chat de Facebook durante la transmision.';
+  } catch {
+    ruloChatLinkError.value = 'No se pudo copiar. Escribe en el chat: ' + command;
   }
 };
 
@@ -977,9 +1058,19 @@ watch(
 
 onMounted(() => {
   void loadProfileContext();
+  void refreshRuloChatLinkStatus();
+  ruloChatLinkPollTimer = setInterval(() => {
+    if (ruloChatLinkStatus.value === 'waiting_for_chat' || ruloChatLinkStatus.value === 'pending_confirmation') {
+      void refreshRuloChatLinkStatus();
+    }
+  }, 5000);
 });
 
 onBeforeUnmount(() => {
+  if (ruloChatLinkPollTimer) {
+    clearInterval(ruloChatLinkPollTimer);
+    ruloChatLinkPollTimer = null;
+  }
   if (usernameCheckTimer) {
     clearTimeout(usernameCheckTimer);
     usernameCheckTimer = null;
@@ -1169,6 +1260,31 @@ onBeforeUnmount(() => {
           </div>
           <p v-if="linkProviderError" class="inline-error">{{ linkProviderError }}</p>
           <p v-if="linkProviderSuccess" class="inline-success">{{ linkProviderSuccess }}</p>
+        </div>
+
+        <div class="social-connected" style="margin-top:18px;padding:14px;border:1px solid rgba(60,130,246,.22);border-radius:12px;background:rgba(60,130,246,.045);">
+          <h3>Vincular mi cuenta del chat con Rulo</h3>
+          <p class="social-subtitle">Vincula de forma segura tu identidad del chat de Facebook con este perfil de Cdelu. Rulo no asignará números basándose solo en el nombre visible.</p>
+          <button class="social-action-btn" :disabled="ruloChatLinkLoading" @click="createRuloChatLinkCode">
+            {{ ruloChatLinkLoading ? 'Procesando...' : (ruloChatLinkStatus === 'linked' ? 'Generar otro código de vínculo' : 'Generar código de vínculo') }}
+          </button>
+
+          <div v-if="ruloChatLinkStatus === 'waiting_for_chat' && ruloChatLinkCode" style="margin-top:12px;padding:12px;border-radius:9px;background:rgba(0,0,0,.12);">
+            <p style="margin:0 0 8px;">En el chat de Facebook comenta este comando:</p>
+            <code style="font-size:1.05rem;font-weight:700;">Rulo vincular {{ ruloChatLinkCode }}</code>
+            <button class="social-action-btn" style="margin-left:8px;" @click="copyRuloChatLinkCommand">Copiar comando</button>
+            <p v-if="ruloChatLinkExpiresAt" class="social-subtitle" style="margin:8px 0 0;">Vence en 10 minutos. Después tendrás que generar otro.</p>
+          </div>
+
+          <div v-else-if="ruloChatLinkStatus === 'pending_confirmation'" style="margin-top:12px;padding:12px;border-radius:9px;background:rgba(255,190,70,.08);">
+            <p style="margin:0 0 8px;">{{ ruloChatLinkRequester || 'Una cuenta de Facebook' }} pidió vincularse con tu perfil. Confirma solo si reconoces que es tu cuenta del chat.</p>
+            <button class="social-action-btn" :disabled="ruloChatLinkLoading" @click="confirmRuloChatLink">Confirmar vínculo</button>
+          </div>
+
+          <p v-else-if="ruloChatLinkStatus === 'linked'" class="inline-success">Tu cuenta de Facebook del chat ya está vinculada con este perfil.</p>
+          <p v-else-if="ruloChatLinkStatus === 'expired'" class="inline-error">El código venció. Genera uno nuevo para vincular tu cuenta.</p>
+          <p v-if="ruloChatLinkError" class="inline-error">{{ ruloChatLinkError }}</p>
+          <p v-if="ruloChatLinkSuccess" class="inline-success">{{ ruloChatLinkSuccess }}</p>
         </div>
 
         <label class="avatar-upload">
