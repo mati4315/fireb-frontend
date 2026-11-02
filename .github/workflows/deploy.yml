@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -16,6 +17,8 @@ jobs:
         run: echo "${{ secrets.VITE_FIREBASE_DOTENV }}" > .env
 
       - name: Install and Build 🔧
+        env:
+          VITE_FACEBOOK_PROFILE_URL_SYNC: ${{ vars.VITE_FACEBOOK_PROFILE_URL_SYNC || 'false' }}
         run: |
           npm install
           npm run build

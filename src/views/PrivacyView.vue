@@ -5,7 +5,7 @@
         <div class="header-icon">🔒</div>
         <h1>Política de Privacidad</h1>
         <p class="app-reference">Plataforma: <strong>Cdelu.ar</strong> | Responsable: <strong>CdeluAR</strong></p>
-        <p class="last-updated">Última actualización: 23 de septiembre de 2026</p>
+        <p class="last-updated">Última actualización: 3 de noviembre de 2026</p>
       </header>
 
       <div class="privacy-content">
@@ -21,7 +21,7 @@
           <p>Recopilamos la información mínima y necesaria para brindarte el servicio:</p>
           <ul>
             <li>
-              <strong>Autenticación mediante Facebook (Meta Login):</strong> Cuando decides iniciar sesión con Facebook, solicitamos únicamente los permisos básicos aprobados: tu nombre público, dirección de correo electrónico, foto de perfil y el identificador de usuario de la app (ASID).
+              <strong>Autenticación mediante Facebook (Meta Login):</strong> Solicitamos los permisos básicos aprobados para obtener tu nombre público, correo electrónico, foto de perfil e identificador de usuario de la app (ASID). Si Meta aprueba y habilita el permiso adicional correspondiente y lo aceptas, también usamos la URL de tu perfil para reconocer tu identidad de chat y asociar automáticamente tus participaciones en loterías.
             </li>
             <li>
               <strong>Autenticación mediante Google:</strong> Si inicias sesión con Google, recopilamos tu nombre, correo electrónico y foto de perfil proporcionados por el proveedor.
@@ -44,6 +44,7 @@
             <li>Permitirte interactuar, publicar contenido y comentar noticias.</li>
             <li>Enviarte notificaciones relacionadas con tu actividad en la plataforma (si las tienes habilitadas).</li>
             <li>Garantizar la seguridad, prevenir abusos y moderar conductas que infrinjan nuestras normas.</li>
+            <li>Cuando está habilitada la integración de Facebook, sincronizar tus participaciones y premios de loterías del streaming con tu cuenta de Cdelu usando la URL de perfil autorizada.</li>
           </ul>
           <p><strong>No vendemos, no alquilamos ni transferimos tus datos personales a terceros con fines comerciales ni de publicidad invasiva.</strong></p>
         </section>

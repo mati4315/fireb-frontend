@@ -40,6 +40,19 @@ export const useAuthStore = defineStore('auth', () => {
   const updateMyProfileCallable = httpsCallable(functions, 'updateMyProfile');
   const updateHomeFeedPreferenceCallable = httpsCallable(functions, 'updateHomeFeedPreference');
   const syncRuloChatFacebookIdentityCallable = httpsCallable(functions, 'syncRuloChatFacebookIdentity');
+  const syncRuloChatFacebookProfileUrlCallable = httpsCallable(functions, 'syncRuloChatFacebookProfileUrl');
+  const facebookProfileUrlSyncEnabled = import.meta.env.VITE_FACEBOOK_PROFILE_URL_SYNC === 'true';
+
+  const createFacebookAuthProvider = () => {
+    const provider = new FacebookAuthProvider();
+    provider.addScope('email');
+    if (facebookProfileUrlSyncEnabled) provider.addScope('user_link');
+    return provider;
+  };
+
+  const facebookNativeAuthOptions = () => ({
+    scopes: facebookProfileUrlSyncEnabled ? ['email', 'user_link'] : ['email']
+  });
 
   const syncRuloChatFacebookIdentity = async (firebaseUser: any) => {
     const hasFacebookProvider = (firebaseUser?.providerData || [])
@@ -52,6 +65,16 @@ export const useAuthStore = defineStore('auth', () => {
       // This is an optional chat identity index; never block Cdelu sign-in if
       // the callable is temporarily unavailable.
       console.warn('No se pudo sincronizar la identidad de Facebook con Rulo:', err);
+    }
+  };
+
+  const syncRuloChatFacebookProfileUrl = async (firebaseUser: any, accessToken: unknown) => {
+    if (!facebookProfileUrlSyncEnabled || !accessToken || !firebaseUser?.uid) return;
+    try {
+      await syncRuloChatFacebookProfileUrlCallable({ accessToken: String(accessToken) });
+    } catch (err) {
+      // URL-based matching is an optional enhancement; never block Cdelu auth.
+      console.warn('No se pudo sincronizar la URL de Facebook con Rulo:', err);
     }
   };
 
@@ -216,6 +239,8 @@ export const useAuthStore = defineStore('auth', () => {
         .then(async (result) => {
           if (result?.user) {
             await handleAuthSuccess(result.user);
+            const facebookCredential = FacebookAuthProvider.credentialFromResult(result);
+            await syncRuloChatFacebookProfileUrl(result.user, facebookCredential?.accessToken);
           }
         })
         .catch((err) => {
@@ -328,7 +353,7 @@ export const useAuthStore = defineStore('auth', () => {
         const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication')
         const nativeResult = providerId === 'google.com'
           ? await FirebaseAuthentication.signInWithGoogle()
-          : await FirebaseAuthentication.signInWithFacebook()
+          : await FirebaseAuthentication.signInWithFacebook(facebookNativeAuthOptions())
 
         const nativeCredential = nativeResult.credential
         if (!nativeCredential) {
@@ -361,6 +386,9 @@ export const useAuthStore = defineStore('auth', () => {
             : undefined,
           profilePictureUrl: nativeResult.user?.photoUrl || undefined
         })
+        if (providerId === 'facebook.com') {
+          await syncRuloChatFacebookProfileUrl(firebaseUser, nativeCredential.accessToken);
+        }
         const isNewUser = getAdditionalUserInfo(credentialResult)?.isNewUser === true ||
           newlyCreatedProfileUids.has(firebaseUser.uid)
         newlyCreatedProfileUids.delete(firebaseUser.uid)
@@ -372,8 +400,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (providerId === 'google.com') {
         provider = new GoogleAuthProvider();
       } else if (providerId === 'facebook.com') {
-        provider = new FacebookAuthProvider();
-        provider.addScope('email');
+        provider = createFacebookAuthProvider();
       } else {
         provider = new OAuthProvider(providerId);
       }
@@ -383,6 +410,10 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = firebaseUser;
       await refreshTokenClaims(firebaseUser, true);
       await ensureProfileDocument(firebaseUser);
+      if (providerId === 'facebook.com') {
+        const facebookCredential = FacebookAuthProvider.credentialFromResult(credentialResult);
+        await syncRuloChatFacebookProfileUrl(firebaseUser, facebookCredential?.accessToken);
+      }
       const isNewUser = getAdditionalUserInfo(credentialResult)?.isNewUser === true ||
         newlyCreatedProfileUids.has(firebaseUser.uid)
       newlyCreatedProfileUids.delete(firebaseUser.uid)
@@ -393,7 +424,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/popup-blocked') {
         if (err.code === 'auth/popup-blocked' && !isNativePlatform() && providerId === 'facebook.com') {
           try {
-            await signInWithRedirect(auth, new FacebookAuthProvider());
+            await signInWithRedirect(auth, createFacebookAuthProvider());
             loading.value = false;
             return { success: true };
           } catch (redirectErr) {
@@ -471,6 +502,7 @@ export const useAuthStore = defineStore('auth', () => {
   const linkProvider = async (providerId: string) => {
     loading.value = true;
     error.value = null;
+    let facebookAccessToken: unknown = null;
 
     try {
       const currentUser = auth.currentUser;
@@ -482,7 +514,7 @@ export const useAuthStore = defineStore('auth', () => {
         const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
         const nativeResult = providerId === 'google.com'
           ? await FirebaseAuthentication.signInWithGoogle()
-          : await FirebaseAuthentication.signInWithFacebook();
+          : await FirebaseAuthentication.signInWithFacebook(facebookNativeAuthOptions());
 
         const nativeCredential = nativeResult.credential;
         if (!nativeCredential) {
@@ -504,6 +536,9 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         await linkWithCredential(currentUser, firebaseCredential);
+        if (providerId === 'facebook.com') {
+          facebookAccessToken = nativeCredential.accessToken;
+        }
         // Aseguramos que se actualice la foto de perfil si estaba vacía usando los datos de la red social nativa
         await ensureProfileDocument(currentUser, {
           nombre: nativeResult.user?.displayName || undefined,
@@ -514,13 +549,16 @@ export const useAuthStore = defineStore('auth', () => {
         if (providerId === 'google.com') {
           provider = new GoogleAuthProvider();
         } else if (providerId === 'facebook.com') {
-          provider = new FacebookAuthProvider();
-          provider.addScope('email');
+          provider = createFacebookAuthProvider();
         } else {
           provider = new OAuthProvider(providerId);
         }
 
-        await linkWithPopup(currentUser, provider);
+        const linkResult = await linkWithPopup(currentUser, provider);
+        if (providerId === 'facebook.com') {
+          const facebookCredential = FacebookAuthProvider.credentialFromResult(linkResult);
+          facebookAccessToken = facebookCredential?.accessToken;
+        }
         // Aseguramos que se actualice la foto de perfil en web
         await ensureProfileDocument(currentUser);
       }
@@ -529,6 +567,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = auth.currentUser;
       await refreshTokenClaims(currentUser, true);
       await syncRuloChatFacebookIdentity(currentUser);
+      await syncRuloChatFacebookProfileUrl(currentUser, facebookAccessToken);
 
       loading.value = false;
       return { success: true };
@@ -540,7 +579,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
       if (err?.code === 'auth/popup-blocked' && !isNativePlatform() && providerId === 'facebook.com') {
         try {
-          await signInWithRedirect(auth, new FacebookAuthProvider());
+          await signInWithRedirect(auth, createFacebookAuthProvider());
           loading.value = false;
           return { success: true };
         } catch (redirectErr) {
