@@ -863,6 +863,31 @@ export const useLotteryStore = defineStore('lottery', () => {
     }
   };
 
+  const removeLotteryEntry = async (
+    lotteryId: string,
+    selectedNumber: number,
+    expectedUserId: string
+  ): Promise<{ participantsCount: number }> => {
+    const callable = httpsCallable(functions, 'removeLotteryEntry');
+    const response = await callable({ lotteryId, selectedNumber, expectedUserId });
+    const payload = (response.data || {}) as { participantsCount?: number };
+    const currentLottery = getLotteryById(lotteryId);
+    const participantsCount = Math.max(
+      0,
+      Math.floor(Number(payload.participantsCount ?? Math.max(0, (currentLottery?.participantsCount || 0) - 1)))
+    );
+
+    updateLotteryById(lotteryId, (lottery) => ({ ...lottery, participantsCount }));
+    if (expectedUserId === authStore.user?.uid) {
+      setUserNumbersForLottery(
+        lotteryId,
+        getUserNumbers(lotteryId).filter((number) => number !== selectedNumber)
+      );
+    }
+    clearNumberPagesForLottery(lotteryId);
+    return { participantsCount };
+  };
+
   const getNumberCells = (
     lotteryId: string,
     page: number,
@@ -1336,6 +1361,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     loadNumberPage,
     getNumberPageEntries,
     getOccupiedNumberSummary,
+    removeLotteryEntry,
     getNumberCells,
     isNumberPageLoading,
     clearNumberPagesForLottery,

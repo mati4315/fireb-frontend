@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/authStore';
-import { isStaffUser } from '@/utils/roles';
+import { isAdminUser, isStaffUser } from '@/utils/roles';
 import {
   useLotteryStore,
   type Lottery,
+  type LotteryEntry,
   type LotteryNumberCell,
   type LotteryNumberFilter,
   type LotteryOccupiedNumberSummary
 } from '@/stores/lotteryStore';
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
 import LotteryCountdown from '@/components/lottery/LotteryCountdown.vue';
+
+const LotteryTicketsModal = defineAsyncComponent(() => import('@/components/admin/LotteryTicketsModal.vue'));
 
 const authStore = useAuthStore();
 const lotteryStore = useLotteryStore();
@@ -28,6 +31,11 @@ const modalCell = ref<LotteryNumberCell | null>(null);
 const modalOccupiedSummary = ref<LotteryOccupiedNumberSummary | null>(null);
 const modalOccupiedSummaryLoading = ref(false);
 const modalOccupiedSummaryError = ref('');
+const openNumberAdminMenu = ref(false);
+const numberAdminActionError = ref('');
+const removingNumber = ref(false);
+const showTicketExceptionsModal = ref(false);
+const ticketTargetEntry = ref<LotteryEntry | null>(null);
 let modalOccupiedSummaryRequestId = 0;
 const didAutoExpandFirstLottery = ref(false);
 const availableTiltClassByKey = new Map<string, string>();
@@ -70,6 +78,12 @@ const successTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const lotteries = computed(() => lotteryStore.publicLotteries);
 const loading = computed(() => lotteryStore.publicLoading);
 const canManageLotteries = computed(() => isStaffUser(
+  authStore.userProfile?.rol,
+  authStore.user?.email || authStore.userProfile?.email,
+  authStore.user?.uid,
+  authStore.tokenClaims
+));
+const canAdministerLotteryNumbers = computed(() => isAdminUser(
   authStore.userProfile?.rol,
   authStore.user?.email || authStore.userProfile?.email,
   authStore.user?.uid,
@@ -348,6 +362,8 @@ const openNumberModal = (lottery: Lottery, cell: LotteryNumberCell) => {
 
   modalLotteryId.value = lottery.id;
   modalCell.value = cell;
+  openNumberAdminMenu.value = false;
+  numberAdminActionError.value = '';
   modalOccupiedSummary.value = null;
   modalOccupiedSummaryError.value = '';
   modalOccupiedSummaryLoading.value = Boolean(cell.entry);
@@ -379,6 +395,8 @@ const closeNumberModal = () => {
   modalOccupiedSummary.value = null;
   modalOccupiedSummaryLoading.value = false;
   modalOccupiedSummaryError.value = '';
+  openNumberAdminMenu.value = false;
+  numberAdminActionError.value = '';
 };
 
 const modalLottery = computed(() => {
@@ -422,6 +440,53 @@ const modalLimitReached = computed(() => {
   if (!authStore.isAuthenticated) return false;
   return isLimitReached(lottery);
 });
+
+const modalCanReleaseNumber = computed(() => {
+  return Boolean(modalLottery.value?.status === 'active' && !modalLottery.value.winner);
+});
+
+const openTicketExceptions = () => {
+  const entry = modalCell.value?.entry;
+  const lottery = modalLottery.value;
+  if (!canAdministerLotteryNumbers.value || !entry || !lottery) return;
+  ticketTargetEntry.value = entry;
+  openNumberAdminMenu.value = false;
+  closeNumberModal();
+  showTicketExceptionsModal.value = true;
+};
+
+const closeTicketExceptions = () => {
+  showTicketExceptionsModal.value = false;
+  ticketTargetEntry.value = null;
+};
+
+const releaseModalNumber = async () => {
+  const lottery = modalLottery.value;
+  const entry = modalCell.value?.entry;
+  if (!lottery || !entry || !canAdministerLotteryNumbers.value || !modalCanReleaseNumber.value) return;
+  const confirmed = window.confirm(
+    `¿Eliminar y liberar el número ${entry.selectedNumber} de ${entry.userName} en «${lottery.title}»?`
+  );
+  if (!confirmed) return;
+
+  removingNumber.value = true;
+  numberAdminActionError.value = '';
+  try {
+    await lotteryStore.removeLotteryEntry(lottery.id, entry.selectedNumber, entry.userId);
+    closeNumberModal();
+    const page = getPage(lottery.id);
+    try {
+      await lotteryStore.loadNumberPage(lottery.id, page, { force: true });
+    } catch {
+      setError(lottery.id, 'El número se liberó, pero no se pudo actualizar la grilla. Recarga la lotería.');
+    }
+    void prefetchAllPages(lottery.id, page);
+  } catch (error: any) {
+    numberAdminActionError.value = error?.message || 'No se pudo liberar el número.';
+  } finally {
+    removingNumber.value = false;
+  }
+};
 
 const getFriendlyError = (error: any): string => {
   const code = String(error?.code || '');
@@ -778,7 +843,37 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
 
     <div v-if="modalLottery && modalCell" class="number-modal-backdrop" @click="closeNumberModal">
       <div class="number-modal" @click.stop>
+        <div
+          v-if="canAdministerLotteryNumbers && modalCell.entry"
+          class="lottery-admin-menu number-modal-admin-menu"
+          @click.stop
+        >
+          <button
+            class="lottery-admin-menu-trigger"
+            type="button"
+            aria-label="Opciones de administración del número"
+            :aria-expanded="openNumberAdminMenu"
+            @click="openNumberAdminMenu = !openNumberAdminMenu"
+          >
+            ⋮
+          </button>
+          <div v-if="openNumberAdminMenu" class="lottery-admin-menu-popover">
+            <button type="button" @click="openTicketExceptions">Aplicar tickets extra</button>
+            <button
+              type="button"
+              class="is-danger"
+              :disabled="removingNumber || !modalCanReleaseNumber"
+              :title="modalCanReleaseNumber ? '' : 'Solo se puede liberar un número de una lotería activa y sin ganador.'"
+              @click="releaseModalNumber"
+            >
+              {{ removingNumber ? 'Liberando…' : 'Eliminar / liberar número' }}
+            </button>
+          </div>
+        </div>
         <h3>Numero {{ modalCell.number }}</h3>
+        <small v-if="numberAdminActionError" class="number-admin-action-error" role="alert">
+          {{ numberAdminActionError }}
+        </small>
         <p v-if="modalCell.entry" class="modal-owner">
           <img
             v-if="modalCell.entry.userProfilePicUrl"
@@ -881,6 +976,16 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
       message="Con tu cuenta puedes elegir numeros y seguir tus compras de loteria."
       @close="closeLoginPrompt"
     />
+
+    <LotteryTicketsModal
+      v-if="ticketTargetEntry"
+      :open="showTicketExceptionsModal"
+      :user-id="ticketTargetEntry.userId"
+      :username="ticketTargetEntry.userUsername || ticketTargetEntry.userName"
+      :guest-mode="ticketTargetEntry.participantType === 'facebook_guest'"
+      :lottery-id="ticketTargetEntry.lotteryId"
+      @close="closeTicketExceptions"
+    />
   </section>
 </template>
 
@@ -952,6 +1057,11 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
   z-index: 5;
   top: 0.7rem;
   right: 0.7rem;
+}
+
+.number-modal-admin-menu {
+  top: 0.45rem;
+  right: 0.45rem;
 }
 
 .lottery-admin-menu-trigger {
@@ -1793,6 +1903,7 @@ button:disabled {
 }
 
 .number-modal {
+  position: relative;
   width: min(420px, 100%);
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -1803,7 +1914,15 @@ button:disabled {
 
 .number-modal h3 {
   margin: 0;
+  padding-right: 2.7rem;
   color: var(--text-h);
+}
+
+.number-admin-action-error {
+  display: block;
+  margin-top: 0.55rem;
+  color: #b42318;
+  font-weight: 650;
 }
 
 .modal-warning {

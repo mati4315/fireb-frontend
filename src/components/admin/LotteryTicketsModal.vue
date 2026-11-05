@@ -17,6 +17,8 @@ const props = defineProps<{
   username: string;
   email?: string;
   facebookMode?: boolean;
+  guestMode?: boolean;
+  lotteryId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -39,6 +41,7 @@ const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 
 const isFacebookMode = computed(() => props.facebookMode === true);
+const isGuestMode = computed(() => props.guestMode === true);
 const isFacebookTargetResolved = computed(() => {
   return Boolean(
     isFacebookMode.value &&
@@ -95,7 +98,9 @@ const fetchLotteries = async () => {
     .filter((item) => item.id.length > 0);
 
   lotteriesForTickets.value = options;
-  if (options.length > 0 && !options.some((l) => l.id === selectedLotteryId.value)) {
+  if (options.length > 0 && props.lotteryId && options.some((l) => l.id === props.lotteryId)) {
+    selectedLotteryId.value = props.lotteryId;
+  } else if (options.length > 0 && !options.some((l) => l.id === selectedLotteryId.value)) {
     selectedLotteryId.value = options[0].id;
   }
 };
@@ -192,7 +197,9 @@ const grantTickets = async () => {
     const response = await callable({
       ...(isFacebookMode.value
         ? { facebookUserId: resolvedFacebookUserId.value }
-        : { userId: props.userId }),
+        : isGuestMode.value
+          ? { guestUserId: props.userId }
+          : { userId: props.userId }),
       lotteryId: selectedLotteryId.value,
       quantity
     });
@@ -304,6 +311,10 @@ watch(selectedLotteryId, async () => {
                 {{ resolvedFacebookParticipantType === 'user' ? 'Cuenta de Cdelu vinculada' : 'Invitado de Facebook' }}
               </span>
               <small v-if="!facebookIdentityExists">La identidad se preparará al guardar la excepción.</small>
+            </div>
+            <div v-else-if="isGuestMode" class="sum-row">
+              <span class="lbl">Identidad</span>
+              <span class="val">Invitado de Facebook</span>
             </div>
             <div class="sum-row" v-if="email">
               <span class="lbl">Email</span>
