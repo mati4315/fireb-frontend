@@ -7,7 +7,8 @@ import {
   useLotteryStore,
   type Lottery,
   type LotteryNumberCell,
-  type LotteryNumberFilter
+  type LotteryNumberFilter,
+  type LotteryOccupiedNumberSummary
 } from '@/stores/lotteryStore';
 import AuthPromptModal from '@/components/common/AuthPromptModal.vue';
 import LotteryCountdown from '@/components/lottery/LotteryCountdown.vue';
@@ -24,6 +25,10 @@ const successNumberByLottery = ref<Record<string, number>>({});
 const showLoginPrompt = ref(false);
 const modalLotteryId = ref<string | null>(null);
 const modalCell = ref<LotteryNumberCell | null>(null);
+const modalOccupiedSummary = ref<LotteryOccupiedNumberSummary | null>(null);
+const modalOccupiedSummaryLoading = ref(false);
+const modalOccupiedSummaryError = ref('');
+let modalOccupiedSummaryRequestId = 0;
 const didAutoExpandFirstLottery = ref(false);
 const availableTiltClassByKey = new Map<string, string>();
 const availableBallClassByKey = new Map<string, string>();
@@ -343,11 +348,37 @@ const openNumberModal = (lottery: Lottery, cell: LotteryNumberCell) => {
 
   modalLotteryId.value = lottery.id;
   modalCell.value = cell;
+  modalOccupiedSummary.value = null;
+  modalOccupiedSummaryError.value = '';
+  modalOccupiedSummaryLoading.value = Boolean(cell.entry);
+  const requestId = ++modalOccupiedSummaryRequestId;
+  if (cell.entry) {
+    void lotteryStore.getOccupiedNumberSummary(lottery.id, cell.number)
+      .then((summary) => {
+        if (requestId !== modalOccupiedSummaryRequestId ||
+          modalLotteryId.value !== lottery.id ||
+          modalCell.value?.number !== cell.number) return;
+        modalOccupiedSummary.value = summary;
+      })
+      .catch(() => {
+        if (requestId !== modalOccupiedSummaryRequestId) return;
+        modalOccupiedSummaryError.value = 'No se pudo consultar la disponibilidad de tickets.';
+      })
+      .finally(() => {
+        if (requestId === modalOccupiedSummaryRequestId) {
+          modalOccupiedSummaryLoading.value = false;
+        }
+      });
+  }
 };
 
 const closeNumberModal = () => {
+  modalOccupiedSummaryRequestId += 1;
   modalLotteryId.value = null;
   modalCell.value = null;
+  modalOccupiedSummary.value = null;
+  modalOccupiedSummaryLoading.value = false;
+  modalOccupiedSummaryError.value = '';
 };
 
 const modalLottery = computed(() => {
@@ -770,6 +801,35 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
             </span>
           </span>
         </p>
+        <div v-if="modalOccupiedSummaryLoading" class="modal-participant-summary-loading">
+          Consultando sus otros números y tickets disponibles…
+        </div>
+        <div
+          v-else-if="modalOccupiedSummary && (modalOccupiedSummary.otherNumbers.length || modalOccupiedSummary.availableTickets > 0)"
+          class="modal-participant-summary"
+        >
+          <div v-if="modalOccupiedSummary.otherNumbers.length" class="modal-related-numbers">
+            <span>También participa con:</span>
+            <div class="modal-related-number-list">
+              <span
+                v-for="number in modalOccupiedSummary.otherNumbers"
+                :key="`${modalLottery?.id}-${number}`"
+                class="modal-related-number"
+              >
+                N.° {{ number }}
+              </span>
+            </div>
+          </div>
+          <div v-if="modalOccupiedSummary.availableTickets > 0" class="modal-ticket-availability">
+            <span>
+              {{ modalOccupiedSummary.availableTickets === 1 ? 'Ticket disponible' : 'Tickets disponibles' }}
+            </span>
+            <strong>{{ modalOccupiedSummary.availableTickets }}</strong>
+          </div>
+        </div>
+        <small v-else-if="modalOccupiedSummaryError" class="modal-participant-summary-error">
+          {{ modalOccupiedSummaryError }}
+        </small>
         <small v-if="modalCell.entry?.participantType === 'facebook_guest'" class="modal-owner-guest">
           Invitado del Streaming · Numero seleccionado desde Anomalia 22
         </small>
@@ -1637,6 +1697,70 @@ button:disabled {
   flex: 0 0 2rem;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.modal-participant-summary {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.35rem;
+  font-size: 0.82rem;
+}
+
+.modal-participant-summary-loading,
+.modal-participant-summary-error {
+  display: block;
+  margin: 0.45rem 0;
+  color: var(--text, #64748b);
+  font-size: 0.78rem;
+}
+
+.modal-participant-summary-error {
+  color: var(--danger, #b91c1c);
+}
+
+.modal-related-numbers {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  color: var(--text, #475569);
+}
+
+.modal-related-number-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.modal-related-number {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.48rem;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 999px;
+  background: var(--bg, #f8fafc);
+  color: var(--text-h, #0f172a);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.modal-ticket-availability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: fit-content;
+  min-width: 11rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid color-mix(in srgb, #16a34a 28%, var(--border, #cbd5e1));
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, #16a34a 9%, var(--card-bg, #fff));
+  color: var(--text-h, #14532d);
+}
+
+.modal-ticket-availability strong {
+  color: #15803d;
+  font-size: 0.95rem;
 }
 
 .modal-owner-guest {

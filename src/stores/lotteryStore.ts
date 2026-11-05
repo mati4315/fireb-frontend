@@ -72,6 +72,13 @@ export type LotteryEntry = {
   updatedAt: Date | null;
 };
 
+export type LotteryOccupiedNumberSummary = {
+  otherNumbers: number[];
+  availableTickets: number;
+  ticketCount: number;
+  participantType: 'user' | 'facebook_guest';
+};
+
 export type LotteryNumberCell = {
   number: number;
   entry: LotteryEntry | null;
@@ -769,6 +776,32 @@ export const useLotteryStore = defineStore('lottery', () => {
     return numberPageEntriesByLottery.value[lotteryId]?.[safePage] || [];
   };
 
+  const getOccupiedNumberSummary = async (
+    lotteryId: string,
+    selectedNumber: number
+  ): Promise<LotteryOccupiedNumberSummary> => {
+    const callable = httpsCallable(functions, 'getLotteryOccupiedNumberSummary');
+    const response = await callable({ lotteryId, selectedNumber });
+    const payload = (response.data || {}) as {
+      otherNumbers?: unknown[];
+      availableTickets?: number;
+      ticketCount?: number;
+      participantType?: 'user' | 'facebook_guest';
+    };
+    const otherNumbers = Array.from(new Set(
+      (payload.otherNumbers || [])
+        .map((value) => parseSelectedNumber(value))
+        .filter((value): value is number => value != null && value !== selectedNumber)
+    )).sort((left, right) => left - right);
+
+    return {
+      otherNumbers,
+      availableTickets: Math.max(0, Math.floor(Number(payload.availableTickets) || 0)),
+      ticketCount: Math.max(0, Math.floor(Number(payload.ticketCount) || 0)),
+      participantType: payload.participantType === 'facebook_guest' ? 'facebook_guest' : 'user'
+    };
+  };
+
   const loadNumberPage = async (
     lotteryId: string,
     page: number,
@@ -1302,6 +1335,7 @@ export const useLotteryStore = defineStore('lottery', () => {
     getNumberPageBounds,
     loadNumberPage,
     getNumberPageEntries,
+    getOccupiedNumberSummary,
     getNumberCells,
     isNumberPageLoading,
     clearNumberPagesForLottery,
