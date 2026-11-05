@@ -88,16 +88,25 @@ const editEmail = ref('');
 const savingEdit = ref(false);
 
 const showLotteryTicketsModal = ref(false);
+const showFacebookLotteryTicketsModal = ref(false);
 const ticketsTargetUser = ref<UserItem | null>(null);
 
 const closeLotteryTicketsModal = () => {
   showLotteryTicketsModal.value = false;
+  showFacebookLotteryTicketsModal.value = false;
   ticketsTargetUser.value = null;
 };
 
 const openLotteryTicketsModal = (user: UserItem) => {
+  showFacebookLotteryTicketsModal.value = false;
   ticketsTargetUser.value = { ...user };
   showLotteryTicketsModal.value = true;
+};
+
+const openFacebookLotteryTicketsModal = () => {
+  ticketsTargetUser.value = null;
+  showLotteryTicketsModal.value = false;
+  showFacebookLotteryTicketsModal.value = true;
 };
 
 const resetFeedback = () => {
@@ -318,6 +327,9 @@ onMounted(() => {
       <h1>Gestión de Usuarios</h1>
       <div v-if="isAuthorized" class="stats">
         <span class="stat-badge">Total Usuarios: {{ totalUsers }}</span>
+        <button class="facebook-ticket-action" type="button" @click="openFacebookLotteryTicketsModal">
+          🎟️ Tickets para Facebook
+        </button>
       </div>
     </header>
 
@@ -584,10 +596,11 @@ onMounted(() => {
     </Teleport>
 
     <LotteryTicketsModal
-      :open="showLotteryTicketsModal"
+      :open="showLotteryTicketsModal || showFacebookLotteryTicketsModal"
       :user-id="ticketsTargetUser?.id || ''"
       :username="ticketsTargetUser?.username || ''"
       :email="ticketsTargetUser?.email"
+      :facebook-mode="showFacebookLotteryTicketsModal"
       @close="closeLotteryTicketsModal"
     />
   </section>
@@ -619,6 +632,28 @@ onMounted(() => {
   border-radius: 999px;
   font-weight: 700;
   font-size: 0.9rem;
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.facebook-ticket-action {
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  background: var(--card-bg);
+  color: var(--text-h);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.facebook-ticket-action:hover {
+  background: var(--bg);
 }
 
 .restricted-card, .card {
@@ -1001,6 +1036,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .go-home { color: var(--accent); text-decoration: none; font-weight: 700; }
 
 @media (max-width: 768px) {
+  .page-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .stats {
+    justify-content: flex-start;
+  }
+
   .users-table th:nth-child(1), .users-table td:nth-child(1) { display: none; }
   .users-table th:nth-child(8), .users-table td:nth-child(8) { display: none; }
 

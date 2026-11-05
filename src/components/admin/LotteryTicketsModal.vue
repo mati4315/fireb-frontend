@@ -16,6 +16,7 @@ const props = defineProps<{
   userId: string;
   username: string;
   email?: string;
+  facebookMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -29,8 +30,26 @@ const selectedLotteryId = ref('');
 const extraTicketsToAdd = ref(1);
 const loading = ref(false);
 const saving = ref(false);
+const resolvingFacebookUser = ref(false);
+const facebookUserIdInput = ref('');
+const resolvedFacebookUserId = ref('');
+const resolvedFacebookParticipantType = ref<'user' | 'facebook_guest' | ''>('');
+const facebookIdentityExists = ref(false);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
+
+const isFacebookMode = computed(() => props.facebookMode === true);
+const isFacebookTargetResolved = computed(() => {
+  return Boolean(
+    isFacebookMode.value &&
+    facebookUserIdInput.value.trim() &&
+    resolvedFacebookUserId.value === facebookUserIdInput.value.trim()
+  );
+});
+const displayedUsername = computed(() => {
+  if (isFacebookMode.value) return facebookUserIdInput.value.trim() || 'Invitado de Facebook';
+  return props.username || 'Usuario';
+});
 
 const selectedLottery = computed(() => {
   return lotteriesForTickets.value.find((l) => l.id === selectedLotteryId.value) || null;
@@ -81,11 +100,13 @@ const fetchLotteries = async () => {
   }
 };
 
-const fetchUserLotteryTicketExtras = async (uid: string) => {
+const fetchUserLotteryTicketExtras = async (target: { userId?: string; facebookUserId?: string }) => {
   const callable = httpsCallable(functions, 'getLotteryUserTicketExtras');
-  const response = await callable({ userId: uid });
+  const response = await callable(target);
   const payload = (response.data || {}) as {
     records?: Record<string, unknown>;
+    participantType?: 'user' | 'facebook_guest';
+    identityExists?: boolean;
   };
   const normalized: Record<string, number> = {};
   const records = payload.records || {};
@@ -93,21 +114,26 @@ const fetchUserLotteryTicketExtras = async (uid: string) => {
     normalized[lotteryId] = Math.max(0, Math.floor(Number(value) || 0));
   }
   ticketExtrasByLottery.value = normalized;
+  return payload;
 };
 
 const loadData = async () => {
-  if (!props.userId || !props.open) return;
+  if (!props.open || (!isFacebookMode.value && !props.userId)) return;
   loading.value = true;
   selectedLotteryId.value = '';
   extraTicketsToAdd.value = 1;
   ticketExtrasByLottery.value = {};
+  if (isFacebookMode.value) facebookUserIdInput.value = '';
+  resolvedFacebookUserId.value = '';
+  resolvedFacebookParticipantType.value = '';
+  facebookIdentityExists.value = false;
   resetFeedback();
 
   try {
-    await Promise.all([
-      fetchLotteries(),
-      fetchUserLotteryTicketExtras(props.userId)
-    ]);
+    await fetchLotteries();
+    if (!isFacebookMode.value && props.userId) {
+      await fetchUserLotteryTicketExtras({ userId: props.userId });
+    }
   } catch (error: any) {
     errorMessage.value = `No se pudieron cargar los datos: ${error?.message || error}`;
   } finally {
@@ -115,8 +141,48 @@ const loadData = async () => {
   }
 };
 
+const lookupFacebookUser = async () => {
+  const facebookUserId = facebookUserIdInput.value.trim();
+  if (!facebookUserId) {
+    errorMessage.value = 'Ingresa el facebook_user_id para buscar al participante.';
+    return;
+  }
+
+  resolvingFacebookUser.value = true;
+  resolvedFacebookUserId.value = '';
+  resolvedFacebookParticipantType.value = '';
+  facebookIdentityExists.value = false;
+  ticketExtrasByLottery.value = {};
+  resetFeedback();
+  try {
+    const payload = await fetchUserLotteryTicketExtras({ facebookUserId });
+    resolvedFacebookUserId.value = facebookUserId;
+    resolvedFacebookParticipantType.value = payload.participantType || 'facebook_guest';
+    facebookIdentityExists.value = payload.identityExists === true;
+  } catch (error: any) {
+    errorMessage.value = `No se pudo resolver ese Facebook ID: ${error?.message || error}`;
+  } finally {
+    resolvingFacebookUser.value = false;
+  }
+};
+
+const refreshCurrentTargetExtras = async () => {
+  if (isFacebookMode.value) {
+    if (!isFacebookTargetResolved.value) return;
+    const payload = await fetchUserLotteryTicketExtras({
+      facebookUserId: resolvedFacebookUserId.value
+    });
+    resolvedFacebookParticipantType.value = payload.participantType || 'facebook_guest';
+    facebookIdentityExists.value = payload.identityExists === true;
+    return;
+  }
+  if (props.userId) await fetchUserLotteryTicketExtras({ userId: props.userId });
+};
+
 const grantTickets = async () => {
-  if (!props.userId || !selectedLotteryId.value) return;
+  if ((!isFacebookMode.value && !props.userId) ||
+    (isFacebookMode.value && !isFacebookTargetResolved.value) ||
+    !selectedLotteryId.value) return;
   const quantity = Math.max(1, Math.floor(Number(extraTicketsToAdd.value) || 1));
   saving.value = true;
   resetFeedback();
@@ -124,7 +190,9 @@ const grantTickets = async () => {
   try {
     const callable = httpsCallable(functions, 'grantLotteryUserExtraTickets');
     const response = await callable({
-      userId: props.userId,
+      ...(isFacebookMode.value
+        ? { facebookUserId: resolvedFacebookUserId.value }
+        : { userId: props.userId }),
       lotteryId: selectedLotteryId.value,
       quantity
     });
@@ -171,10 +239,17 @@ watch(
   { immediate: true }
 );
 
+watch(facebookUserIdInput, () => {
+  resolvedFacebookUserId.value = '';
+  resolvedFacebookParticipantType.value = '';
+  facebookIdentityExists.value = false;
+  ticketExtrasByLottery.value = {};
+});
+
 watch(selectedLotteryId, async () => {
   if (!props.open || !selectedLotteryId.value) return;
   try {
-    await fetchUserLotteryTicketExtras(props.userId);
+    await refreshCurrentTargetExtras();
   } catch (error: any) {
     errorMessage.value = error?.message || 'No se pudo cargar el extra actual.';
   }
@@ -186,7 +261,7 @@ watch(selectedLotteryId, async () => {
     <div v-if="open" class="lottery-tickets-overlay" @click.self="emit('close')">
       <div class="lottery-tickets-card">
         <header class="lottery-tickets-head">
-          <h3>Tickets de Loteria: @{{ username }}</h3>
+          <h3>Tickets de Loteria: @{{ displayedUsername }}</h3>
           <button class="close-btn" @click="emit('close')">×</button>
         </header>
 
@@ -194,10 +269,41 @@ watch(selectedLotteryId, async () => {
           <div v-if="successMessage" class="tickets-msg ok">{{ successMessage }}</div>
           <div v-if="errorMessage" class="tickets-msg error">{{ errorMessage }}</div>
 
+          <div v-if="isFacebookMode" class="facebook-lookup">
+            <div class="tickets-form-field">
+              <label for="facebook-ticket-user-id">facebook_user_id</label>
+              <input
+                id="facebook-ticket-user-id"
+                v-model="facebookUserIdInput"
+                type="text"
+                maxlength="180"
+                autocomplete="off"
+                placeholder="Ejemplo: meyifotografia"
+                @keydown.enter.prevent="lookupFacebookUser"
+              />
+              <small>Usa el identificador estable de Facebook, no el nombre visible.</small>
+            </div>
+            <button
+              class="lookup-btn"
+              type="button"
+              :disabled="resolvingFacebookUser || !facebookUserIdInput.trim()"
+              @click="lookupFacebookUser"
+            >
+              {{ resolvingFacebookUser ? 'Buscando…' : 'Buscar participante' }}
+            </button>
+          </div>
+
           <div class="tickets-summary">
             <div class="sum-row">
               <span class="lbl">Usuario</span>
-              <span class="val">@{{ username }}</span>
+              <span class="val">@{{ displayedUsername }}</span>
+            </div>
+            <div v-if="isFacebookMode && isFacebookTargetResolved" class="sum-row">
+              <span class="lbl">Identidad</span>
+              <span class="val">
+                {{ resolvedFacebookParticipantType === 'user' ? 'Cuenta de Cdelu vinculada' : 'Invitado de Facebook' }}
+              </span>
+              <small v-if="!facebookIdentityExists">La identidad se preparará al guardar la excepción.</small>
             </div>
             <div class="sum-row" v-if="email">
               <span class="lbl">Email</span>
@@ -214,8 +320,11 @@ watch(selectedLotteryId, async () => {
           </div>
 
           <div v-if="loading" class="tickets-loading">Cargando datos...</div>
+          <div v-else-if="isFacebookMode && !isFacebookTargetResolved" class="tickets-loading">
+            Busca primero el facebook_user_id para consultar o asignar sus tickets.
+          </div>
 
-          <template v-else>
+          <template v-else-if="!isFacebookMode || isFacebookTargetResolved">
             <div class="tickets-form-field">
               <label>Loteria</label>
               <select v-model="selectedLotteryId">
@@ -245,7 +354,7 @@ watch(selectedLotteryId, async () => {
         <footer class="lottery-tickets-foot">
           <button
             class="primary-btn-tickets"
-            :disabled="saving || loading || !selectedLotteryId"
+            :disabled="saving || loading || !selectedLotteryId || (isFacebookMode && !isFacebookTargetResolved)"
             @click="grantTickets"
           >
             {{ saving ? 'Guardando...' : 'Agregar Tickets' }}
@@ -373,6 +482,35 @@ watch(selectedLotteryId, async () => {
   color: var(--text-h);
 }
 
+.tickets-form-field small {
+  color: var(--text-s, #64748b);
+  line-height: 1.4;
+}
+
+.facebook-lookup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.lookup-btn {
+  min-height: 44px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 0.65rem 1rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--text-h);
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lookup-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .tickets-form-field select,
 .tickets-form-field input {
   width: 100%;
@@ -438,6 +576,10 @@ button:disabled {
 
   .lottery-tickets-foot button {
     width: 100%;
+  }
+
+  .facebook-lookup {
+    grid-template-columns: 1fr;
   }
 }
 </style>
