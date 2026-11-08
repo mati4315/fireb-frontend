@@ -680,7 +680,7 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
           </span>
           <span class="lottery-meta-item">
             <small>Cierre</small>
-            <strong>{{ formatDateTime(lottery.endsAt) }}</strong>
+            <strong>{{ lottery.closeMode === 'when_full' ? 'Al completar los números' : formatDateTime(lottery.endsAt) }}</strong>
           </span>
           <span class="lottery-meta-item user-numbers-meta">
             <small>Tus números</small>
@@ -698,7 +698,25 @@ const deriveLotteryThumbnail = (imageUrl: string | null | undefined): string => 
           </div>
         </div>
 
-        <div class="lottery-time">
+        <div v-if="lottery.closeMode === 'when_full' && lottery.status !== 'completed'" class="lottery-time">
+          <span class="time-icon" aria-hidden="true">ℹ</span>
+          <span v-if="lottery.participantsCount >= lottery.maxNumber">
+            Todos los numeros de <strong>{{ lottery.title }}</strong> estan ocupados. La loteria esta lista para sortear.
+          </span>
+          <span v-else-if="lottery.status === 'active'">
+            El sorteo de <strong>{{ lottery.title }}</strong> se realizará cuando se ocupen todos los números.
+            Al completarse, la lotería se cerrará y quedará lista para que el staff sortee al ganador.
+          </span>
+          <span v-else>
+            La lotería se cerró antes de completar los números y quedó lista para que el staff realice el sorteo.
+          </span>
+        </div>
+
+        <div v-if="lottery.closeMode === 'when_full' && lottery.status !== 'completed'" class="lottery-time">
+          <span class="time-icon" aria-hidden="true">?</span>
+          <span>El plazo depende de cuando se completen los numeros.</span>
+        </div>
+        <div v-else-if="lottery.closeMode !== 'when_full'" class="lottery-time">
           <span class="time-icon" aria-hidden="true">⏱</span>
           <span>Tiempo restante: <LotteryCountdown :ends-at="lottery.endsAt" :status="lottery.status" /></span>
         </div>

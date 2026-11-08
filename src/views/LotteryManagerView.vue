@@ -17,6 +17,7 @@ type LotteryForm = {
   imageUrl: string;
   status: LotteryStatus;
   isFree: boolean;
+  closeMode: 'date' | 'when_full';
   startsAt: string;
   endsAt: string;
   maxNumber: number;
@@ -59,6 +60,7 @@ const lotteryForm = reactive<LotteryForm>({
   imageUrl: '',
   status: 'active',
   isFree: true,
+  closeMode: 'when_full',
   startsAt: '',
   endsAt: '',
   maxNumber: 100,
@@ -220,6 +222,7 @@ const resetForm = () => {
   lotteryForm.imageUrl = '';
   lotteryForm.status = 'active';
   lotteryForm.isFree = true;
+  lotteryForm.closeMode = 'when_full';
   lotteryForm.startsAt = dateToDatetimeLocalValue(new Date());
   lotteryForm.endsAt = '';
   lotteryForm.maxNumber = 100;
@@ -246,6 +249,7 @@ const setFormFromLottery = (lottery: Lottery) => {
   lotteryForm.imageUrl = lottery.imageUrl || '';
   lotteryForm.status = lottery.status === 'completed' ? 'closed' : lottery.status;
   lotteryForm.isFree = lottery.isFree !== false;
+  lotteryForm.closeMode = lottery.closeMode || 'date';
   lotteryForm.startsAt = dateToDatetimeLocalValue(lottery.startsAt || new Date());
   lotteryForm.endsAt = dateToDatetimeLocalValue(lottery.endsAt);
   lotteryForm.maxNumber = lottery.maxNumber;
@@ -274,11 +278,13 @@ const buildPayload = (imageUrl: string): SaveLotteryPayload => {
   const maxTicketsPerUser = Number(lotteryForm.maxTicketsPerUser);
   const isFree = Boolean(lotteryForm.isFree);
 
-  if (!endsAt) {
-    throw new Error('Debes seleccionar una fecha y hora de cierre valida.');
-  }
-  if (endsAt.getTime() <= startsAt.getTime()) {
-    throw new Error('La fecha de cierre debe ser posterior al inicio.');
+  if (lotteryForm.closeMode === 'date') {
+    if (!endsAt) {
+      throw new Error('Debes seleccionar una fecha y hora de cierre valida.');
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      throw new Error('La fecha de cierre debe ser posterior al inicio.');
+    }
   }
   if (!Number.isFinite(maxNumber) || Math.floor(maxNumber) !== maxNumber) {
     throw new Error('maxNumber debe ser un entero.');
@@ -325,8 +331,9 @@ const buildPayload = (imageUrl: string): SaveLotteryPayload => {
     imageUrl,
     status: lotteryForm.status,
     isFree,
+    closeMode: lotteryForm.closeMode,
     startsAt,
-    endsAt,
+    endsAt: lotteryForm.closeMode === 'date' ? endsAt : null,
     maxNumber,
     maxTicketsPerUser,
     hasPremio: lotteryForm.hasPremio,
@@ -463,6 +470,13 @@ const closeLottery = async (lotteryId: string) => {
 const activateLottery = async (lotteryId: string) => {
   resetFeedback();
   try {
+    const lottery = lotteryStore.getLotteryById(lotteryId);
+    if (
+      lottery?.closeMode === 'when_full' &&
+      lottery.participantsCount >= lottery.maxNumber
+    ) {
+      throw new Error('Todos los números están ocupados. Esta lotería ya está lista para sortear.');
+    }
     await lotteryStore.activateLottery(lotteryId);
     feedback.value = 'Loteria activada.';
   } catch (error: any) {
@@ -620,6 +634,17 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
+          <label class="field">
+            <span>Condición de cierre</span>
+            <select v-model="lotteryForm.closeMode">
+              <option value="date">En una fecha y hora</option>
+              <option value="when_full">A definir: al completar todos los números</option>
+            </select>
+            <small class="field-hint" v-if="lotteryForm.closeMode === 'when_full'">
+              Se cerrará automáticamente al ocuparse el último número y quedará lista para sortear.
+            </small>
+          </label>
+
           <div class="cols-2">
             <label class="field">
               <span>Estado inicial</span>
@@ -650,7 +675,7 @@ onBeforeUnmount(() => {
                 {{ new Date(lotteryForm.startsAt) > new Date() ? '⏳ Programado — comienza en ' + formatCountdown(new Date(lotteryForm.startsAt).getTime()) : '📅 Fecha actual o pasada' }}
               </small>
             </label>
-            <label class="field">
+            <label v-if="lotteryForm.closeMode === 'date'" class="field">
               <span>Cierre del sorteo</span>
               <input
                 v-model="lotteryForm.endsAt"
@@ -767,8 +792,15 @@ onBeforeUnmount(() => {
               </small>
               <small>
                 Inicio <strong>{{ lottery.startsAt ? formatReadOnlyDate(lottery.startsAt) : '-' }}</strong> |
-                Cierre <strong>{{ lottery.endsAt ? formatReadOnlyDate(lottery.endsAt) : '-' }}</strong>
+                Cierre <strong>{{ lottery.closeMode === 'when_full' ? 'Al completar los números' : lottery.endsAt ? formatReadOnlyDate(lottery.endsAt) : '-' }}</strong>
               </small>
+              <div
+                v-if="lottery.closeMode === 'when_full' && lottery.status === 'active'"
+                class="countdown-chip"
+              >
+                <span class="countdown-icon">ℹ</span>
+                <span>Se cerrará y quedará lista para sortear cuando se ocupen todos los números.</span>
+              </div>
               <div
                 v-if="lottery.endsAt && lottery.status === 'active'"
                 class="countdown-chip"
@@ -802,7 +834,7 @@ onBeforeUnmount(() => {
                 Cerrar
               </button>
               <button
-                v-if="lottery.status === 'closed'"
+                v-if="lottery.status === 'closed' && !(lottery.closeMode === 'when_full' && lottery.participantsCount >= lottery.maxNumber)"
                 class="ghost"
                 @click="activateLottery(lottery.id)"
               >

@@ -22,6 +22,7 @@ import { useAuthStore } from './authStore';
 export type LotteryStatus = 'draft' | 'active' | 'closed' | 'completed';
 export type LotteryMigrationStatus = 'pending' | 'running' | 'done' | 'failed';
 export type LotteryNumberFilter = 'all' | 'available' | 'sold';
+export type LotteryCloseMode = 'date' | 'when_full';
 
 export type LotteryWinner = {
   userId: string;
@@ -40,6 +41,7 @@ export type Lottery = {
   imageUrl: string;
   status: LotteryStatus;
   isFree: boolean;
+  closeMode: LotteryCloseMode;
   startsAt: Date | null;
   endsAt: Date | null;
   maxNumber: number;
@@ -91,8 +93,9 @@ export type SaveLotteryPayload = {
   imageUrl?: string;
   status: LotteryStatus;
   isFree: boolean;
+  closeMode: LotteryCloseMode;
   startsAt: Date;
-  endsAt: Date;
+  endsAt: Date | null;
   maxNumber: number;
   maxTicketsPerUser: number;
   hasPremio: boolean;
@@ -219,6 +222,7 @@ const normalizeLottery = (id: string, data: Record<string, unknown>): Lottery =>
     imageUrl: typeof data.imageUrl === 'string' ? data.imageUrl.trim() : '',
     status: normalizeStatus(data.status),
     isFree: data.isFree !== false,
+    closeMode: data.closeMode === 'when_full' ? 'when_full' : 'date',
     startsAt: toDate(data.startsAt),
     endsAt: toDate(data.endsAt),
     maxNumber: clampInteger(data.maxNumber, MIN_MAX_NUMBER, MAX_MAX_NUMBER, DEFAULT_MAX_NUMBER),
@@ -1012,6 +1016,7 @@ export const useLotteryStore = defineStore('lottery', () => {
 
     const page = Math.floor((parsedSelectedNumber - 1) / NUMBER_PAGE_SIZE) + 1;
     const previousParticipants = lottery.participantsCount;
+    const previousStatus = lottery.status;
     const previousNumbers = [...getUserNumbers(lotteryId)];
     const previousTicketCount = currentTicketsCount;
     const previousPageEntries = [...getNumberPageEntries(lotteryId, page)];
@@ -1073,6 +1078,9 @@ export const useLotteryStore = defineStore('lottery', () => {
 
       if (typeof payload.participantsCount === 'number') {
         setParticipantsCount(lotteryId, payload.participantsCount);
+        if (lottery.closeMode === 'when_full' && payload.participantsCount >= lottery.maxNumber) {
+          updateLotteryById(lotteryId, (current) => ({ ...current, status: 'closed' }));
+        }
       }
       if (typeof payload.userTicketsCount === 'number') {
         userTicketsCountByLottery.value = {
@@ -1099,6 +1107,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       };
     } catch (error: any) {
       setParticipantsCount(lotteryId, previousParticipants);
+      updateLotteryById(lotteryId, (current) => ({ ...current, status: previousStatus }));
       setUserNumbersForLottery(lotteryId, previousNumbers);
       userTicketsCountByLottery.value = {
         ...userTicketsCountByLottery.value,
@@ -1107,8 +1116,12 @@ export const useLotteryStore = defineStore('lottery', () => {
       setNumberPageEntries(lotteryId, page, previousPageEntries);
 
       const code = String(error?.code || '');
+      const errorMessage = String(error?.message || '');
       if (code.includes('already-exists')) {
         await loadNumberPage(lotteryId, page, { force: true });
+      }
+      if (errorMessage.includes('lottery-inactive')) {
+        await initPublicLotteriesListener(true);
       }
       throw error;
     } finally {
@@ -1132,12 +1145,13 @@ export const useLotteryStore = defineStore('lottery', () => {
       throw new Error('Fecha de inicio invalida.');
     }
 
-    if (!(payload.endsAt instanceof Date) || Number.isNaN(payload.endsAt.getTime())) {
-      throw new Error('Fecha de cierre invalida.');
-    }
-
-    if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
-      throw new Error('La fecha de cierre debe ser posterior al inicio.');
+    if (payload.closeMode === 'date') {
+      if (!(payload.endsAt instanceof Date) || Number.isNaN(payload.endsAt.getTime())) {
+        throw new Error('Fecha de cierre invalida.');
+      }
+      if (payload.endsAt.getTime() <= payload.startsAt.getTime()) {
+        throw new Error('La fecha de cierre debe ser posterior al inicio.');
+      }
     }
 
     const maxNumber = Number(payload.maxNumber);
@@ -1186,6 +1200,7 @@ export const useLotteryStore = defineStore('lottery', () => {
       endsAt: payload.endsAt,
       status: payload.status,
       isFree,
+      closeMode: payload.closeMode === 'when_full' ? 'when_full' : 'date',
       imageUrl,
       maxNumber,
       maxTicketsPerUser,
@@ -1206,8 +1221,9 @@ export const useLotteryStore = defineStore('lottery', () => {
       imageUrl: sanitized.imageUrl || '',
       status: sanitized.status,
       isFree: sanitized.isFree,
+      closeMode: sanitized.closeMode,
       startsAt: Timestamp.fromDate(sanitized.startsAt),
-      endsAt: Timestamp.fromDate(sanitized.endsAt),
+      endsAt: sanitized.endsAt ? Timestamp.fromDate(sanitized.endsAt) : null,
       maxNumber: sanitized.maxNumber,
       maxTicketsPerUser: sanitized.maxTicketsPerUser,
       participantsCount: 0,
@@ -1238,8 +1254,9 @@ export const useLotteryStore = defineStore('lottery', () => {
         imageUrl: sanitized.imageUrl || '',
         status: sanitized.status,
         isFree: sanitized.isFree,
+        closeMode: sanitized.closeMode,
         startsAt: Timestamp.fromDate(sanitized.startsAt),
-        endsAt: Timestamp.fromDate(sanitized.endsAt),
+        endsAt: sanitized.endsAt ? Timestamp.fromDate(sanitized.endsAt) : null,
         maxNumber: sanitized.maxNumber,
         maxTicketsPerUser: sanitized.maxTicketsPerUser,
         entrySchemaVersion: 2,
