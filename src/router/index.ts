@@ -41,6 +41,11 @@ const router = createRouter({
       component: () => import('@/views/ShortLinkRedirectView.vue'),
     },
     {
+      path: '/2',
+      name: 'short-link-one-copy',
+      component: () => import('@/views/ShortLinkCopyView.vue'),
+    },
+    {
       path: '/anormalia22',
       name: 'anormalia-22',
       component: () => import('@/views/Anormalia22View.vue'),
@@ -253,6 +258,7 @@ router.afterEach((to) => {
     config: 'Configuracion - Cdelu.ar',
     'short-link-one-admin': 'Administrar enlace /1 - Cdelu.ar',
     'short-link-one': 'Redireccionando - Cdelu.ar',
+    'short-link-one-copy': 'Copiar URL - Cdelu.ar',
     'secrets-manager': 'Gestion Secretos - Cdelu.ar',
     'radio-manager': 'Radio - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',

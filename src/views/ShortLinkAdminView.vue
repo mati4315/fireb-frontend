@@ -102,6 +102,9 @@ onMounted(() => {
         <span>Enlace corto</span>
         <a href="https://cdelu.ar/1" target="_blank" rel="noopener noreferrer">https://cdelu.ar/1 ↗</a>
       </div>
+      <p class="copy-page-link">
+        <a href="/2" target="_blank" rel="noopener noreferrer">Abrir /2 para copiar esta URL ↗</a>
+      </p>
 
       <div v-if="loading" class="status-message" role="status">Cargando destino actual…</div>
 
@@ -217,6 +220,12 @@ h1 {
   color: var(--accent);
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.copy-page-link {
+  margin: -0.8rem 0 1.5rem;
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .target-form {
