@@ -1,6 +1,8 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+  # El destino editable de /1 se guarda en Firestore desde el panel /1/admin.
+  RewriteRule ^1/?$ https://us-central1-cdeluar-ddefc.cloudfunctions.net/redirectShortLinkOne [R=302,L,NE,E=NO_CACHE_SHORT_REDIRECT:1]
   RewriteRule ^index\.html$ - [L]
   RewriteRule ^ps4/?$ https://www.superpsx.com/category/ps4/ps4-games-free/ [R=302,L]
   # Los scrapers sociales no ejecutan Vue: entregales metadatos del contenido.
@@ -22,6 +24,7 @@
   Header always set X-Content-Type-Options "nosniff"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Cache-Control "no-store" env=NO_CACHE_SHORT_REDIRECT
 
   # HTML debe revalidarse para evitar servir shell viejo.
   <FilesMatch "\.(html?)$">

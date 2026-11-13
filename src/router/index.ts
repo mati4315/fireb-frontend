@@ -30,6 +30,17 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/1/admin',
+      name: 'short-link-one-admin',
+      meta: { requiresAdmin: true },
+      component: () => import('@/views/ShortLinkAdminView.vue'),
+    },
+    {
+      path: '/1',
+      name: 'short-link-one',
+      component: () => import('@/views/ShortLinkRedirectView.vue'),
+    },
+    {
       path: '/anormalia22',
       name: 'anormalia-22',
       component: () => import('@/views/Anormalia22View.vue'),
@@ -215,6 +226,9 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAdmin) {
     if (isAdmin) return true
+    if (!authStore.isAuthenticated) {
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
     return { name: 'home' }
   }
 
@@ -237,6 +251,8 @@ router.afterEach((to) => {
     'profile-public': 'Perfil - Cdelu.ar',
     notifications: 'Notificaciones - Cdelu.ar',
     config: 'Configuracion - Cdelu.ar',
+    'short-link-one-admin': 'Administrar enlace /1 - Cdelu.ar',
+    'short-link-one': 'Redireccionando - Cdelu.ar',
     'secrets-manager': 'Gestion Secretos - Cdelu.ar',
     'radio-manager': 'Radio - Cdelu.ar',
     privacy: 'Politica de Privacidad - Cdelu.ar',

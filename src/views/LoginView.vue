@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import LoginCard from '@/components/common/LoginCard.vue'
 
 const router = useRouter()
+const route = useRoute()
 
 const handleSuccess = (isNewUser = false) => {
-  router.push(isNewUser ? '/perfil' : '/')
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//')
+    ? redirect
+    : ''
+  void router.replace(safeRedirect || (isNewUser ? '/perfil' : '/'))
 }
 </script>
 
